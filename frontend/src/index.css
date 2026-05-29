@@ -6,14 +6,60 @@
 
 html, body, #root {
   width: 100%;
-  height: 100%;
   min-height: 100vh;
 }
 
 body {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  color: #ecf0f1;
-  background: #0b0c16;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background 0.3s, color 0.3s;
 }
+
+/* ============ DARK THEME ============ */
+:root,
+[data-theme="dark"] {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #141414;
+  --bg-elevated: #1f1f1f;
+  --text-primary: #f5f5f5;
+  --text-secondary: #a0a0a0;
+  --accent: #dc1f2e;
+  --accent-hover: #b8141f;
+  --border: #2a2a2a;
+}
+
+/* ============ LIGHT THEME (warm, soft, easy on eyes) ============ */
+[data-theme="light"] {
+  --bg-primary: #ebe7e0;
+  --bg-secondary: #f2efe9;
+  --bg-elevated: #ffffff;
+  --text-primary: #1f1d1a;
+  --text-secondary: #5c5650;
+  --accent: #b8141f;
+  --accent-hover: #8e0f17;
+  --border: #d4cec3;
+}
+
+/* ============ GREY THEME (wet pavement) ============ */
+[data-theme="grey"] {
+  --bg-primary: #7a7a7a;
+  --bg-secondary: #858585;
+  --bg-elevated: #909090;
+  --text-primary: #ffffff;
+  --text-secondary: #e0e0e0;
+  --accent: #dc1f2e;
+  --accent-hover: #b8141f;
+  --border: #5e5e5e;
+}
+
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; font: inherit; border: none; background: none; color: inherit; }
+img { max-width: 100%; display: block; }
+input, textarea, select { font: inherit; }
+
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 999px; opacity: 0.5; }
