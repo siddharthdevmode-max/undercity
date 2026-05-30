@@ -13,6 +13,13 @@ const STATUS_ICON: Record<string, string> = {
   'planned': '⏳',
 };
 
+const WHY_BULLETS = [
+  { icon: '🧠', title: 'DEPTH OVER FLASH', desc: 'Strategy beats spending. Smart play matters more than your wallet.' },
+  { icon: '🌍', title: 'ALWAYS ONLINE',    desc: 'The city runs 24/7. Your empire grows even when you sleep.' },
+  { icon: '🤝', title: 'REAL COMMUNITY',   desc: 'Make friends. Make enemies. Make alliances. Every player matters.' },
+  { icon: '🔒', title: 'YOUR STORY, YOUR RULES', desc: 'No quests forcing your hand. Build the criminal you want to be.' },
+];
+
 export default function AboutGamesSection() {
   return (
     <section className="about-games-section">
@@ -26,27 +33,72 @@ export default function AboutGamesSection() {
         </div>
 
         <div className="ag-grid">
-          {/* LEFT — About card */}
-          <div className="ag-card ag-about">
-            <h3 className="ag-card-title">ABOUT TEXT-BASED GAMES</h3>
-            <p>
-              Undercity is a gritty, real-life text-based game set in a city that doesn't sleep.
-              Every shadow hides a hustle. Every door leads to a deal. New players start weak,
-              broke, and unknown — but in the streets, <em>everyone</em> gets a chance to climb.
-              Or fall. The choice is yours, and the city is watching.
-            </p>
-            <p>
-              Train your stats at the gym. Pull off crimes for cash. Take jobs to stay clean.
-              Attack rivals or get attacked. Join a faction, start a war, take territory. Run a
-              black market, trade in the bazaar, gamble at the casino. Buy property, invest in
-              stocks, climb the underworld. With 24 systems to master and a community of players
-              to outsmart, no two playthroughs are the same.
-            </p>
-            <p>
-              Undercity is built for the long game. Free to play, deep to master, brutal to win.
-              Register now, claim your name, and start writing your story in a city that
-              never forgets.
-            </p>
+          {/* LEFT — 3 stacked cards */}
+          <div className="ag-left">
+            {/* About */}
+            <div className="ag-card">
+              <h3 className="ag-card-title">ABOUT TEXT-BASED GAMES</h3>
+              <p>
+                Undercity is a gritty, real-life text-based game set in a city that doesn't sleep.
+                Every shadow hides a hustle. Every door leads to a deal. New players start weak,
+                broke, and unknown — but in the streets, <em>everyone</em> gets a chance to climb.
+                Or fall. The choice is yours, and the city is watching.
+              </p>
+              <p>
+                Train your stats at the gym. Pull off crimes for cash. Take jobs to stay clean.
+                Attack rivals or get attacked. Join a faction, start a war, take territory. Run a
+                black market, trade in the bazaar, gamble at the casino. Buy property, invest in
+                stocks, climb the underworld. With 24 systems to master and a community of players
+                to outsmart, no two playthroughs are the same.
+              </p>
+              <p>
+                Undercity is built for the long game. Free to play, deep to master, brutal to win.
+                Register now, claim your name, and start writing your story in a city that
+                never forgets.
+              </p>
+            </div>
+
+            {/* Why Undercity */}
+            <div className="ag-card">
+              <h3 className="ag-card-title">WHY UNDERCITY?</h3>
+              <ul className="ag-why-list">
+                {WHY_BULLETS.map((b) => (
+                  <li key={b.title} className="ag-why-item">
+                    <span className="why-icon">{b.icon}</span>
+                    <div className="why-body">
+                      <div className="why-title">{b.title}</div>
+                      <div className="why-desc">{b.desc}</div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* The Story */}
+            <div className="ag-card ag-story">
+              <h3 className="ag-card-title">THE STORY</h3>
+              <p>
+                A man who fell in love with an iconic crime MMO that defined a genre.
+              </p>
+              <p>
+                He played it for years. He never got over it. The grind, the factions,
+                the late-night chats, the rivalries that lasted months — there's nothing
+                else like it.
+              </p>
+              <p>
+                Undercity is a small attempt to build that magic for the next generation.
+                Not a clone. Not a cash grab. A love letter, rebuilt from scratch with
+                modern tools, by someone who actually plays.
+              </p>
+              <p>
+                Built one commit at a time. No publisher. No deadlines. No microtransactions
+                deciding the design. Just a city, a vision, and players willing to bet on it.
+              </p>
+              <div className="ag-signature">
+                <div className="sig-name">— Challenger_69</div>
+                <div className="sig-role">Founder &amp; Dev · Former player of the TORN</div>
+              </div>
+            </div>
           </div>
 
           {/* RIGHT — News + Roadmap stacked */}

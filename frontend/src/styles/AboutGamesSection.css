@@ -243,3 +243,97 @@
     grid-column: 2;
   }
 }
+
+/* ============ NEW: Left column stacking ============ */
+.ag-left {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ============ WHY UNDERCITY card ============ */
+.ag-why-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ag-why-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.ag-why-item:hover {
+  border-color: var(--accent);
+  transform: translateX(4px);
+}
+
+.why-icon {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.why-body {
+  flex: 1;
+}
+
+.why-title {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.why-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ============ THE STORY card ============ */
+.ag-story p {
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text-secondary);
+  margin: 0 0 14px 0;
+  font-style: italic;
+}
+
+.ag-story p:first-of-type {
+  font-size: 17px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.ag-signature {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  text-align: right;
+}
+
+.sig-name {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: var(--accent);
+  font-family: 'Courier New', monospace;
+}
+
+.sig-role {
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
