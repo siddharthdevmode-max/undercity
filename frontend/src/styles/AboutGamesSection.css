@@ -1,0 +1,245 @@
+.about-games-section {
+  width: 100%;
+  background: var(--bg-primary);
+  padding: 100px 32px;
+  border-top: 1px solid var(--border);
+}
+
+.about-games-inner {
+  max-width: 1300px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.ag-eyebrow {
+  font-size: 13px;
+  letter-spacing: 4px;
+  color: var(--accent);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.ag-heading {
+  font-size: 44px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: var(--text-primary);
+  text-align: center;
+  margin: 0;
+}
+
+.ag-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 180px;
+  margin-bottom: 40px;
+}
+
+.ag-divider .line {
+  flex: 1;
+  height: 1px;
+  background: var(--accent);
+}
+
+.ag-divider .diamond {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+/* Grid: left wide, right narrower */
+.ag-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 24px;
+  width: 100%;
+}
+
+.ag-right {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Cards */
+.ag-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 32px;
+}
+
+.ag-card-title {
+  font-size: 14px;
+  letter-spacing: 3px;
+  font-weight: 800;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin: 0 0 20px 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* About card */
+.ag-about p {
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text-secondary);
+  margin: 0 0 16px 0;
+}
+
+.ag-about p:last-child {
+  margin-bottom: 0;
+}
+
+.ag-about em {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* News list */
+.ag-news-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ag-news-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 6px;
+  border-left: 3px solid transparent;
+  transition: background 0.2s, border-color 0.2s;
+  cursor: default;
+}
+
+.ag-news-item:hover {
+  background: var(--bg-elevated);
+  border-left-color: var(--accent);
+}
+
+.ag-news-icon {
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.ag-news-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.ag-news-title {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.ag-news-date {
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.ag-news-footer {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+  margin: 16px 0 0 0;
+  font-style: italic;
+}
+
+/* Roadmap list */
+.ag-roadmap-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ag-roadmap-item {
+  display: grid;
+  grid-template-columns: 24px 50px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.rm-icon {
+  font-size: 14px;
+}
+
+.rm-version {
+  font-weight: 800;
+  color: var(--accent);
+  font-family: 'Courier New', monospace;
+}
+
+.rm-title {
+  color: var(--text-primary);
+}
+
+.rm-status {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.ag-roadmap-item.status-done .rm-status {
+  background: rgba(40, 200, 100, 0.15);
+  color: #4ade80;
+}
+
+.ag-roadmap-item.status-in-progress .rm-status {
+  background: rgba(250, 200, 50, 0.15);
+  color: #facc15;
+}
+
+.ag-roadmap-item.status-planned .rm-status {
+  background: rgba(150, 150, 150, 0.15);
+  color: var(--text-secondary);
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .ag-grid {
+    grid-template-columns: 1fr;
+  }
+  .ag-heading { font-size: 32px; }
+}
+
+@media (max-width: 600px) {
+  .ag-card { padding: 24px; }
+  .ag-roadmap-item {
+    grid-template-columns: 24px 1fr;
+    gap: 8px;
+  }
+  .rm-version, .rm-status {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .rm-title {
+    grid-column: 2;
+  }
+}

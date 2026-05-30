@@ -3,6 +3,7 @@ import Header from '../components/Header';
 import Footer from '../components/Footer';
 import StatsSection from '../components/StatsSection';
 import FeaturesSection from '../components/FeaturesSection';
+import AboutGamesSection from '../components/AboutGamesSection';
 import hero from '../assets/hero.png';
 import '../styles/Landing.css';
 
@@ -41,6 +42,8 @@ export default function Landing() {
       <StatsSection />
 
       <FeaturesSection />
+
+      <AboutGamesSection />
 
       <Footer />
     </div>
