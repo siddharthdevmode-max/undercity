@@ -1,0 +1,69 @@
+.register-modern-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.register-title {
+  font-size: 48px;
+  color: #ff1a1a;
+  text-align: center;
+  margin-bottom: 10px;
+  letter-spacing: 2px;
+}
+
+.register-divider {
+  width: 70px;
+  height: 2px;
+  background: #ff1a1a;
+  margin-bottom: 16px; /* was 32px, now half */
+}
+
+.register-modern-form {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.register-modern-form input {
+  padding: 13px 15px;
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+.register-modern-form input:focus {
+  outline: none;
+  border-color: #ff1a1a;
+  box-shadow: 0 0 14px rgba(255, 0, 0, 0.35);
+}
+
+.register-modern-form .cta-button {
+  margin-top: 16px;
+}
+
+.register-error {
+  color: #ff4d4d;
+  font-size: 14px;
+  margin-top: 10px;
+}
+
+.register-login {
+  margin-top: 20px;
+  text-align: center;
+  color: #aaa;
+}
+
+.register-login a {
+  color: #ff1a1a;
+  text-decoration: none;
+}
+
+.register-login a:hover {
+  text-decoration: underline;
+}

@@ -1,9 +1,14 @@
-import { Link, NavLink } from 'react-router-dom';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import ThemeToggle from './ThemeToggle';
 import logo from '../assets/logo.png';
 import '../styles/Header.css';
 
 export default function Header() {
+  const location = useLocation();
+  const isAuthPage =
+    location.pathname === '/register' ||
+    location.pathname === '/login';
+
   return (
     <header className="site-header">
       <div className="header-inner">
@@ -15,22 +20,28 @@ export default function Header() {
           </div>
         </Link>
 
-        <nav className="main-nav">
-          <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            Home
-          </NavLink>
-          <NavLink to="/about" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            About
-          </NavLink>
-          <NavLink to="/rules" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            Rules
-          </NavLink>
-        </nav>
+        {!isAuthPage && (
+          <nav className="main-nav">
+            <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+              Home
+            </NavLink>
+            <NavLink to="/about" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+              About
+            </NavLink>
+            <NavLink to="/rules" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+              Rules
+            </NavLink>
+          </nav>
+        )}
 
         <div className="header-actions">
           <ThemeToggle />
-          <Link to="/login" className="btn btn-ghost">Login</Link>
-          <Link to="/register" className="btn btn-primary">Sign Up</Link>
+          {!isAuthPage && (
+            <>
+              <Link to="/login" className="btn btn-ghost">Login</Link>
+              <Link to="/register" className="btn btn-primary">Sign Up</Link>
+            </>
+          )}
         </div>
       </div>
     </header>
