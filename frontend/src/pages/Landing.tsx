@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 import StatsSection from '../components/StatsSection';
+import FeaturesSection from '../components/FeaturesSection';
 import hero from '../assets/hero.png';
 import '../styles/Landing.css';
 
@@ -38,6 +39,8 @@ export default function Landing() {
       </section>
 
       <StatsSection />
+
+      <FeaturesSection />
 
       <Footer />
     </div>
