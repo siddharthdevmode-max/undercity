@@ -337,3 +337,69 @@
   text-transform: uppercase;
   margin-top: 4px;
 }
+
+/* ============ QUICK FACTS card ============ */
+.ag-facts-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ag-facts-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.ag-facts-item:hover {
+  border-color: var(--accent);
+  transform: translateX(4px);
+}
+
+.fact-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.fact-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* ============ GRATITUDE callout box ============ */
+.ag-gratitude {
+  margin: 24px 0 8px 0;
+  padding: 20px 24px;
+  background: var(--bg-elevated);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  font-style: italic;
+  font-weight: 400;
+  position: relative;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.ag-gratitude::before {
+  content: '"';
+  position: absolute;
+  top: -8px;
+  left: 12px;
+  font-size: 48px;
+  color: var(--accent);
+  font-family: Georgia, serif;
+  line-height: 1;
+  font-weight: 900;
+  opacity: 0.6;
+}
