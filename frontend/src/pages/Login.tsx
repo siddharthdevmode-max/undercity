@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { signInWithEmailAndPassword } from "firebase/auth";
+import {
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+} from "firebase/auth";
 import { auth } from '../firebase';
 import { authAPI } from '../services/api';
 import Header from '../components/Header';
@@ -12,16 +18,25 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [stayLoggedIn, setStayLoggedIn] = useState(true);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setInfo('');
     setLoading(true);
 
     try {
+      // Set persistence based on checkbox
+      await setPersistence(
+        auth,
+        stayLoggedIn ? browserLocalPersistence : browserSessionPersistence
+      );
+
       await signInWithEmailAndPassword(auth, email, password);
       await authAPI.sync();
       navigate('/home');
@@ -29,6 +44,23 @@ export default function Login() {
       setError(err.message || 'Login failed.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setError('');
+    setInfo('');
+
+    if (!email) {
+      setError('Enter your email above first, then click forgot password.');
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setInfo(`Reset email sent to ${email}. Check your inbox.`);
+    } catch (err: any) {
+      setError(err.message || 'Failed to send reset email.');
     }
   };
 
@@ -70,13 +102,31 @@ export default function Login() {
                 </button>
               </div>
 
-              <a href="#forgot" className="forgot-link">Forgot password?</a>
+              <div className="login-row">
+                <label className="stay-logged">
+                  <input
+                    type="checkbox"
+                    checked={stayLoggedIn}
+                    onChange={(e) => setStayLoggedIn(e.target.checked)}
+                  />
+                  <span>Stay logged in</span>
+                </label>
+
+                <button
+                  type="button"
+                  className="forgot-link"
+                  onClick={handleForgotPassword}
+                >
+                  Forgot password?
+                </button>
+              </div>
 
               <button type="submit" className="cta-button" disabled={loading}>
                 {loading ? 'ACCESSING...' : 'ENTER THE CITY'}
               </button>
 
               {error && <p className="register-error">{error}</p>}
+              {info && <p className="register-info">{info}</p>}
 
               <p className="register-login">
                 Don't have an account? <Link to="/register">Register</Link>

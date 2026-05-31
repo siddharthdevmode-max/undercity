@@ -5,8 +5,6 @@ import { pool } from "../config/database";
 const router = Router();
 
 // POST /api/auth/sync
-// Called after Firebase login/register
-// Creates user in DB if first time, returns user data
 router.post("/sync", verifyFirebaseToken, async (req, res) => {
   try {
     const firebaseUser = (req as any).firebaseUser;
@@ -41,7 +39,6 @@ router.post("/sync", verifyFirebaseToken, async (req, res) => {
 });
 
 // GET /api/auth/me
-// Called on every dashboard load to get current player data
 router.get("/me", verifyFirebaseToken, async (req, res) => {
   try {
     const firebaseUser = (req as any).firebaseUser;
@@ -61,6 +58,36 @@ router.get("/me", verifyFirebaseToken, async (req, res) => {
   } catch (error: any) {
     console.error(error);
     res.status(500).json({ message: "Failed to fetch user", error: error.message });
+  }
+});
+
+// GET /api/auth/check-username/:username
+// Public endpoint — no auth required (used during registration)
+router.get("/check-username/:username", async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    // Basic validation
+    if (!username || username.length < 3) {
+      return res.json({ available: false, reason: "Too short" });
+    }
+    if (username.length > 20) {
+      return res.json({ available: false, reason: "Too long" });
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+      return res.json({ available: false, reason: "Invalid characters" });
+    }
+
+    const result = await pool.query(
+      "SELECT id FROM users WHERE LOWER(username) = LOWER($1)",
+      [username]
+    );
+
+    res.json({ available: result.rows.length === 0 });
+
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ message: "Check failed", error: error.message });
   }
 });
 

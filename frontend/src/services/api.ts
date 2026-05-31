@@ -31,6 +31,12 @@ export const apiCall = async (endpoint: string, options: RequestInit = {}) => {
   return response.json();
 };
 
+// Public endpoint — no auth needed
+export const checkUsernameAvailable = async (username: string) => {
+  const res = await fetch(`${API_URL}/auth/check-username/${encodeURIComponent(username)}`);
+  return res.json();
+};
+
 export const authAPI = {
   sync: (username?: string) =>
     apiCall('/auth/sync', {
