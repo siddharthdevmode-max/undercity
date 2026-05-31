@@ -252,3 +252,33 @@
   border-left: 3px solid #4ade80;
   border-radius: 4px;
 }
+
+/* ============ Spinner inside button ============ */
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.cta-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.register-modern-form input:disabled,
+.register-modern-form input[type="checkbox"]:disabled,
+.password-toggle:disabled,
+.forgot-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
