@@ -15,13 +15,23 @@ function getPasswordStrength(password: string): { score: number; label: string; 
   if (password.length < 6) return { score: 1, label: 'Too short', color: '#ff4d4d' };
 
   let score = 0;
-  if (password.length >= 8) score++;
-  if (password.length >= 12) score++;
+
+  // Length scoring (more generous)
+  if (password.length >= 6) score++;
+  if (password.length >= 10) score++;
+  if (password.length >= 14) score++;
+  if (password.length >= 18) score++;
+
+  // Variety scoring
   if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score++;
   if (/\d/.test(password)) score++;
   if (/[^a-zA-Z0-9]/.test(password)) score++;
 
-  if (score <= 2) return { score: 2, label: 'Weak', color: '#ff8c42' };
+  // Cap at 5
+  score = Math.min(score, 5);
+
+  if (score <= 1) return { score: 1, label: 'Weak', color: '#ff4d4d' };
+  if (score === 2) return { score: 2, label: 'Fair', color: '#ff8c42' };
   if (score === 3) return { score: 3, label: 'Decent', color: '#facc15' };
   if (score === 4) return { score: 4, label: 'Strong', color: '#4ade80' };
   return { score: 5, label: 'Excellent', color: '#22c55e' };
@@ -42,7 +52,6 @@ export default function Register() {
 
   const strength = getPasswordStrength(password);
 
-  // Debounced username check
   useEffect(() => {
     if (!username) {
       setUsernameStatus('idle');
