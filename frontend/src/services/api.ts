@@ -1,7 +1,16 @@
-const API_URL = 'http://localhost:5000/api';
+import { getAuth } from 'firebase/auth';
+
+const API_URL = 'http://localhost:5000/api'\;
+
+const getFirebaseToken = async (): Promise<string | null> => {
+  const auth = getAuth();
+  const user = auth.currentUser;
+  if (!user) return null;
+  return await user.getIdToken();
+};
 
 export const apiCall = async (endpoint: string, options: RequestInit = {}) => {
-  const token = localStorage.getItem('token');
+  const token = await getFirebaseToken();
   const headers = new Headers(options.headers);
   headers.set('Content-Type', 'application/json');
 
@@ -16,23 +25,17 @@ export const apiCall = async (endpoint: string, options: RequestInit = {}) => {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'API Error');
+    throw new Error(error.message || error.error || 'API Error');
   }
 
   return response.json();
 };
 
 export const authAPI = {
-  register: (username: string, email: string, password: string) =>
-    apiCall('/auth/register', {
+  sync: (username?: string) =>
+    apiCall('/auth/sync', {
       method: 'POST',
-      body: JSON.stringify({ username, email, password }),
-    }),
-
-  login: (email: string, password: string) =>
-    apiCall('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username }),
     }),
 
   getMe: () => apiCall('/auth/me'),
