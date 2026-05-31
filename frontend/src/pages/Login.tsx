@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from '../firebase';
+import { authAPI } from '../services/api';
 import Header from '../components/Header';
 import hero from '../assets/hero.png';
-import { authAPI } from '../services/api';
 import '../styles/Landing.css';
 import './RegisterModern.css';
 
@@ -19,10 +21,15 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const res = await authAPI.login(email, password);
-      localStorage.setItem('token', res.token);
-      localStorage.setItem('user', JSON.stringify(res.user));
+      // Step 1 — Firebase login
+      await signInWithEmailAndPassword(auth, email, password);
+
+      // Step 2 — Sync with our backend (firebase token is grabbed automatically)
+      await authAPI.sync();
+
+      // Step 3 — Go to game
       navigate('/home');
+
     } catch (err: any) {
       setError(err.message || 'Login failed.');
     } finally {
@@ -32,12 +39,9 @@ export default function Login() {
 
   return (
     <div className="landing-page">
-
       <Header />
-
       <section className="about-section">
         <div className="about-content">
-
           <div className="about-text register-modern-wrapper">
 
             <h1 className="register-title">LOGIN</h1>
@@ -68,7 +72,7 @@ export default function Login() {
               {error && <p className="register-error">{error}</p>}
 
               <p className="register-login">
-                Don’t have an account? <Link to="/register">Register</Link>
+                Don't have an account? <Link to="/register">Register</Link>
               </p>
 
             </form>
@@ -81,7 +85,6 @@ export default function Login() {
 
         </div>
       </section>
-
     </div>
   );
 }
