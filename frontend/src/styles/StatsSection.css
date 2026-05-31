@@ -143,3 +143,11 @@
   .stats-heading { font-size: 30px; }
   .odo-slot { min-width: 30px; height: 46px; font-size: 24px; }
 }
+
+.stats-note {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-style: italic;
+  margin: -8px 0 24px 0;
+  text-align: center;
+}

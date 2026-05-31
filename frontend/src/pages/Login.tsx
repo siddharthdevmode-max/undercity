@@ -11,6 +11,7 @@ import './RegisterModern.css';
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -21,15 +22,9 @@ export default function Login() {
     setLoading(true);
 
     try {
-      // Step 1 — Firebase login
       await signInWithEmailAndPassword(auth, email, password);
-
-      // Step 2 — Sync with our backend (firebase token is grabbed automatically)
       await authAPI.sync();
-
-      // Step 3 — Go to game
       navigate('/home');
-
     } catch (err: any) {
       setError(err.message || 'Login failed.');
     } finally {
@@ -44,7 +39,8 @@ export default function Login() {
         <div className="about-content">
           <div className="about-text register-modern-wrapper">
 
-            <h1 className="register-title">LOGIN</h1>
+            <h1 className="register-title">WELCOME BACK</h1>
+            <span className="register-subtitle">The city missed you</span>
             <div className="register-divider" />
 
             <form onSubmit={handleSubmit} className="register-modern-form">
@@ -57,16 +53,27 @@ export default function Login() {
                 required
               />
 
-              <input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
+              <div className="password-wrap">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? 'HIDE' : 'SHOW'}
+                </button>
+              </div>
+
+              <a href="#forgot" className="forgot-link">Forgot password?</a>
 
               <button type="submit" className="cta-button" disabled={loading}>
-                {loading ? 'ACCESSING...' : 'ACCESS UNDERCITY'}
+                {loading ? 'ACCESSING...' : 'ENTER THE CITY'}
               </button>
 
               {error && <p className="register-error">{error}</p>}

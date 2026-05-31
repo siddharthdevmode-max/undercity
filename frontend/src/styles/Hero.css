@@ -1,0 +1,124 @@
+.hero-section {
+  position: relative;
+  width: 100%;
+  min-height: calc(100vh - 90px);
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 32px;
+  overflow: hidden;
+}
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+  max-width: 900px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 20px;
+}
+
+.hero-eyebrow {
+  font-size: 14px;
+  letter-spacing: 6px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.hero-title {
+  font-size: 96px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  margin: 0;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.hero-title .accent {
+  color: var(--accent);
+}
+
+.hero-subtitle {
+  font-size: 20px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-width: 640px;
+  margin: 8px 0 16px 0;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.hero-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 36px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-decoration: none;
+  transition: all 0.25s ease;
+  border: 2px solid transparent;
+}
+
+.hero-btn.primary {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(220, 31, 46, 0.3);
+}
+
+.hero-btn.primary:hover {
+  background: var(--accent-hover);
+  transform: translateY(-3px);
+}
+
+.hero-btn.primary .arrow {
+  transition: transform 0.25s;
+}
+
+.hero-btn.primary:hover .arrow {
+  transform: translateX(6px);
+}
+
+.hero-btn.ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.hero-btn.ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.hero-meta {
+  display: flex;
+  gap: 32px;
+  margin-top: 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  letter-spacing: 1.5px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.hero-meta span {
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .hero-title { font-size: 56px; letter-spacing: 2px; }
+  .hero-subtitle { font-size: 16px; }
+  .hero-btn { padding: 14px 24px; font-size: 13px; }
+  .hero-meta { gap: 16px; font-size: 12px; }
+}

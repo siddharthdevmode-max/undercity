@@ -47,7 +47,7 @@ export default function AboutGamesSection() {
           {/* LEFT — 3 stacked cards */}
           <div className="ag-left">
             {/* About */}
-            <div className="ag-card">
+            <div className="ag-card ag-about">
               <h3 className="ag-card-title">ABOUT TEXT-BASED GAMES</h3>
               <p>
                 Undercity is a gritty, real-life text-based game set in a city that doesn't sleep.
@@ -70,7 +70,7 @@ export default function AboutGamesSection() {
             </div>
 
             {/* Why Undercity */}
-            <div className="ag-card">
+            <div className="ag-card ag-about">
               <h3 className="ag-card-title">WHY UNDERCITY?</h3>
               <ul className="ag-why-list">
                 {WHY_BULLETS.map((b) => (
@@ -122,7 +122,7 @@ export default function AboutGamesSection() {
 
           {/* RIGHT — News + Roadmap + Quick Facts stacked */}
           <div className="ag-right">
-            <div className="ag-card">
+            <div className="ag-card ag-about">
               <h3 className="ag-card-title">LATEST NEWS</h3>
               <ul className="ag-news-list">
                 {NEWS_ITEMS.map((n) => (
@@ -140,7 +140,7 @@ export default function AboutGamesSection() {
               </p>
             </div>
 
-            <div className="ag-card">
+            <div className="ag-card ag-about">
               <h3 className="ag-card-title">ROADMAP</h3>
               <ul className="ag-roadmap-list">
                 {ROADMAP_ITEMS.map((r) => (
@@ -154,7 +154,7 @@ export default function AboutGamesSection() {
               </ul>
             </div>
 
-            <div className="ag-card">
+            <div className="ag-card ag-about">
               <h3 className="ag-card-title">QUICK FACTS</h3>
               <ul className="ag-facts-list">
                 {QUICK_FACTS.map((f, i) => (

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import Header from '../components/Header';
+import Hero from '../components/Hero';
 import Footer from '../components/Footer';
 import StatsSection from '../components/StatsSection';
 import FeaturesSection from '../components/FeaturesSection';
@@ -12,12 +13,14 @@ export default function Landing() {
     <div className="landing-page">
       <Header />
 
-      <section className="about-section">
+      <Hero />
+
+      <section id="about" className="about-section">
         <div className="about-content">
           <div className="about-text">
-            <h1 className="about-heading">
+            <h2 className="about-heading">
               ABOUT <span className="accent">UNDERCITY</span>
-            </h1>
+            </h2>
             <div className="divider">
               <span className="line" />
               <span className="diamond">◆</span>
