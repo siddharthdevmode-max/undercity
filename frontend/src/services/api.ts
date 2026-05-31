@@ -1,6 +1,6 @@
 import { getAuth } from 'firebase/auth';
 
-const API_URL = 'http://localhost:5000/api'\;
+const API_URL = 'http://localhost:5000/api';
 
 const getFirebaseToken = async (): Promise<string | null> => {
   const auth = getAuth();

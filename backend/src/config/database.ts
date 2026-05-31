@@ -1,21 +1,12 @@
-import path from 'path';
-import dotenv from 'dotenv';
-import { Sequelize } from 'sequelize';
+import { Pool } from "pg";
+import dotenv from "dotenv";
 
 dotenv.config();
 
-const databaseUrl = process.env.DATABASE_URL;
-const isSqlite = databaseUrl?.startsWith('sqlite:');
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL is not defined in .env");
+}
 
-const sequelize = isSqlite
-  ? new Sequelize({
-      dialect: 'sqlite',
-      storage: path.resolve(__dirname, '../../database.sqlite'),
-      logging: process.env.NODE_ENV === 'development' ? console.log : false,
-    })
-  : new Sequelize(databaseUrl || 'postgresql://postgres:postgres@localhost:5432/undercity', {
-      dialect: 'postgres',
-      logging: process.env.NODE_ENV === 'development' ? console.log : false,
-    });
-
-export default sequelize;
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
