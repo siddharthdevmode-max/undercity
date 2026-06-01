@@ -1,0 +1,82 @@
+import crypto from "crypto";
+import { pool } from "../config/database";
+
+// ============================================================
+// DEVICE FINGERPRINTING
+// Tracks IP + User-Agent combinations
+// Catches users running multiple accounts from same device
+// ============================================================
+
+export async function recordFingerprint(
+  firebaseUid: string,
+  ipAddress: string | undefined,
+  userAgent: string | undefined
+): Promise<void> {
+  try {
+    if (!ipAddress || !userAgent) return;
+
+    // Normalize IPv6 ::ffff: prefix
+    const cleanIp = ipAddress.replace(/^::ffff:/, "");
+    
+    // Create deterministic hash of the fingerprint
+    const fingerprintHash = crypto
+      .createHash("sha256")
+      .update(`${cleanIp}|${userAgent}`)
+      .digest("hex")
+      .substring(0, 32);
+
+    await pool.query(
+      `INSERT INTO device_fingerprints 
+       (firebase_uid, fingerprint_hash, ip_address, user_agent, last_seen)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+       ON CONFLICT (firebase_uid, fingerprint_hash) 
+       DO UPDATE SET 
+         last_seen = CURRENT_TIMESTAMP,
+         hit_count = device_fingerprints.hit_count + 1`,
+      [firebaseUid, fingerprintHash, cleanIp, userAgent]
+    );
+  } catch (error: any) {
+    // Silent fail - don't break the API
+    console.error("Fingerprint record error:", error.message);
+  }
+}
+
+// ============================================================
+// CHECK FOR MULTI-ACCOUNTING
+// Returns count of OTHER accounts using same fingerprint
+// ============================================================
+
+export async function checkMultiAccount(
+  firebaseUid: string,
+  ipAddress: string | undefined,
+  userAgent: string | undefined
+): Promise<{ otherAccountsCount: number; otherUids: string[] }> {
+  try {
+    if (!ipAddress || !userAgent) {
+      return { otherAccountsCount: 0, otherUids: [] };
+    }
+
+    const cleanIp = ipAddress.replace(/^::ffff:/, "");
+    const fingerprintHash = crypto
+      .createHash("sha256")
+      .update(`${cleanIp}|${userAgent}`)
+      .digest("hex")
+      .substring(0, 32);
+
+    const result = await pool.query(
+      `SELECT DISTINCT firebase_uid 
+       FROM device_fingerprints 
+       WHERE fingerprint_hash = $1 
+         AND firebase_uid != $2`,
+      [fingerprintHash, firebaseUid]
+    );
+
+    return {
+      otherAccountsCount: result.rows.length,
+      otherUids: result.rows.map(r => r.firebase_uid),
+    };
+  } catch (error: any) {
+    console.error("Multi-account check error:", error.message);
+    return { otherAccountsCount: 0, otherUids: [] };
+  }
+}
