@@ -20,9 +20,23 @@ router.post("/sync", verifyFirebaseToken, async (req, res) => {
 
     if (existing.rows.length === 0) {
       const newUser = await pool.query(
-        `INSERT INTO users (firebase_uid, email, username, money, level)
-         VALUES ($1, $2, $3, 750, 1)
-         RETURNING *`,
+        `INSERT INTO users (
+          firebase_uid,
+          email,
+          username,
+          money,
+          level,
+          points,
+          nerve,
+          max_nerve,
+          life,
+          max_life,
+          jail_until,
+          federal_jail_until,
+          last_crime_at
+        )
+        VALUES ($1, $2, $3, 750, 1, 0, 30, 30, 100, 100, NULL, NULL, NULL)
+        RETURNING *`,
         [uid, email, username]
       );
       user = newUser.rows[0];

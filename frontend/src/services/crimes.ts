@@ -78,6 +78,7 @@ export interface CrimeAttemptResponse {
   penalties: {
     moneyLost: number;
     lifeLost: number;
+    xpLost: number;
     jailSeconds: number;
     jailType: "normal" | "federal" | null;
   };

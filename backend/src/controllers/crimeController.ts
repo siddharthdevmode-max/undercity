@@ -1,80 +1,32 @@
 import { Request, Response } from "express";
+import { PoolClient } from "pg";
 import { pool } from "../config/database";
 import {
-  calcCrimeLevel,
+  toNumber,
+  isFutureDate,
+  getUserByFirebaseUid,
   calcMaxNerve,
-  CrimeDefinition,
-  CrimeProgress,
-  CrimeSpecial,
+  calcMaxLife,
+  canAttemptCrime,
+  getCooldownRemaining,
+} from "../models/userModels";
+import {
+  parseCrime,
+  parseProgress,
+  parseSpecial,
+} from "../models/crimeModels";
+import {
+  calcCrimeLevel,
   resolveCrimeOutcome,
 } from "../services/crimeEngine";
 
-function toNumber(value: any): number {
-  if (value === null || value === undefined) return 0;
-  return Number(value);
-}
-
-function parseCrime(row: any): CrimeDefinition {
-  return {
-    id: toNumber(row.id),
-    crime_key: row.crime_key,
-    name: row.name,
-    tier: toNumber(row.tier),
-    unlock_level: toNumber(row.unlock_level),
-    nerve_cost: toNumber(row.nerve_cost),
-    min_reward: toNumber(row.min_reward),
-    max_reward: toNumber(row.max_reward),
-    jail_min_seconds: toNumber(row.jail_min_seconds),
-    jail_max_seconds: toNumber(row.jail_max_seconds),
-    is_federal: !!row.is_federal,
-  };
-}
-
-function parseProgress(row: any): CrimeProgress {
-  return {
-    id: row?.id ? toNumber(row.id) : null,
-    user_id: toNumber(row.user_id),
-    crime_id: toNumber(row.crime_id),
-    crime_xp: toNumber(row.crime_xp),
-    crime_level: toNumber(row.crime_level),
-    hidden_cpl: Number(row.hidden_cpl ?? 0),
-    attempts: toNumber(row.attempts),
-    successes: toNumber(row.successes),
-    failures: toNumber(row.failures),
-    crit_failures: toNumber(row.crit_failures),
-    specials_found_count: toNumber(row.specials_found_count),
-  };
-}
-
-function parseSpecial(row: any): CrimeSpecial {
-  return {
-    id: toNumber(row.id),
-    crime_id: toNumber(row.crime_id),
-    title: row.title,
-    description: row.description,
-    reward_money: toNumber(row.reward_money),
-    reward_points: toNumber(row.reward_points),
-    unlock_crime_level: toNumber(row.unlock_crime_level),
-  };
-}
-
-function isFutureDate(value: any): boolean {
-  if (!value) return false;
-  const date = new Date(value);
-  return date.getTime() > Date.now();
-}
-
-async function getCurrentUserByFirebaseUid(client: any, firebaseUid: string) {
-  const result = await client.query(
-    `SELECT * FROM users WHERE firebase_uid = $1 LIMIT 1`,
-    [firebaseUid]
-  );
-
-  return result.rows[0] || null;
-}
+// ============================================================
+// GET /api/crimes
+// Returns all crimes with user progress
+// ============================================================
 
 export const getCrimes = async (req: Request, res: Response) => {
-  const client = await pool.connect();
+  const client: PoolClient = await pool.connect();
 
   try {
     const firebaseUser = (req as any).firebaseUser;
@@ -84,11 +36,14 @@ export const getCrimes = async (req: Request, res: Response) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const user = await getCurrentUserByFirebaseUid(client, firebaseUid);
+    const user = await getUserByFirebaseUid(client, firebaseUid);
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
+
+    const playerLevel = toNumber(user.level);
+    const maxLife = calcMaxLife(playerLevel);
 
     const crimesResult = await client.query(
       `
@@ -122,7 +77,7 @@ export const getCrimes = async (req: Request, res: Response) => {
       WHERE c.is_active = TRUE
       ORDER BY c.tier ASC, c.id ASC
       `,
-      [user.id, user.level]
+      [user.id, playerLevel]
     );
 
     const data = crimesResult.rows.map((row: any) => ({
@@ -152,17 +107,25 @@ export const getCrimes = async (req: Request, res: Response) => {
       },
     }));
 
+    // Calculate total XP for nerve
+    const totalXpResult = await client.query(
+      `SELECT COALESCE(SUM(crime_xp), 0) AS total_xp FROM user_crime_progress WHERE user_id = $1`,
+      [user.id]
+    );
+    const totalCrimeXp = toNumber(totalXpResult.rows[0]?.total_xp ?? 0);
+    const maxNerve = calcMaxNerve(totalCrimeXp);
+
     return res.json({
       user: {
         id: toNumber(user.id),
         username: user.username,
-        level: toNumber(user.level),
+        level: playerLevel,
         money: toNumber(user.money),
         points: toNumber(user.points),
         nerve: toNumber(user.nerve),
-        maxNerve: toNumber(user.max_nerve),
+        maxNerve: maxNerve,
         life: toNumber(user.life),
-        maxLife: toNumber(user.max_life),
+        maxLife: maxLife,
         jailUntil: user.jail_until,
         federalJailUntil: user.federal_jail_until,
         inJail: isFutureDate(user.jail_until),
@@ -181,8 +144,13 @@ export const getCrimes = async (req: Request, res: Response) => {
   }
 };
 
+// ============================================================
+// POST /api/crimes/attempt
+// Attempt a crime
+// ============================================================
+
 export const attemptCrime = async (req: Request, res: Response) => {
-  const client = await pool.connect();
+  const client: PoolClient = await pool.connect();
 
   try {
     const firebaseUser = (req as any).firebaseUser;
@@ -199,40 +167,53 @@ export const attemptCrime = async (req: Request, res: Response) => {
 
     await client.query("BEGIN");
 
-    const user = await getCurrentUserByFirebaseUid(client, firebaseUid);
+    const user = await getUserByFirebaseUid(client, firebaseUid);
 
     if (!user) {
       await client.query("ROLLBACK");
       return res.status(404).json({ message: "User not found" });
     }
 
-    const activeNormalJail = isFutureDate(user.jail_until);
+    // ── Cooldown check (1 second) ──
+    if (!canAttemptCrime(user.last_crime_at)) {
+      await client.query("ROLLBACK");
+      return res.status(429).json({
+        message: "Slow down.",
+        cooldownMs: getCooldownRemaining(user.last_crime_at),
+      });
+    }
+
+    // ── Jail check ──
     const activeFederalJail = isFutureDate(user.federal_jail_until);
+    const activeNormalJail = isFutureDate(user.jail_until);
 
     if (activeFederalJail) {
       await client.query("ROLLBACK");
+      const secondsRemaining = Math.ceil(
+        (new Date(user.federal_jail_until).getTime() - Date.now()) / 1000
+      );
       return res.status(423).json({
         message: "You are currently in federal jail.",
         federalJailUntil: user.federal_jail_until,
+        secondsRemaining,
       });
     }
 
     if (activeNormalJail) {
       await client.query("ROLLBACK");
+      const secondsRemaining = Math.ceil(
+        (new Date(user.jail_until).getTime() - Date.now()) / 1000
+      );
       return res.status(423).json({
         message: "You are currently in jail.",
         jailUntil: user.jail_until,
+        secondsRemaining,
       });
     }
 
+    // ── Load crime ──
     const crimeResult = await client.query(
-      `
-      SELECT *
-      FROM crimes
-      WHERE crime_key = $1
-        AND is_active = TRUE
-      LIMIT 1
-      `,
+      `SELECT * FROM crimes WHERE crime_key = $1 AND is_active = TRUE LIMIT 1`,
       [crimeKey]
     );
 
@@ -243,6 +224,7 @@ export const attemptCrime = async (req: Request, res: Response) => {
 
     const crime = parseCrime(crimeResult.rows[0]);
 
+    // ── Level check ──
     if (toNumber(user.level) < crime.unlock_level) {
       await client.query("ROLLBACK");
       return res.status(403).json({
@@ -250,6 +232,7 @@ export const attemptCrime = async (req: Request, res: Response) => {
       });
     }
 
+    // ── Nerve check ──
     if (toNumber(user.nerve) < crime.nerve_cost) {
       await client.query("ROLLBACK");
       return res.status(400).json({
@@ -259,28 +242,20 @@ export const attemptCrime = async (req: Request, res: Response) => {
       });
     }
 
+    // ── Load or create progress ──
     await client.query(
-      `
-      INSERT INTO user_crime_progress (user_id, crime_id)
-      VALUES ($1, $2)
-      ON CONFLICT (user_id, crime_id) DO NOTHING
-      `,
+      `INSERT INTO user_crime_progress (user_id, crime_id) VALUES ($1, $2) ON CONFLICT (user_id, crime_id) DO NOTHING`,
       [user.id, crime.id]
     );
 
     const progressResult = await client.query(
-      `
-      SELECT *
-      FROM user_crime_progress
-      WHERE user_id = $1
-        AND crime_id = $2
-      LIMIT 1
-      `,
+      `SELECT * FROM user_crime_progress WHERE user_id = $1 AND crime_id = $2 LIMIT 1`,
       [user.id, crime.id]
     );
 
     const progress = parseProgress(progressResult.rows[0]);
 
+    // ── Load available special ──
     const specialResult = await client.query(
       `
       SELECT cs.*
@@ -303,14 +278,19 @@ export const attemptCrime = async (req: Request, res: Response) => {
     const availableSpecial =
       specialResult.rows.length > 0 ? parseSpecial(specialResult.rows[0]) : null;
 
+    // ── Resolve outcome ──
+    const playerLevel = toNumber(user.level);
+    const maxLife = calcMaxLife(playerLevel);
+
     const outcomeResult = resolveCrimeOutcome(
       crime,
       progress,
       availableSpecial,
       toNumber(user.money),
-      toNumber(user.max_life)
+      maxLife
     );
 
+    // ── Calculate updated values ──
     const updatedNerve = Math.max(0, toNumber(user.nerve) - crime.nerve_cost);
     const updatedMoney = Math.max(
       0,
@@ -321,51 +301,48 @@ export const attemptCrime = async (req: Request, res: Response) => {
       toNumber(user.points) + outcomeResult.reward_points
     );
 
-    // Temporary phase-1 life handling:
-    // keep player alive at minimum 1 until hospital/death systems exist
+    // Life floor at 1 (until hospital/death systems exist)
     const updatedLife = Math.max(
       1,
       toNumber(user.life) - outcomeResult.life_loss
     );
 
-    const updatedCrimeXp = progress.crime_xp + outcomeResult.xp_gained;
+    // XP with floor at 0 — can lose XP but never go negative
+    const updatedCrimeXp = Math.max(
+      0,
+      progress.crime_xp + outcomeResult.xp_gained - outcomeResult.xp_lost
+    );
     const updatedCrimeLevel = calcCrimeLevel(updatedCrimeXp);
     const updatedHiddenCpl = Math.max(
       0,
       progress.hidden_cpl + outcomeResult.cpl_change
     );
 
+    // ── Update counters ──
     const attempts = progress.attempts + 1;
     const successes =
       progress.successes +
-      (outcomeResult.outcome === "success" || outcomeResult.outcome === "special"
-        ? 1
-        : 0);
+      (outcomeResult.outcome === "success" || outcomeResult.outcome === "special" ? 1 : 0);
     const failures =
       progress.failures + (outcomeResult.outcome === "fail" ? 1 : 0);
     const critFailures =
-      progress.crit_failures +
-      (outcomeResult.outcome === "crit_fail" ? 1 : 0);
+      progress.crit_failures + (outcomeResult.outcome === "crit_fail" ? 1 : 0);
 
+    // ── Handle special discovery ──
     let specialDiscovered = false;
 
     if (outcomeResult.outcome === "special" && outcomeResult.special) {
       const discoveredResult = await client.query(
-        `
-        INSERT INTO user_crime_specials (user_id, crime_special_id)
-        VALUES ($1, $2)
-        ON CONFLICT (user_id, crime_special_id) DO NOTHING
-        RETURNING id
-        `,
+        `INSERT INTO user_crime_specials (user_id, crime_special_id) VALUES ($1, $2) ON CONFLICT (user_id, crime_special_id) DO NOTHING RETURNING id`,
         [user.id, outcomeResult.special.id]
       );
-
       specialDiscovered = discoveredResult.rows.length > 0;
     }
 
     const updatedSpecialsFoundCount =
       progress.specials_found_count + (specialDiscovered ? 1 : 0);
 
+    // ── Save crime progress ──
     await client.query(
       `
       UPDATE user_crime_progress
@@ -379,8 +356,7 @@ export const attemptCrime = async (req: Request, res: Response) => {
         crit_failures = $7,
         specials_found_count = $8,
         updated_at = CURRENT_TIMESTAMP
-      WHERE user_id = $9
-        AND crime_id = $10
+      WHERE user_id = $9 AND crime_id = $10
       `,
       [
         updatedCrimeXp,
@@ -396,6 +372,7 @@ export const attemptCrime = async (req: Request, res: Response) => {
       ]
     );
 
+    // ── Handle jail ──
     let jailUntil: Date | null = user.jail_until ? new Date(user.jail_until) : null;
     let federalJailUntil: Date | null = user.federal_jail_until
       ? new Date(user.federal_jail_until)
@@ -403,7 +380,6 @@ export const attemptCrime = async (req: Request, res: Response) => {
 
     if (outcomeResult.outcome === "crit_fail" && outcomeResult.jail_seconds > 0) {
       const until = new Date(Date.now() + outcomeResult.jail_seconds * 1000);
-
       if (crime.is_federal) {
         federalJailUntil = until;
       } else {
@@ -411,19 +387,16 @@ export const attemptCrime = async (req: Request, res: Response) => {
       }
     }
 
+    // ── Calculate max nerve from total XP ──
     const totalXpResult = await client.query(
-      `
-      SELECT COALESCE(SUM(crime_xp), 0) AS total_xp
-      FROM user_crime_progress
-      WHERE user_id = $1
-      `,
+      `SELECT COALESCE(SUM(crime_xp), 0) AS total_xp FROM user_crime_progress WHERE user_id = $1`,
       [user.id]
     );
-
     const totalCrimeXp = toNumber(totalXpResult.rows[0]?.total_xp ?? 0);
     const updatedMaxNerve = calcMaxNerve(totalCrimeXp);
     const finalNerve = Math.min(updatedNerve, updatedMaxNerve);
 
+    // ── Save user state ──
     await client.query(
       `
       UPDATE users
@@ -433,9 +406,11 @@ export const attemptCrime = async (req: Request, res: Response) => {
         nerve = $3,
         max_nerve = $4,
         life = $5,
-        jail_until = $6,
-        federal_jail_until = $7
-      WHERE id = $8
+        max_life = $6,
+        jail_until = $7,
+        federal_jail_until = $8,
+        last_crime_at = CURRENT_TIMESTAMP
+      WHERE id = $9
       `,
       [
         updatedMoney,
@@ -443,6 +418,7 @@ export const attemptCrime = async (req: Request, res: Response) => {
         finalNerve,
         updatedMaxNerve,
         updatedLife,
+        maxLife,
         jailUntil,
         federalJailUntil,
         user.id,
@@ -451,6 +427,7 @@ export const attemptCrime = async (req: Request, res: Response) => {
 
     await client.query("COMMIT");
 
+    // ── Build response ──
     return res.json({
       outcome: outcomeResult.outcome,
       message: outcomeResult.message,
@@ -470,6 +447,7 @@ export const attemptCrime = async (req: Request, res: Response) => {
       penalties: {
         moneyLost: outcomeResult.money_loss,
         lifeLost: outcomeResult.life_loss,
+        xpLost: outcomeResult.xp_lost,
         jailSeconds: outcomeResult.jail_seconds,
         jailType:
           outcomeResult.jail_seconds > 0
@@ -503,11 +481,9 @@ export const attemptCrime = async (req: Request, res: Response) => {
         nerve: finalNerve,
         maxNerve: updatedMaxNerve,
         life: updatedLife,
-        maxLife: toNumber(user.max_life),
+        maxLife: maxLife,
         jailUntil: jailUntil ? jailUntil.toISOString() : null,
-        federalJailUntil: federalJailUntil
-          ? federalJailUntil.toISOString()
-          : null,
+        federalJailUntil: federalJailUntil ? federalJailUntil.toISOString() : null,
       },
     });
   } catch (error: any) {

@@ -7,7 +7,7 @@ import { getFriendlyError } from '../utils/firebaseErrors';
 import Header from '../components/Header';
 import hero from '../assets/hero.png';
 import '../styles/Landing.css';
-import './RegisterModern.css';
+import '../styles/Register.css';
 
 type UsernameStatus = 'idle' | 'checking' | 'available' | 'taken' | 'invalid';
 type EmailStatus = 'idle' | 'invalid' | 'valid';

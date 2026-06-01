@@ -1,53 +1,26 @@
 // ============================================================
 // CRIME ENGINE — Core outcome logic
-// Hidden CPL, Crime Level, Weighted Outcome Resolver
+// Weighted Outcome Resolver, XP, CPL, Jail, Rewards
+// ============================================================
+
+import {
+  CrimeDefinition,
+  CrimeProgress,
+  CrimeSpecial,
+} from "../models/crimeModels";
+
+// ============================================================
+// TYPES
 // ============================================================
 
 export type OutcomeType = "special" | "success" | "fail" | "crit_fail";
-
-export interface CrimeDefinition {
-  id: number;
-  crime_key: string;
-  name: string;
-  tier: number;
-  unlock_level: number;
-  nerve_cost: number;
-  min_reward: number;
-  max_reward: number;
-  jail_min_seconds: number;
-  jail_max_seconds: number;
-  is_federal: boolean;
-}
-
-export interface CrimeProgress {
-  id: number | null;
-  user_id: number;
-  crime_id: number;
-  crime_xp: number;
-  crime_level: number;
-  hidden_cpl: number;
-  attempts: number;
-  successes: number;
-  failures: number;
-  crit_failures: number;
-  specials_found_count: number;
-}
-
-export interface CrimeSpecial {
-  id: number;
-  crime_id: number;
-  title: string;
-  description: string;
-  reward_money: number;
-  reward_points: number;
-  unlock_crime_level: number;
-}
 
 export interface OutcomeResult {
   outcome: OutcomeType;
   reward_money: number;
   reward_points: number;
   xp_gained: number;
+  xp_lost: number;
   cpl_change: number;
   jail_seconds: number;
   life_loss: number;
@@ -75,8 +48,10 @@ function clamp(value: number, min: number, max: number): number {
 // ============================================================
 // CRIME LEVEL FROM XP
 // Exponential curve — harder to level up as you go higher
-// Level 0 = 0 xp
-// Level 100 = ~500,000 xp
+// Level 0 = 0 XP
+// Level 100 = ~500,000 XP
+// Level CAN drop if XP drops (fail/crit_fail)
+// XP floor = 0
 // ============================================================
 
 export function calcCrimeLevel(xp: number): number {
@@ -89,21 +64,6 @@ export function xpForNextLevel(currentLevel: number): number {
   if (currentLevel >= 100) return 0;
   const nextLevel = currentLevel + 1;
   return Math.ceil(500000 * Math.pow(nextLevel / 100, 1 / 0.45));
-}
-
-// ============================================================
-// NERVE GROWTH (soft cap near 130)
-// Base nerve = 30 (NEVER goes below 30)
-// ============================================================
-
-export function calcMaxNerve(totalCrimeXp: number): number {
-  const base = 30;
-  const cap = 130;
-  const growth = cap - base;
-  const rate = 0.000015;
-
-  const nerve = base + growth * (1 - Math.exp(-rate * totalCrimeXp));
-  return Math.floor(clamp(nerve, base, cap));
 }
 
 // ============================================================
@@ -133,9 +93,7 @@ function buildOutcomeWeights(
     5: 32,
   };
 
-  const baseCrit = tierBaseCrit[tier] ?? 15;
-
-  // Crit floor per tier
+  // Minimum crit floor — always some danger
   const tierCritFloor: Record<number, number> = {
     1: 1,
     2: 2,
@@ -144,18 +102,8 @@ function buildOutcomeWeights(
     5: 5,
   };
 
-  const critFloor = tierCritFloor[tier] ?? 2;
-
-  const critWeight = Math.max(
-    critFloor,
-    Math.round(baseCrit - masteryFactor * (baseCrit - critFloor))
-  );
-
-  // Special weight
-  const specialWeight = hasAvailableSpecial ? 3 : 0;
-
-  // Base success per tier — tier 1 starts high
-  const baseSuccess: Record<number, number> = {
+  // Base success per tier — tier 1 starts generous
+  const tierBaseSuccess: Record<number, number> = {
     1: 62,
     2: 48,
     3: 35,
@@ -163,7 +111,19 @@ function buildOutcomeWeights(
     5: 22,
   };
 
-  const successBase = baseSuccess[tier] ?? 40;
+  // Fallback to tier 3 behavior if somehow invalid tier
+  const baseCrit = tierBaseCrit[tier] ?? tierBaseCrit[3];
+  const critFloor = tierCritFloor[tier] ?? tierCritFloor[3];
+  const successBase = tierBaseSuccess[tier] ?? tierBaseSuccess[3];
+
+  const critWeight = Math.max(
+    critFloor,
+    Math.round(baseCrit - masteryFactor * (baseCrit - critFloor))
+  );
+
+  // Special weight — only if one is available
+  const specialWeight = hasAvailableSpecial ? 3 : 0;
+
   const successCeiling = 100 - critFloor - specialWeight - 3;
 
   const successWeight = Math.min(
@@ -200,40 +160,66 @@ function rollOutcome(weights: Record<OutcomeType, number>): OutcomeType {
 
 // ============================================================
 // CPL CHANGE PER OUTCOME
+// Tier-aware: higher tier = bigger CPL swings
 // ============================================================
 
 function calcCplChange(outcome: OutcomeType, tier: number): number {
+  const tierMult = 1 + (tier - 1) * 0.15;
+
   switch (outcome) {
     case "special":
-      return randomFloat(8, 15);
+      return randomFloat(8, 15) * tierMult;
     case "success":
-      return randomFloat(1, 4);
+      return randomFloat(1, 4) * tierMult;
     case "fail":
-      return -randomFloat(0.5, 2);
+      return -randomFloat(0.5, 2) * tierMult;
     case "crit_fail":
-      return -randomFloat(4, 10);
+      return -randomFloat(4, 10) * tierMult;
     default:
       return 0;
   }
 }
 
 // ============================================================
-// XP GAIN PER OUTCOME
+// XP GAIN / LOSS PER OUTCOME
+//
+// success    = gain  80-200   × tierMult
+// special    = gain  800-1500 × tierMult
+// fail       = lose  20-50   × tierMult  (0.25 of success)
+// crit_fail  = lose  200-375  × tierMult  (0.25 of special)
+//
+// XP floor = 0 (handled in controller)
 // ============================================================
 
-function calcXpGain(outcome: OutcomeType, tier: number): number {
-  const tierMultiplier = tier * 1.5;
+function calcXpChange(
+  outcome: OutcomeType,
+  tier: number
+): { xp_gained: number; xp_lost: number } {
+  const tierMult = tier * 1.5;
+
   switch (outcome) {
     case "special":
-      return Math.round(randomBetween(800, 1500) * tierMultiplier);
+      return {
+        xp_gained: Math.round(randomBetween(800, 1500) * tierMult),
+        xp_lost: 0,
+      };
     case "success":
-      return Math.round(randomBetween(80, 200) * tierMultiplier);
+      return {
+        xp_gained: Math.round(randomBetween(80, 200) * tierMult),
+        xp_lost: 0,
+      };
     case "fail":
-      return Math.round(randomBetween(0, 20) * tierMultiplier);
+      return {
+        xp_gained: 0,
+        xp_lost: Math.round(randomBetween(20, 50) * tierMult),
+      };
     case "crit_fail":
-      return 0;
+      return {
+        xp_gained: 0,
+        xp_lost: Math.round(randomBetween(200, 375) * tierMult),
+      };
     default:
-      return 0;
+      return { xp_gained: 0, xp_lost: 0 };
   }
 }
 
@@ -279,7 +265,6 @@ function calcCritPenalties(
   cashOnHand: number,
   maxLife: number
 ): { money_loss: number; life_loss: number } {
-  // 50/50 chance: either lose money OR lose life
   const loseMoney = Math.random() < 0.5;
 
   if (loseMoney) {
@@ -289,7 +274,7 @@ function calcCritPenalties(
       life_loss: 0,
     };
   } else {
-    const lifeLossPct = randomFloat(0.2, 0.9); // 20% to 90% of MAX life
+    const lifeLossPct = randomFloat(0.2, 0.9); // 20% to 90% of max life
     return {
       money_loss: 0,
       life_loss: Math.floor(maxLife * lifeLossPct),
@@ -312,6 +297,7 @@ export function resolveCrimeOutcome(
   const { tier } = crime;
   const { crime_level, hidden_cpl } = progress;
 
+  // Build weights and roll outcome
   const weights = buildOutcomeWeights(
     tier,
     crime_level,
@@ -321,9 +307,11 @@ export function resolveCrimeOutcome(
 
   const outcome = rollOutcome(weights);
 
-  const xp_gained = calcXpGain(outcome, tier);
+  // Calculate XP and CPL changes
+  const { xp_gained, xp_lost } = calcXpChange(outcome, tier);
   const cpl_change = calcCplChange(outcome, tier);
 
+  // Initialize result values
   let reward_money = 0;
   let reward_points = 0;
   let jail_seconds = 0;
@@ -346,7 +334,7 @@ export function resolveCrimeOutcome(
       break;
 
     case "fail":
-      message = `You attempted ${crime.name} but couldn't pull it off. No harm done.`;
+      message = `You attempted ${crime.name} but couldn't pull it off. You lost some experience.`;
       break;
 
     case "crit_fail": {
@@ -356,9 +344,9 @@ export function resolveCrimeOutcome(
       jail_seconds = calcJailSeconds(crime, crime_level, hidden_cpl);
 
       if (money_loss > 0) {
-        message = `You got caught during ${crime.name}! Lost $${money_loss.toLocaleString()}.`;
+        message = `You got caught during ${crime.name}! Lost $${money_loss.toLocaleString()} and significant experience.`;
       } else {
-        message = `You got caught during ${crime.name}! You took serious damage.`;
+        message = `You got caught during ${crime.name}! You took serious damage and lost significant experience.`;
       }
       break;
     }
@@ -369,6 +357,7 @@ export function resolveCrimeOutcome(
     reward_money,
     reward_points,
     xp_gained,
+    xp_lost,
     cpl_change,
     jail_seconds,
     life_loss,

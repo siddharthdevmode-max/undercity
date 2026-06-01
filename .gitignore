@@ -1,20 +1,22 @@
+# Node
 node_modules/
-.env
-.env.local
-*.env
-!.env.example
-*-key.json
-serviceAccountKey*.json
-*.pem
-*.key
 dist/
-build/
-logs/
-*.log
-.vscode/
-.idea/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Firebase
+firebase-service-account.json
+
+# Database
+*.sqlite
+
+# OS
 .DS_Store
 Thumbs.db
-.cache/
-coverage/
-.turbo/
+
+# IDE
+.vscode/
+.idea/

@@ -13,7 +13,7 @@ import { getFriendlyError } from '../utils/firebaseErrors';
 import Header from '../components/Header';
 import hero from '../assets/hero.png';
 import '../styles/Landing.css';
-import './RegisterModern.css';
+import '../styles/Register.css';
 
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 5 * 60 * 1000; // 5 minutes

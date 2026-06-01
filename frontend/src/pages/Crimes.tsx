@@ -6,17 +6,18 @@ import type {
   UserStats,
   CrimeAttemptResponse,
 } from "../services/crimes";
+import "../styles/Crimes.css";
 
 // ════════════════════════════════════════
-// TIER COLOR CONFIG (subtle row hint)
+// TIER COLOR CONFIG
 // ════════════════════════════════════════
 
 const TIER_COLORS: Record<number, { glow: string; accent: string }> = {
-  1: { glow: "rgba(46,204,113,0.15)",  accent: "#2ecc71" },
-  2: { glow: "rgba(241,196,15,0.15)",  accent: "#f1c40f" },
-  3: { glow: "rgba(230,126,34,0.15)",  accent: "#e67e22" },
-  4: { glow: "rgba(231,76,60,0.15)",   accent: "#e74c3c" },
-  5: { glow: "rgba(155,89,182,0.15)",  accent: "#9b59b6" },
+  1: { glow: "rgba(46,204,113,0.15)", accent: "#2ecc71" },
+  2: { glow: "rgba(241,196,15,0.15)", accent: "#f1c40f" },
+  3: { glow: "rgba(230,126,34,0.15)", accent: "#e67e22" },
+  4: { glow: "rgba(231,76,60,0.15)", accent: "#e74c3c" },
+  5: { glow: "rgba(155,89,182,0.15)", accent: "#9b59b6" },
 };
 
 // ════════════════════════════════════════
@@ -64,274 +65,6 @@ function getCrimeLevelLabel(level: number): string {
 }
 
 // ════════════════════════════════════════
-// STYLES
-// ════════════════════════════════════════
-
-const styles = {
-  container: {
-    maxWidth: "1100px",
-    margin: "0 auto",
-    padding: "24px",
-    fontFamily: "'Segoe UI', sans-serif",
-  } as React.CSSProperties,
-
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "32px",
-    flexWrap: "wrap" as const,
-    gap: "16px",
-  } as React.CSSProperties,
-
-  title: {
-    fontSize: "32px",
-    fontWeight: "bold",
-    color: "#e94560",
-    margin: 0,
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-  } as React.CSSProperties,
-
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(5, 1fr)",
-    gap: "14px",
-  } as React.CSSProperties,
-
-  card: {
-    position: "relative" as const,
-    aspectRatio: "1 / 1",
-    borderRadius: "12px",
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(255,255,255,0.03)",
-    padding: "14px",
-    display: "flex",
-    flexDirection: "column" as const,
-    justifyContent: "space-between",
-    transition: "all 0.25s ease",
-    cursor: "pointer",
-    overflow: "hidden",
-  } as React.CSSProperties,
-
-  cardLocked: {
-    background: "rgba(0,0,0,0.4)",
-    border: "1px dashed rgba(255,255,255,0.1)",
-    cursor: "not-allowed",
-  } as React.CSSProperties,
-
-  cardName: {
-    fontSize: "14px",
-    fontWeight: "700",
-    color: "#ecf0f1",
-    margin: 0,
-    lineHeight: "1.2",
-    minHeight: "34px",
-  } as React.CSSProperties,
-
-  cardLockedName: {
-    fontSize: "28px",
-    fontWeight: "900",
-    color: "#444",
-    textAlign: "center" as const,
-    letterSpacing: "4px",
-    margin: 0,
-  } as React.CSSProperties,
-
-  cardLockedSub: {
-    fontSize: "11px",
-    color: "#666",
-    textAlign: "center" as const,
-    marginTop: "8px",
-    letterSpacing: "1px",
-  } as React.CSSProperties,
-
-  cardMeta: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "6px",
-  } as React.CSSProperties,
-
-  nerveBadge: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "4px",
-    fontSize: "11px",
-    fontWeight: "600",
-    color: "#f39c12",
-    padding: "3px 8px",
-    borderRadius: "12px",
-    background: "rgba(243,156,18,0.1)",
-    border: "1px solid rgba(243,156,18,0.2)",
-    alignSelf: "flex-start",
-  } as React.CSSProperties,
-
-  levelText: {
-    fontSize: "11px",
-    fontWeight: "500",
-    margin: "4px 0",
-  } as React.CSSProperties,
-
-  progressBar: {
-    width: "100%",
-    height: "3px",
-    background: "rgba(255,255,255,0.08)",
-    borderRadius: "2px",
-    overflow: "hidden",
-    marginBottom: "6px",
-  } as React.CSSProperties,
-
-  commitBtn: {
-    width: "100%",
-    padding: "7px",
-    borderRadius: "6px",
-    border: "none",
-    fontWeight: "bold",
-    fontSize: "11px",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-    color: "#fff",
-    letterSpacing: "1px",
-    textTransform: "uppercase" as const,
-  } as React.CSSProperties,
-
-  commitBtnDisabled: {
-    background: "#333",
-    color: "#666",
-    cursor: "not-allowed",
-  } as React.CSSProperties,
-
-  federalTag: {
-    position: "absolute" as const,
-    top: "8px",
-    right: "8px",
-    fontSize: "8px",
-    fontWeight: "900",
-    color: "#e74c3c",
-    background: "rgba(231,76,60,0.15)",
-    padding: "2px 5px",
-    borderRadius: "3px",
-    letterSpacing: "1px",
-  } as React.CSSProperties,
-
-  outcomeOverlay: {
-    position: "fixed" as const,
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    background: "rgba(0,0,0,0.75)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 9999,
-    animation: "fadeIn 0.2s ease",
-  } as React.CSSProperties,
-
-  outcomeCard: {
-    background: "#16213e",
-    border: "2px solid",
-    borderRadius: "16px",
-    padding: "36px",
-    maxWidth: "500px",
-    width: "90%",
-    textAlign: "center" as const,
-    boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
-  } as React.CSSProperties,
-
-  outcomeIcon: {
-    fontSize: "56px",
-    marginBottom: "12px",
-  } as React.CSSProperties,
-
-  outcomeLabel: {
-    fontSize: "20px",
-    fontWeight: "900",
-    marginBottom: "16px",
-    letterSpacing: "2px",
-  } as React.CSSProperties,
-
-  outcomeMessage: {
-    fontSize: "14px",
-    color: "#bdc3c7",
-    lineHeight: "1.6",
-    marginBottom: "20px",
-  } as React.CSSProperties,
-
-  outcomeDetails: {
-    display: "flex",
-    justifyContent: "center",
-    gap: "24px",
-    flexWrap: "wrap" as const,
-    marginBottom: "24px",
-    fontSize: "13px",
-    padding: "16px",
-    background: "rgba(0,0,0,0.3)",
-    borderRadius: "10px",
-  } as React.CSSProperties,
-
-  outcomeDetailItem: {
-    display: "flex",
-    flexDirection: "column" as const,
-    alignItems: "center",
-    gap: "2px",
-  } as React.CSSProperties,
-
-  closeBtn: {
-    padding: "10px 32px",
-    borderRadius: "8px",
-    border: "none",
-    background: "#e94560",
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: "14px",
-    cursor: "pointer",
-    letterSpacing: "1px",
-  } as React.CSSProperties,
-
-  jailBanner: {
-    padding: "20px",
-    borderRadius: "12px",
-    background: "rgba(231,76,60,0.15)",
-    border: "2px solid #e74c3c",
-    textAlign: "center" as const,
-    marginBottom: "24px",
-  } as React.CSSProperties,
-
-  jailTitle: {
-    fontSize: "22px",
-    fontWeight: "bold",
-    color: "#e74c3c",
-    marginBottom: "8px",
-  } as React.CSSProperties,
-
-  jailTime: {
-    fontSize: "16px",
-    color: "#ecf0f1",
-  } as React.CSSProperties,
-
-  loading: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    height: "60vh",
-    color: "#95a5a6",
-    fontSize: "18px",
-  } as React.CSSProperties,
-
-  error: {
-    display: "flex",
-    flexDirection: "column" as const,
-    alignItems: "center",
-    justifyContent: "center",
-    height: "60vh",
-    color: "#e74c3c",
-    gap: "12px",
-  } as React.CSSProperties,
-};
-
-// ════════════════════════════════════════
 // MAIN COMPONENT
 // ════════════════════════════════════════
 
@@ -340,6 +73,7 @@ export default function Crimes() {
   const [user, setUser] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attemptError, setAttemptError] = useState<string | null>(null);
   const [attempting, setAttempting] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<CrimeAttemptResponse | null>(null);
   const [jailTimer, setJailTimer] = useState(0);
@@ -379,6 +113,7 @@ export default function Crimes() {
   const handleAttempt = async (crimeKey: string) => {
     if (attempting) return;
     setAttempting(crimeKey);
+    setAttemptError(null);
 
     try {
       const result = await crimesAPI.attemptCrime(crimeKey);
@@ -396,8 +131,12 @@ export default function Crimes() {
           maxLife: result.user.maxLife,
           jailUntil: result.user.jailUntil,
           federalJailUntil: result.user.federalJailUntil,
-          inJail: !!result.user.jailUntil && new Date(result.user.jailUntil).getTime() > Date.now(),
-          inFederalJail: !!result.user.federalJailUntil && new Date(result.user.federalJailUntil).getTime() > Date.now(),
+          inJail:
+            !!result.user.jailUntil &&
+            new Date(result.user.jailUntil).getTime() > Date.now(),
+          inFederalJail:
+            !!result.user.federalJailUntil &&
+            new Date(result.user.federalJailUntil).getTime() > Date.now(),
         };
       });
 
@@ -409,7 +148,7 @@ export default function Crimes() {
         )
       );
     } catch (err: any) {
-      alert(err.message || "Something went wrong");
+      setAttemptError(err.message || "Something went wrong");
     } finally {
       setAttempting(null);
     }
@@ -417,20 +156,22 @@ export default function Crimes() {
 
   const closeOutcome = () => setOutcome(null);
 
+  // ── Loading state ──
   if (loading) {
     return (
       <Shell>
-        <div style={styles.loading}>Loading crimes...</div>
+        <div className="crimes-loading">Loading crimes...</div>
       </Shell>
     );
   }
 
+  // ── Error state ──
   if (error) {
     return (
       <Shell>
-        <div style={styles.error}>
+        <div className="crimes-error">
           <p>❌ {error}</p>
-          <button style={styles.closeBtn} onClick={loadCrimes}>
+          <button className="crimes-retry-btn" onClick={loadCrimes}>
             Retry
           </button>
         </div>
@@ -440,7 +181,6 @@ export default function Crimes() {
 
   const isInJail = jailTimer > 0 || federalJailTimer > 0;
 
-  // Sort crimes by tier then id (so they form clean rows)
   const sortedCrimes = [...crimes].sort((a, b) => {
     if (a.tier !== b.tier) return a.tier - b.tier;
     return a.id - b.id;
@@ -448,18 +188,58 @@ export default function Crimes() {
 
   return (
     <Shell>
-      <div style={styles.container}>
-        <div style={styles.header}>
-          <h1 style={styles.title}>🔪 Crimes</h1>
+      <div className="crimes-container">
+        {/* ── Header with Stats ── */}
+        <div className="crimes-header">
+          <h1 className="crimes-title">🔪 Crimes</h1>
+
+          {user && (
+            <div className="crimes-stats-bar">
+              <div className="crimes-stat crimes-stat-nerve">
+                <span className="crimes-stat-icon">⚡</span>
+                <span className="crimes-stat-label">Nerve</span>
+                <span className="crimes-stat-value">
+                  {user.nerve}/{user.maxNerve}
+                </span>
+              </div>
+              <div className="crimes-stat crimes-stat-life">
+                <span className="crimes-stat-icon">❤️</span>
+                <span className="crimes-stat-label">Life</span>
+                <span className="crimes-stat-value">
+                  {user.life}/{user.maxLife}
+                </span>
+              </div>
+              <div className="crimes-stat crimes-stat-money">
+                <span className="crimes-stat-icon">💰</span>
+                <span className="crimes-stat-label">Cash</span>
+                <span className="crimes-stat-value">
+                  {formatMoney(user.money)}
+                </span>
+              </div>
+              <div className="crimes-stat crimes-stat-level">
+                <span className="crimes-stat-icon">🎯</span>
+                <span className="crimes-stat-label">Level</span>
+                <span className="crimes-stat-value">{user.level}</span>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* ── Attempt Error Banner ── */}
+        {attemptError && (
+          <div className="crimes-error-banner">
+            <span>⚠️ {attemptError}</span>
+            <button onClick={() => setAttemptError(null)}>✕</button>
+          </div>
+        )}
 
         {/* ── Jail Banner ── */}
         {isInJail && (
-          <div style={styles.jailBanner}>
-            <div style={styles.jailTitle}>
+          <div className="crimes-jail-banner">
+            <div className="crimes-jail-title">
               {federalJailTimer > 0 ? "🏛️ FEDERAL JAIL" : "⛓️ IN JAIL"}
             </div>
-            <div style={styles.jailTime}>
+            <div className="crimes-jail-time">
               Time remaining:{" "}
               {formatTime(federalJailTimer > 0 ? federalJailTimer : jailTimer)}
             </div>
@@ -467,7 +247,7 @@ export default function Crimes() {
         )}
 
         {/* ── 5x5 Grid ── */}
-        <div style={styles.grid}>
+        <div className="crimes-grid">
           {sortedCrimes.map((crime) => {
             const tierColor = TIER_COLORS[crime.tier];
             const canAttempt =
@@ -477,20 +257,24 @@ export default function Crimes() {
               user.nerve >= crime.nerveCost &&
               !attempting;
 
-            // LOCKED CARD
+            // ── LOCKED CARD ──
             if (!crime.unlocked) {
               return (
                 <div
                   key={crime.id}
-                  style={{
-                    ...styles.card,
-                    ...styles.cardLocked,
-                    boxShadow: `inset 0 0 30px ${tierColor.glow}`,
-                  }}
+                  className="crime-card crime-card-locked"
+                  style={{ boxShadow: `inset 0 0 30px ${tierColor.glow}` }}
                 >
-                  <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                    <p style={styles.cardLockedName}>???</p>
-                    <p style={styles.cardLockedSub}>
+                  <div
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <p className="crime-card-locked-name">???</p>
+                    <p className="crime-card-locked-sub">
                       🔒 LEVEL {crime.unlockLevel}
                     </p>
                   </div>
@@ -498,55 +282,48 @@ export default function Crimes() {
               );
             }
 
-            // UNLOCKED CARD
+            // ── UNLOCKED CARD ──
             return (
               <div
                 key={crime.id}
+                className="crime-card"
                 style={{
-                  ...styles.card,
                   borderColor: `${tierColor.accent}33`,
                   boxShadow: `inset 0 0 20px ${tierColor.glow}`,
                 }}
               >
                 {crime.isFederal && (
-                  <div style={styles.federalTag}>FED</div>
+                  <div className="crime-federal-tag">FED</div>
                 )}
 
-                {/* Crime name */}
                 <div>
-                  <p style={styles.cardName}>{crime.name}</p>
-                  <div style={{ marginTop: "8px" }}>
-                    <span style={styles.nerveBadge}>
+                  <p className="crime-card-name">{crime.name}</p>
+                  <div className="crime-card-meta">
+                    <span className="crime-nerve-badge">
                       ⚡ {crime.nerveCost}
                     </span>
                   </div>
                 </div>
 
-                {/* Bottom: level + button */}
                 <div>
                   <div
-                    style={{
-                      ...styles.levelText,
-                      color: tierColor.accent,
-                    }}
+                    className="crime-level-text"
+                    style={{ color: tierColor.accent }}
                   >
                     {getCrimeLevelLabel(crime.progress.crimeLevel)}
                   </div>
-                  <div style={styles.progressBar}>
+                  <div className="crime-progress-bar">
                     <div
+                      className="crime-progress-fill"
                       style={{
-                        height: "100%",
                         width: `${Math.min(100, crime.progress.crimeLevel)}%`,
                         background: tierColor.accent,
-                        borderRadius: "2px",
-                        transition: "width 0.5s ease",
                       }}
                     />
                   </div>
                   <button
+                    className="crime-commit-btn"
                     style={{
-                      ...styles.commitBtn,
-                      ...(canAttempt ? {} : styles.commitBtnDisabled),
                       background: canAttempt ? tierColor.accent : undefined,
                     }}
                     disabled={!canAttempt}
@@ -567,98 +344,100 @@ export default function Crimes() {
         </div>
       </div>
 
-      {/* ── Outcome Modal ── */}
+      {/* ════════════════════════════════════════ */}
+      {/* OUTCOME MODAL                           */}
+      {/* ════════════════════════════════════════ */}
       {outcome && (
-        <div style={styles.outcomeOverlay} onClick={closeOutcome}>
+        <div className="outcome-overlay" onClick={closeOutcome}>
           <div
+            className="outcome-card"
             style={{
-              ...styles.outcomeCard,
               borderColor: getOutcomeStyle(outcome.outcome).color,
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={styles.outcomeIcon}>
+            <div className="outcome-icon">
               {getOutcomeStyle(outcome.outcome).icon}
             </div>
             <div
-              style={{
-                ...styles.outcomeLabel,
-                color: getOutcomeStyle(outcome.outcome).color,
-              }}
+              className="outcome-label"
+              style={{ color: getOutcomeStyle(outcome.outcome).color }}
             >
               {getOutcomeStyle(outcome.outcome).label}
             </div>
-            <div style={styles.outcomeMessage}>{outcome.message}</div>
+            <div className="outcome-message">{outcome.message}</div>
 
-            {/* Special title */}
+            {/* ── Special Discovery ── */}
             {outcome.special && (
-              <div
-                style={{
-                  marginBottom: "16px",
-                  padding: "12px",
-                  borderRadius: "8px",
-                  background: "rgba(243,156,18,0.12)",
-                  border: "1px solid rgba(243,156,18,0.3)",
-                }}
-              >
-                <div style={{ fontWeight: "bold", color: "#f39c12", marginBottom: "4px" }}>
+              <div className="outcome-special-box">
+                <div className="outcome-special-title">
                   🌟 {outcome.special.title}
                 </div>
                 {outcome.special.wasNewlyDiscovered && (
-                  <div style={{ fontSize: "11px", color: "#95a5a6", letterSpacing: "1px" }}>
+                  <div className="outcome-special-new">
                     ✨ NEW DISCOVERY
                   </div>
                 )}
               </div>
             )}
 
-            {/* Details */}
-            <div style={styles.outcomeDetails}>
+            {/* ── Details ── */}
+            <div className="outcome-details">
               {outcome.rewards.money > 0 && (
-                <div style={styles.outcomeDetailItem}>
-                  <span style={{ color: "#2ecc71", fontWeight: "bold", fontSize: "16px" }}>
+                <div className="outcome-detail-item">
+                  <span className="outcome-detail-value outcome-detail-value-gain">
                     +{formatMoney(outcome.rewards.money)}
                   </span>
-                  <span style={{ color: "#7f8c8d", fontSize: "10px" }}>EARNED</span>
+                  <span className="outcome-detail-label">EARNED</span>
                 </div>
               )}
               {outcome.penalties.moneyLost > 0 && (
-                <div style={styles.outcomeDetailItem}>
-                  <span style={{ color: "#e74c3c", fontWeight: "bold", fontSize: "16px" }}>
+                <div className="outcome-detail-item">
+                  <span className="outcome-detail-value outcome-detail-value-loss">
                     -{formatMoney(outcome.penalties.moneyLost)}
                   </span>
-                  <span style={{ color: "#7f8c8d", fontSize: "10px" }}>LOST</span>
+                  <span className="outcome-detail-label">LOST</span>
                 </div>
               )}
               {outcome.penalties.lifeLost > 0 && (
-                <div style={styles.outcomeDetailItem}>
-                  <span style={{ color: "#e74c3c", fontWeight: "bold", fontSize: "16px" }}>
+                <div className="outcome-detail-item">
+                  <span className="outcome-detail-value outcome-detail-value-loss">
                     -{outcome.penalties.lifeLost} HP
                   </span>
-                  <span style={{ color: "#7f8c8d", fontSize: "10px" }}>DAMAGE</span>
+                  <span className="outcome-detail-label">DAMAGE</span>
                 </div>
               )}
               {outcome.rewards.xpGained > 0 && (
-                <div style={styles.outcomeDetailItem}>
-                  <span style={{ color: "#3498db", fontWeight: "bold", fontSize: "16px" }}>
+                <div className="outcome-detail-item">
+                  <span className="outcome-detail-value outcome-detail-value-xp">
                     +{outcome.rewards.xpGained}
                   </span>
-                  <span style={{ color: "#7f8c8d", fontSize: "10px" }}>CRIME XP</span>
+                  <span className="outcome-detail-label">CRIME XP</span>
+                </div>
+              )}
+              {outcome.penalties.xpLost > 0 && (
+                <div className="outcome-detail-item">
+                  <span className="outcome-detail-value outcome-detail-value-xp-loss">
+                    -{outcome.penalties.xpLost}
+                  </span>
+                  <span className="outcome-detail-label">XP LOST</span>
                 </div>
               )}
               {outcome.penalties.jailSeconds > 0 && (
-                <div style={styles.outcomeDetailItem}>
-                  <span style={{ color: "#e74c3c", fontWeight: "bold", fontSize: "16px" }}>
+                <div className="outcome-detail-item">
+                  <span className="outcome-detail-value outcome-detail-value-jail">
                     ⛓️ {formatTime(outcome.penalties.jailSeconds)}
                   </span>
-                  <span style={{ color: "#7f8c8d", fontSize: "10px" }}>
-                    {outcome.penalties.jailType === "federal" ? "FEDERAL JAIL" : "JAIL"}
+                  <span className="outcome-detail-label">
+                    {outcome.penalties.jailType === "federal"
+                      ? "FEDERAL JAIL"
+                      : "JAIL"}
                   </span>
                 </div>
               )}
             </div>
 
-            <button style={styles.closeBtn} onClick={closeOutcome}>
+            <button className="outcome-close-btn" onClick={closeOutcome}>
               Continue
             </button>
           </div>
