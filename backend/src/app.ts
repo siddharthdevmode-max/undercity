@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import authRoutes from "./routes/authRoutes";
+import crimeRoutes from "./routes/crimeRoutes";
 import { config } from "./config";
 import { pool } from "./config/database";
 
@@ -14,6 +15,7 @@ app.use(express.json());
 
 // Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/crimes", crimeRoutes);
 
 // Health check
 app.get("/api/health", async (req, res) => {

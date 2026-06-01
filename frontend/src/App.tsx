@@ -5,6 +5,7 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Home from './pages/Home';
+import Crimes from './pages/Crimes';
 import './App.css';
 
 // Placeholder pages — wrapped in Shell so sidebar stays
@@ -43,7 +44,7 @@ function App() {
           <ProtectedRoute><ComingSoon page="City" /></ProtectedRoute>
         } />
         <Route path="/crimes" element={
-          <ProtectedRoute><ComingSoon page="Crimes" /></ProtectedRoute>
+          <ProtectedRoute><Crimes /></ProtectedRoute>
         } />
         <Route path="/job" element={
           <ProtectedRoute><ComingSoon page="Job" /></ProtectedRoute>
