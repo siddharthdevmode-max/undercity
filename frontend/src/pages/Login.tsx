@@ -10,13 +10,14 @@ import {
 import { auth } from '../firebase';
 import { authAPI } from '../services/api';
 import { getFriendlyError } from '../utils/firebaseErrors';
+import { useAuth } from '../hooks/useAuth';
 import Header from '../components/Header';
 import hero from '../assets/hero.png';
 import '../styles/Landing.css';
 import '../styles/Register.css';
 
 const MAX_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const LOCKOUT_DURATION_MS = 5 * 60 * 1000;
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -30,6 +31,12 @@ export default function Login() {
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) navigate('/home');
+  }, [user, navigate]);
 
   // Auto-focus email on mount
   useEffect(() => {
@@ -85,14 +92,12 @@ export default function Login() {
       );
       await signInWithEmailAndPassword(auth, email, password);
       await authAPI.sync();
-      // Reset attempts on success
       setAttempts(0);
       localStorage.removeItem('login_lockout');
       navigate('/home');
     } catch (err: any) {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
-
       if (newAttempts >= MAX_ATTEMPTS) {
         const until = Date.now() + LOCKOUT_DURATION_MS;
         setLockedUntil(until);
@@ -176,7 +181,6 @@ export default function Login() {
                   />
                   <span>Stay logged in</span>
                 </label>
-
                 <button
                   type="button"
                   className="forgot-link"
@@ -187,7 +191,11 @@ export default function Login() {
                 </button>
               </div>
 
-              <button type="submit" className="cta-button" disabled={loading || isLocked}>
+              <button
+                type="submit"
+                className="cta-button"
+                disabled={loading || isLocked}
+              >
                 {loading ? (
                   <>
                     <span className="spinner" />
@@ -208,13 +216,11 @@ export default function Login() {
               </p>
 
             </form>
-
           </div>
 
           <div className="about-image">
             <img src={hero} alt="Undercity skyline" />
           </div>
-
         </div>
       </section>
     </div>

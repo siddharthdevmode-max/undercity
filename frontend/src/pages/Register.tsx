@@ -4,6 +4,7 @@ import { createUserWithEmailAndPassword } from "firebase/auth";
 import { auth } from '../firebase';
 import { authAPI, checkUsernameAvailable } from '../services/api';
 import { getFriendlyError } from '../utils/firebaseErrors';
+import { useAuth } from '../hooks/useAuth';
 import Header from '../components/Header';
 import hero from '../assets/hero.png';
 import '../styles/Landing.css';
@@ -30,11 +31,11 @@ function getPasswordStrength(password: string) {
   if (/[^a-zA-Z0-9]/.test(password)) score++;
   score = Math.min(score, 5);
 
-  if (score <= 1) return { score: 1, label: 'Weak', color: '#ff4d4d' };
-  if (score === 2) return { score: 2, label: 'Fair', color: '#ff8c42' };
-  if (score === 3) return { score: 3, label: 'Decent', color: '#facc15' };
-  if (score === 4) return { score: 4, label: 'Strong', color: '#4ade80' };
-  return { score: 5, label: 'Excellent', color: '#22c55e' };
+  if (score <= 1) return { score: 1, label: 'Weak',      color: '#ff4d4d' };
+  if (score === 2) return { score: 2, label: 'Fair',      color: '#ff8c42' };
+  if (score === 3) return { score: 3, label: 'Decent',    color: '#facc15' };
+  if (score === 4) return { score: 4, label: 'Strong',    color: '#4ade80' };
+  return             { score: 5, label: 'Excellent',  color: '#22c55e' };
 }
 
 export default function Register() {
@@ -51,15 +52,21 @@ export default function Register() {
   const [emailStatus, setEmailStatus] = useState<EmailStatus>('idle');
   const usernameRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const strength = getPasswordStrength(password);
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) navigate('/home');
+  }, [user, navigate]);
 
   // Auto-focus username on mount
   useEffect(() => {
     usernameRef.current?.focus();
   }, []);
 
-  // Username availability check
+  // Username availability check with debounce
   useEffect(() => {
     if (!username) {
       setUsernameStatus('idle');
@@ -86,10 +93,7 @@ export default function Register() {
 
   // Email validation
   useEffect(() => {
-    if (!email) {
-      setEmailStatus('idle');
-      return;
-    }
+    if (!email) { setEmailStatus('idle'); return; }
     setEmailStatus(isValidEmail(email) ? 'valid' : 'invalid');
   }, [email]);
 
@@ -137,11 +141,12 @@ export default function Register() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   disabled={loading}
+                  maxLength={20}
                   required
                 />
                 {usernameMessage && (
                   <span className={`status-msg status-${usernameStatus}`}>
-                    {usernameStatus === 'checking' && '⏳ '}
+                    {usernameStatus === 'checking'  && '⏳ '}
                     {usernameStatus === 'available' && '✓ '}
                     {(usernameStatus === 'taken' || usernameStatus === 'invalid') && '✗ '}
                     {usernameMessage}
@@ -169,7 +174,7 @@ export default function Register() {
               <div className="password-wrap">
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  placeholder="Password (6+ chars, mix letters/numbers for strength)"
+                  placeholder="Password (6+ chars, mix for strength)"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}
@@ -190,7 +195,10 @@ export default function Register() {
                   <div className="strength-bar">
                     <div
                       className="strength-fill"
-                      style={{ width: `${(strength.score / 5) * 100}%`, background: strength.color }}
+                      style={{
+                        width: `${(strength.score / 5) * 100}%`,
+                        background: strength.color,
+                      }}
                     />
                   </div>
                   <span className="strength-label" style={{ color: strength.color }}>
@@ -215,10 +223,19 @@ export default function Register() {
                   onChange={(e) => setAgreeTerms(e.target.checked)}
                   disabled={loading}
                 />
-                <span>I agree to the <a href="#terms">Terms</a> and <a href="#privacy">Privacy Policy</a></span>
+                <span>
+                  I agree to the{' '}
+                  <a href="#terms">Terms</a>{' '}
+                  and{' '}
+                  <a href="#privacy">Privacy Policy</a>
+                </span>
               </label>
 
-              <button type="submit" className="cta-button" disabled={loading}>
+              <button
+                type="submit"
+                className="cta-button"
+                disabled={loading}
+              >
                 {loading ? (
                   <>
                     <span className="spinner" />
@@ -236,13 +253,11 @@ export default function Register() {
               </p>
 
             </form>
-
           </div>
 
           <div className="about-image">
             <img src={hero} alt="Undercity skyline" />
           </div>
-
         </div>
       </section>
     </div>

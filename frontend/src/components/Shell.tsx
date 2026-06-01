@@ -31,18 +31,19 @@ export default function Shell({ children }: Props) {
   }
 
   const navItems = [
-    { path: '/home',       label: '🏠 Home'        },
-    { path: '/city',       label: '🏙️ City'        },
-    { path: '/crimes',     label: '🔫 Crimes'      },
-    { path: '/job',        label: '💼 Job'          },
-    { path: '/gym',        label: '💪 Gym'          },
-    { path: '/properties', label: '🏢 Properties'  },
-    { path: '/missions',   label: '📋 Missions'    },
+    { path: '/home',       label: '🏠 Home'       },
+    { path: '/city',       label: '🏙️ City'       },
+    { path: '/crimes',     label: '🔫 Crimes'     },
+    { path: '/job',        label: '💼 Job'         },
+    { path: '/gym',        label: '💪 Gym'         },
+    { path: '/properties', label: '🏢 Properties' },
+    { path: '/missions',   label: '📋 Missions'   },
   ];
 
   return (
     <div className="game-shell">
-      {/* Top Header */}
+
+      {/* ── Top Header ── */}
       <header className="game-header">
         <div className="logo">UNDERCITY</div>
 
@@ -51,13 +52,10 @@ export default function Shell({ children }: Props) {
             💰 ${Number(user?.money ?? 0).toLocaleString()}
           </span>
           <span className="header-stat">
-            ⚡ {user?.energy}/{user?.max_energy}
+            ❤️ {user?.life ?? 0}/{user?.max_life ?? 100}
           </span>
           <span className="header-stat">
-            ❤️ {user?.life}/{user?.max_life}
-          </span>
-          <span className="header-stat">
-            🧠 {user?.nerve}/{user?.max_nerve}
+            🧠 {user?.nerve ?? 0}/{user?.max_nerve ?? 30}
           </span>
         </div>
 
@@ -70,38 +68,31 @@ export default function Shell({ children }: Props) {
       </header>
 
       <div className="game-content">
-        {/* Sidebar */}
+
+        {/* ── Sidebar ── */}
         <aside className="sidebar">
           <div className="player-card">
             <div className="player-name">{user?.username}</div>
-            <div className="player-level">Level {user?.level}</div>
-
-            <div className="stat-bar">
-              <div className="stat-bar-header">
-                <label>Energy</label>
-                <span>{user?.energy}/{user?.max_energy}</span>
-              </div>
-              <progress value={user?.energy} max={user?.max_energy} />
-            </div>
+            <div className="player-level">Level {user?.level ?? 1}</div>
 
             <div className="stat-bar">
               <div className="stat-bar-header">
                 <label>Life</label>
-                <span>{user?.life}/{user?.max_life}</span>
+                <span>{user?.life ?? 0}/{user?.max_life ?? 100}</span>
               </div>
-              <progress value={user?.life} max={user?.max_life} />
+              <progress value={user?.life ?? 0} max={user?.max_life ?? 100} />
             </div>
 
             <div className="stat-bar">
               <div className="stat-bar-header">
                 <label>Nerve</label>
-                <span>{user?.nerve}/{user?.max_nerve}</span>
+                <span>{user?.nerve ?? 0}/{user?.max_nerve ?? 30}</span>
               </div>
-              <progress value={user?.nerve} max={user?.max_nerve} />
+              <progress value={user?.nerve ?? 0} max={user?.max_nerve ?? 30} />
             </div>
           </div>
 
-          {/* Nav */}
+          {/* ── Nav ── */}
           <nav className="sidebar-nav">
             {navItems.map((item) => (
               <Link
@@ -115,10 +106,11 @@ export default function Shell({ children }: Props) {
           </nav>
         </aside>
 
-        {/* Main Content */}
+        {/* ── Main Content ── */}
         <main className="main-content">
           {children}
         </main>
+
       </div>
     </div>
   );
