@@ -25,7 +25,7 @@ export function useAuth(): AuthState {
       }
 
       try {
-        const data = await authAPI.getMe();
+        const data = await authAPI.me();
         setUser(data);
       } catch (err) {
         setError('Failed to load player data');
