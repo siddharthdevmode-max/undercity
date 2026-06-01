@@ -6,62 +6,58 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Home from './pages/Home';
 import Crimes from './pages/Crimes';
+import { ToastContainer } from './components/ui/Toast';
+import { ComingSoon } from './components/ui/EmptyState';
+import { PageTransition } from './components/ui/PageTransition';
 import './App.css';
 
-// Placeholder pages — wrapped in Shell so sidebar stays
-const ComingSoon = ({ page }: { page: string }) => (
+// Wrap ComingSoon in Shell so sidebar stays
+const ComingSoonPage = ({ feature }: { feature: string }) => (
   <Shell>
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: '100%',
-      color: '#e94560',
-      gap: '10px'
-    }}>
-      <h1 style={{ fontSize: '48px' }}>🚧</h1>
-      <h2>{page}</h2>
-      <p style={{ color: '#95a5a6' }}>Coming soon...</p>
-    </div>
+    <ComingSoon feature={feature} />
   </Shell>
 );
 
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/" element={<Landing />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+      <PageTransition>
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/" element={<Landing />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
 
-        {/* Protected Game Routes */}
-        <Route path="/home" element={
-          <ProtectedRoute><Home /></ProtectedRoute>
-        } />
-        <Route path="/city" element={
-          <ProtectedRoute><ComingSoon page="City" /></ProtectedRoute>
-        } />
-        <Route path="/crimes" element={
-          <ProtectedRoute><Crimes /></ProtectedRoute>
-        } />
-        <Route path="/job" element={
-          <ProtectedRoute><ComingSoon page="Job" /></ProtectedRoute>
-        } />
-        <Route path="/gym" element={
-          <ProtectedRoute><ComingSoon page="Gym" /></ProtectedRoute>
-        } />
-        <Route path="/properties" element={
-          <ProtectedRoute><ComingSoon page="Properties" /></ProtectedRoute>
-        } />
-        <Route path="/missions" element={
-          <ProtectedRoute><ComingSoon page="Missions" /></ProtectedRoute>
-        } />
+          {/* Protected Game Routes */}
+          <Route path="/home" element={
+            <ProtectedRoute><Home /></ProtectedRoute>
+          } />
+          <Route path="/city" element={
+            <ProtectedRoute><ComingSoonPage feature="City" /></ProtectedRoute>
+          } />
+          <Route path="/crimes" element={
+            <ProtectedRoute><Crimes /></ProtectedRoute>
+          } />
+          <Route path="/job" element={
+            <ProtectedRoute><ComingSoonPage feature="Job" /></ProtectedRoute>
+          } />
+          <Route path="/gym" element={
+            <ProtectedRoute><ComingSoonPage feature="Gym" /></ProtectedRoute>
+          } />
+          <Route path="/properties" element={
+            <ProtectedRoute><ComingSoonPage feature="Properties" /></ProtectedRoute>
+          } />
+          <Route path="/missions" element={
+            <ProtectedRoute><ComingSoonPage feature="Missions" /></ProtectedRoute>
+          } />
 
-        {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </PageTransition>
+
+      {/* Global toast notifications (mounts to document.body via portal) */}
+      <ToastContainer />
     </BrowserRouter>
   );
 }

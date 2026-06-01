@@ -6,6 +6,8 @@ import type {
   UserStats,
   CrimeAttemptResponse,
 } from "../services/crimes";
+import { toast } from "../components/ui/Toast";
+import { CrimesGridSkeleton } from "../components/ui/Skeleton";
 import "../styles/Crimes.css";
 
 // ════════════════════════════════════════
@@ -73,7 +75,6 @@ export default function Crimes() {
   const [user, setUser] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [attemptError, setAttemptError] = useState<string | null>(null);
   const [attempting, setAttempting] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<CrimeAttemptResponse | null>(null);
   const [jailTimer, setJailTimer] = useState(0);
@@ -87,7 +88,9 @@ export default function Crimes() {
       setCrimes(data.crimes);
       setUser(data.user);
     } catch (err: any) {
-      setError(err.message || "Failed to load crimes");
+      const msg = err.message || "Failed to load crimes";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -113,11 +116,17 @@ export default function Crimes() {
   const handleAttempt = async (crimeKey: string) => {
     if (attempting) return;
     setAttempting(crimeKey);
-    setAttemptError(null);
 
     try {
       const result = await crimesAPI.attemptCrime(crimeKey);
       setOutcome(result);
+
+      // Toast feedback based on outcome
+      if (result.outcome === "special") {
+        toast.success(`🌟 ${result.special?.title || "Special discovered!"}`, 5000);
+      } else if (result.outcome === "crit_fail") {
+        toast.error(`💀 ${result.message}`, 5000);
+      }
 
       setUser((prev) => {
         if (!prev) return prev;
@@ -148,7 +157,7 @@ export default function Crimes() {
         )
       );
     } catch (err: any) {
-      setAttemptError(err.message || "Something went wrong");
+      toast.error(err.message || "Something went wrong");
     } finally {
       setAttempting(null);
     }
@@ -156,11 +165,16 @@ export default function Crimes() {
 
   const closeOutcome = () => setOutcome(null);
 
-  // ── Loading state ──
+  // ── Loading state with skeleton ──
   if (loading) {
     return (
       <Shell>
-        <div className="crimes-loading">Loading crimes...</div>
+        <div className="crimes-container">
+          <div className="crimes-header">
+            <h1 className="crimes-title">🔪 Crimes</h1>
+          </div>
+          <CrimesGridSkeleton count={10} />
+        </div>
       </Shell>
     );
   }
@@ -224,14 +238,6 @@ export default function Crimes() {
             </div>
           )}
         </div>
-
-        {/* ── Attempt Error Banner ── */}
-        {attemptError && (
-          <div className="crimes-error-banner">
-            <span>⚠️ {attemptError}</span>
-            <button onClick={() => setAttemptError(null)}>✕</button>
-          </div>
-        )}
 
         {/* ── Jail Banner ── */}
         {isInJail && (
@@ -344,9 +350,7 @@ export default function Crimes() {
         </div>
       </div>
 
-      {/* ════════════════════════════════════════ */}
-      {/* OUTCOME MODAL                           */}
-      {/* ════════════════════════════════════════ */}
+      {/* OUTCOME MODAL */}
       {outcome && (
         <div className="outcome-overlay" onClick={closeOutcome}>
           <div
@@ -367,7 +371,6 @@ export default function Crimes() {
             </div>
             <div className="outcome-message">{outcome.message}</div>
 
-            {/* ── Special Discovery ── */}
             {outcome.special && (
               <div className="outcome-special-box">
                 <div className="outcome-special-title">
@@ -381,7 +384,6 @@ export default function Crimes() {
               </div>
             )}
 
-            {/* ── Details ── */}
             <div className="outcome-details">
               {outcome.rewards.money > 0 && (
                 <div className="outcome-detail-item">

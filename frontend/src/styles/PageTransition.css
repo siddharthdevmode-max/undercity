@@ -1,0 +1,15 @@
+.page-transition {
+  width: 100%;
+  height: 100%;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.page-enter {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.page-leave {
+  opacity: 0;
+  transform: translateY(8px);
+}
