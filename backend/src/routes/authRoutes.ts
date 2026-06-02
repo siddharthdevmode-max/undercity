@@ -1,88 +1,112 @@
 import { Router } from "express";
 import { verifyFirebaseToken } from "../middleware/firebaseAuth";
+import { authLimiter, usernameCheckLimiter } from "../middleware/rateLimiter";
+import { validate } from "../middleware/validate";
+import { syncUserSchema, checkUsernameSchema } from "../utils/schemas";
+import { asyncHandler } from "../utils/asyncHandler";
 import { pool } from "../config/database";
+import { logger } from "../utils/logger";
+import { ConflictError, NotFoundError, ValidationError } from "../utils/errors";
 
 const router = Router();
 
+// ============================================================
+// Safe user fields — never SELECT *
+// ============================================================
+const USER_FIELDS = `
+  id, firebase_uid, email, username, level, money, points,
+  nerve, max_nerve, life, max_life,
+  jail_until, federal_jail_until, last_crime_at,
+  created_at
+`;
+
+// ============================================================
 // POST /api/auth/sync
-router.post("/sync", verifyFirebaseToken, async (req, res) => {
-  try {
+// ============================================================
+router.post(
+  "/sync",
+  authLimiter,
+  verifyFirebaseToken,
+  validate(syncUserSchema),
+  asyncHandler(async (req, res) => {
     const firebaseUser = (req as any).firebaseUser;
     const { uid, email } = firebaseUser;
-    const { username } = req.body;
+    const { username } = req.body as { username?: string };
 
     const existing = await pool.query(
-      "SELECT * FROM users WHERE firebase_uid = $1",
+      `SELECT ${USER_FIELDS} FROM users WHERE firebase_uid = $1 LIMIT 1`,
       [uid]
     );
 
-    let user;
-
-    if (existing.rows.length === 0) {
-      const newUser = await pool.query(
-        `INSERT INTO users (
-          firebase_uid,
-          email,
-          username,
-          money,
-          level,
-          points,
-          nerve,
-          max_nerve,
-          life,
-          max_life,
-          jail_until,
-          federal_jail_until,
-          last_crime_at
-        )
-        VALUES ($1, $2, $3, 750, 1, 0, 30, 30, 100, 100, NULL, NULL, NULL)
-        RETURNING *`,
-        [uid, email, username]
-      );
-      user = newUser.rows[0];
-    } else {
-      user = existing.rows[0];
+    if (existing.rows.length > 0) {
+      return res.json(existing.rows[0]);
     }
 
-    res.json(user);
+    if (!username) {
+      throw new ValidationError("Username is required for new accounts");
+    }
 
-  } catch (error: any) {
-    console.error(error);
-    res.status(500).json({ message: "Sync failed", error: error.message });
-  }
-});
+    const usernameTaken = await pool.query(
+      `SELECT id FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,
+      [username]
+    );
 
+    if (usernameTaken.rows.length > 0) {
+      throw new ConflictError("Username is already taken");
+    }
+
+    const newUser = await pool.query(
+      `INSERT INTO users (
+        firebase_uid, email, username,
+        money, level, points,
+        nerve, max_nerve, life, max_life,
+        jail_until, federal_jail_until, last_crime_at
+      )
+      VALUES ($1, $2, $3, 750, 1, 0, 30, 30, 100, 100, NULL, NULL, NULL)
+      RETURNING ${USER_FIELDS}`,
+      [uid, email, username]
+    );
+
+    logger.info(`👤 New user created: ${username} (${uid.substring(0, 8)}...)`);
+    res.status(201).json(newUser.rows[0]);
+  })
+);
+
+// ============================================================
 // GET /api/auth/me
-router.get("/me", verifyFirebaseToken, async (req, res) => {
-  try {
+// ============================================================
+router.get(
+  "/me",
+  authLimiter,
+  verifyFirebaseToken,
+  asyncHandler(async (req, res) => {
     const firebaseUser = (req as any).firebaseUser;
     const { uid } = firebaseUser;
 
     const result = await pool.query(
-      "SELECT * FROM users WHERE firebase_uid = $1",
+      `SELECT ${USER_FIELDS} FROM users WHERE firebase_uid = $1 LIMIT 1`,
       [uid]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: "User not found" });
+      throw new NotFoundError("User");
     }
 
     res.json(result.rows[0]);
+  })
+);
 
-  } catch (error: any) {
-    console.error(error);
-    res.status(500).json({ message: "Failed to fetch user", error: error.message });
-  }
-});
-
+// ============================================================
 // GET /api/auth/check-username/:username
-// Public endpoint — no auth required (used during registration)
-router.get("/check-username/:username", async (req, res) => {
-  try {
-    const { username } = req.params;
+// ============================================================
+router.get(
+  "/check-username/:username",
+  usernameCheckLimiter,
+  validate(checkUsernameSchema),
+  asyncHandler(async (req, res) => {
+    const username = String(req.params.username || "");
 
-    // Basic validation
-    if (!username || username.length < 3) {
+    if (username.length < 3) {
       return res.json({ available: false, reason: "Too short" });
     }
     if (username.length > 20) {
@@ -93,16 +117,12 @@ router.get("/check-username/:username", async (req, res) => {
     }
 
     const result = await pool.query(
-      "SELECT id FROM users WHERE LOWER(username) = LOWER($1)",
+      `SELECT id FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,
       [username]
     );
 
     res.json({ available: result.rows.length === 0 });
-
-  } catch (error: any) {
-    console.error(error);
-    res.status(500).json({ message: "Check failed", error: error.message });
-  }
-});
+  })
+);
 
 export default router;

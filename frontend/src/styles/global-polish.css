@@ -1,0 +1,145 @@
+/* ============================================================
+   GLOBAL UI POLISH
+   Adds professional finishes across the entire app
+   ============================================================ */
+
+/* Smooth scrolling everywhere */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Better text selection */
+::selection {
+  background: rgba(233, 69, 96, 0.3);
+  color: #fff;
+}
+
+/* Better focus visibility */
+*:focus-visible {
+  outline: 2px solid #e94560;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Disable focus ring for mouse users */
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  transition: background 0.15s;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Smooth image loading */
+img {
+  transition: opacity 0.3s ease;
+}
+
+/* Better link defaults */
+a {
+  color: #e94560;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+a:hover {
+  color: #ff6b85;
+}
+
+/* Disable tap highlight on mobile */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Smooth font rendering */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Disable user select on UI chrome */
+.crimes-stats-bar,
+.crimes-header,
+.crime-card-locked-name,
+button {
+  user-select: none;
+}
+
+/* Loading bar at top of page */
+@keyframes loading-bar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.global-loading-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    #e94560 50%,
+    transparent 100%
+  );
+  animation: loading-bar 1.2s ease-in-out infinite;
+  z-index: 9998;
+}
+
+/* Smooth modal backdrops */
+.outcome-overlay,
+.confirm-overlay {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Disable transitions during page transitions (prevents jank) */
+.page-leave * {
+  transition: none !important;
+}
+
+/* Better disabled state for crime buttons */
+button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.3);
+}
+
+/* Mobile responsive base */
+@media (max-width: 768px) {
+  .crimes-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  
+  .crimes-stats-bar {
+    flex-wrap: wrap;
+    gap: 8px !important;
+  }
+  
+  .crimes-stat {
+    flex: 1;
+    min-width: 120px;
+  }
+}
+
+@media (max-width: 480px) {
+  .crimes-grid {
+    grid-template-columns: 1fr !important;
+  }
+  
+  .crimes-title {
+    font-size: 24px !important;
+  }
+}

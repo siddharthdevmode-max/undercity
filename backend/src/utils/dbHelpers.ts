@@ -1,47 +1,50 @@
-import { PoolClient, QueryResult } from "pg";
+import { PoolClient, QueryResult, QueryResultRow } from "pg";
 import { pool } from "../config/database";
 import { logger } from "./logger";
 
 // ============================================================
 // TYPE-SAFE DATABASE HELPERS
-// Cleaner alternative to raw pool.query everywhere
-// Includes automatic transaction management
+// Now with persistent slow query logging
 // ============================================================
 
-/**
- * Run a query and return typed rows
- */
-export async function query<T = any>(
+const SLOW_QUERY_THRESHOLD_MS = 100;
+
+async function logSlowQueryToDB(query: string, durationMs: number, rows: number) {
+  // Fire & forget - don't await, don't break the app if it fails
+  pool.query(
+    `INSERT INTO slow_queries (query_text, duration_ms, rows_returned) VALUES ($1, $2, $3)`,
+    [query.substring(0, 500), durationMs, rows]
+  ).catch(() => {
+    // Silent fail - table may not exist yet during migrations
+  });
+}
+
+export async function query<T extends QueryResultRow = any>(
   text: string,
   params?: any[]
 ): Promise<T[]> {
   const start = Date.now();
   try {
-    const result: QueryResult<T> = await pool.query(text, params);
+    const result: QueryResult<T> = await pool.query<T>(text, params);
     const duration = Date.now() - start;
-    
-    if (duration > 100) {
+
+    if (duration > SLOW_QUERY_THRESHOLD_MS) {
       logger.warn("Slow query detected", {
         duration_ms: duration,
         rows: result.rowCount,
         sql: text.substring(0, 100),
       });
+      logSlowQueryToDB(text, duration, result.rowCount || 0);
     }
-    
+
     return result.rows;
   } catch (error: any) {
-    logger.error("Query failed", {
-      error: error.message,
-      sql: text.substring(0, 100),
-    });
+    logger.error("Query failed", { error: error.message, sql: text.substring(0, 100) });
     throw error;
   }
 }
 
-/**
- * Get a single row or null
- */
-export async function queryOne<T = any>(
+export async function queryOne<T extends QueryResultRow = any>(
   text: string,
   params?: any[]
 ): Promise<T | null> {
@@ -49,10 +52,6 @@ export async function queryOne<T = any>(
   return rows[0] || null;
 }
 
-/**
- * Run multiple queries in a transaction
- * Auto-commits on success, rolls back on error
- */
 export async function transaction<T>(
   callback: (client: PoolClient) => Promise<T>
 ): Promise<T> {
@@ -70,9 +69,6 @@ export async function transaction<T>(
   }
 }
 
-/**
- * Get pool statistics (for monitoring)
- */
 export function getPoolStats() {
   return {
     total: pool.totalCount,

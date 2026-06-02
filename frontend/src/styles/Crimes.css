@@ -440,3 +440,69 @@
     gap: 12px;
   }
 }
+
+/* ════════════════════════════════════════ */
+/* UI POLISH ADDITIONS                     */
+/* ════════════════════════════════════════ */
+
+.crime-commit-btn {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.crime-commit-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+
+.crime-commit-btn:not(:disabled):active {
+  transform: translateY(0);
+}
+
+/* Ripple effect on click */
+.crime-commit-btn:not(:disabled)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.4) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.crime-commit-btn:not(:disabled):active::after {
+  opacity: 1;
+  transition: opacity 0s;
+}
+
+.crime-card {
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.crime-card:not(.crime-card-locked):hover {
+  transform: translateY(-2px);
+}
+
+.crime-stat {
+  transition: all 0.2s ease;
+}
+
+/* Outcome modal entrance */
+.outcome-card {
+  animation: outcome-pop-in 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes outcome-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Loading state on attempt */
+.crime-commit-btn:disabled {
+  opacity: 0.6;
+}

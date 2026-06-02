@@ -1,8 +1,8 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Undercity backend - Crime MMO API",
+  "main": "dist/app.js",
   "scripts": {
     "dev": "ts-node src/app.ts",
     "build": "tsc",
@@ -13,10 +13,11 @@
     "migrate:create": "node-pg-migrate create",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "backup": "ts-node src/scripts/backupDatabase.ts"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["mmo", "crime", "game", "api"],
+  "author": "Challenger_69",
   "license": "ISC",
   "dependencies": {
     "@types/express": "^5.0.6",

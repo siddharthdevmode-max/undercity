@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { authAdmin } from "../config/firebase";
+import { logger } from "../utils/logger";
 
 export const verifyFirebaseToken = async (
   req: Request,
@@ -14,11 +15,20 @@ export const verifyFirebaseToken = async (
 
   const token = header.split(" ")[1];
 
+  if (!token) {
+    return res.status(401).json({ message: "Malformed token" });
+  }
+
   try {
     const decoded = await authAdmin.verifyIdToken(token);
     (req as any).firebaseUser = decoded;
     next();
-  } catch (err) {
+  } catch (err: any) {
+    logger.warn("🔐 Firebase token verification failed", {
+      error: err.message,
+      code: err.code,
+      path: req.path,
+    });
     return res.status(401).json({ message: "Invalid token" });
   }
 };

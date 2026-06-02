@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-import { validateEnv } from "./utils/envValidator";
+import { validateEnv, getAllowedOrigins } from "./utils/envValidator";
 validateEnv();
 
 import authRoutes from "./routes/authRoutes";
@@ -24,14 +24,38 @@ import { setupSecurityMiddleware } from "./middleware/securityMiddleware";
 
 const app = express();
 
+// ─── Trust proxy (needed for Cloudflare / load balancers) ───
+app.set("trust proxy", 1);
+
 // ─── Production middleware (Helmet, Compression, Morgan) ───
 setupSecurityMiddleware(app);
 
+// ─── CORS — strict whitelist ───
+const allowedOrigins = getAllowedOrigins();
+logger.info(`🌐 CORS allowed origins: ${allowedOrigins.join(", ")}`);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      logger.warn(`🚫 CORS blocked request from origin: ${origin}`);
+      return callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-uac-challenge", "x-request-id"],
+  })
+);
+
 // ─── Core middleware ───
-app.use(cors());
-app.use(express.json({ limit: "100kb" })); // Prevent huge payloads
+app.use(express.json({ limit: "100kb" }));
 app.use(requestId);
-app.set("trust proxy", 1);
 
 // ─── API Documentation ───
 setupApiDocs(app);

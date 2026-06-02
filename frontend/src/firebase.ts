@@ -1,12 +1,29 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 
+// ============================================================
+// FIREBASE CONFIG — all values come from environment variables
+// Set these in frontend/.env (local) and Cloudflare dashboard (prod)
+// ============================================================
+
 const firebaseConfig = {
-  apiKey: "AIzaSyCCxMNtpL_dQQ9uj_9j-IHVFIi0gxQiW38",
-  authDomain: "undercity-98ecd.firebaseapp.com",
-  projectId: "undercity-98ecd",
-  appId: "1:421884365063:web:6bca404ae0097acac55da2",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
+
+// Fail loudly in dev if any var is missing
+if (
+  !firebaseConfig.apiKey ||
+  !firebaseConfig.authDomain ||
+  !firebaseConfig.projectId ||
+  !firebaseConfig.appId
+) {
+  throw new Error(
+    "Missing Firebase environment variables. Check your .env file."
+  );
+}
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
