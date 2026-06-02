@@ -22,7 +22,6 @@ export default function Shell({ children }: Props) {
   const location  = useLocation();
   const auth      = getAuth();
 
-  // Local stat state — starts from auth user, patches via event bus
   const [stats, setStats] = useState({
     money:    authUser?.money    ?? 0,
     life:     authUser?.life     ?? 0,
@@ -32,7 +31,6 @@ export default function Shell({ children }: Props) {
     level:    authUser?.level    ?? 1,
   });
 
-  // Sync stats when auth user first loads or changes
   useEffect(() => {
     if (authUser) {
       setStats({
@@ -46,7 +44,6 @@ export default function Shell({ children }: Props) {
     }
   }, [authUser]);
 
-  // Subscribe to live updates from crimes/other game actions
   useEffect(() => {
     const unsub = userEvents.subscribe((update) => {
       setStats((prev) => ({
@@ -72,7 +69,7 @@ export default function Shell({ children }: Props) {
 
   if (loading) {
     return (
-      <div className="loading-screen">
+      <div className="loading-screen" role="status" aria-live="polite">
         <div className="loading-text">Entering Undercity...</div>
       </div>
     );
@@ -92,24 +89,24 @@ export default function Shell({ children }: Props) {
     <div className="game-shell">
 
       {/* ── Top Header ── */}
-      <header className="game-header">
+      <header className="game-header" role="banner">
         <div className="logo">UNDERCITY</div>
 
-        <div className="header-stats">
-          <span className="header-stat">
+        <div className="header-stats" role="group" aria-label="Player stats">
+          <span className="header-stat" aria-label={`Money: ${stats.money} dollars`}>
             💰 ${stats.money.toLocaleString()}
           </span>
-          <span className="header-stat">
+          <span className="header-stat" aria-label={`Life: ${stats.life} out of ${stats.maxLife}`}>
             ❤️ {stats.life}/{stats.maxLife}
           </span>
-          <span className="header-stat">
+          <span className="header-stat" aria-label={`Nerve: ${stats.nerve} out of ${stats.maxNerve}`}>
             🧠 {stats.nerve}/{stats.maxNerve}
           </span>
         </div>
 
         <div className="user-info">
           <span className="username">{authUser?.username}</span>
-          <button onClick={handleLogout} className="logout-btn">
+          <button onClick={handleLogout} className="logout-btn" aria-label="Log out">
             Logout
           </button>
         </div>
@@ -118,35 +115,46 @@ export default function Shell({ children }: Props) {
       <div className="game-content">
 
         {/* ── Sidebar ── */}
-        <aside className="sidebar">
+        <aside className="sidebar" aria-label="Player information">
           <div className="player-card">
             <div className="player-name">{authUser?.username}</div>
             <div className="player-level">Level {stats.level}</div>
 
             <div className="stat-bar">
               <div className="stat-bar-header">
-                <label>Life</label>
+                <label htmlFor="life-progress">Life</label>
                 <span>{stats.life}/{stats.maxLife}</span>
               </div>
-              <progress value={stats.life} max={stats.maxLife} />
+              <progress
+                id="life-progress"
+                value={stats.life}
+                max={stats.maxLife}
+                aria-label={`Life: ${stats.life} of ${stats.maxLife}`}
+              />
             </div>
 
             <div className="stat-bar">
               <div className="stat-bar-header">
-                <label>Nerve</label>
+                <label htmlFor="nerve-progress">Nerve</label>
                 <span>{stats.nerve}/{stats.maxNerve}</span>
               </div>
-              <progress value={stats.nerve} max={stats.maxNerve} />
+              <progress
+                id="nerve-progress"
+                value={stats.nerve}
+                max={stats.maxNerve}
+                aria-label={`Nerve: ${stats.nerve} of ${stats.maxNerve}`}
+              />
             </div>
           </div>
 
           {/* ── Nav ── */}
-          <nav className="sidebar-nav">
+          <nav className="sidebar-nav" aria-label="Main navigation">
             {navItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
                 className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
+                aria-current={location.pathname === item.path ? 'page' : undefined}
               >
                 {item.label}
               </Link>
@@ -155,7 +163,7 @@ export default function Shell({ children }: Props) {
         </aside>
 
         {/* ── Main Content ── */}
-        <main className="main-content">
+        <main className="main-content" id="main-content" tabIndex={-1}>
           {children}
         </main>
 

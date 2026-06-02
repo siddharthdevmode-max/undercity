@@ -16,6 +16,7 @@
     "react-router-dom": "^7.16.0"
   },
   "devDependencies": {
+    "@axe-core/cli": "^4.11.3",
     "@eslint/js": "^10.0.1",
     "@types/crypto-js": "^4.2.2",
     "@types/node": "^24.12.3",

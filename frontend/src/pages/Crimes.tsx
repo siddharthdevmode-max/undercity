@@ -4,6 +4,7 @@ import { crimesAPI } from "../services/crimes";
 import type { Crime, UserStats, CrimeAttemptResponse } from "../services/crimes";
 import { toast } from "../components/ui/Toast";
 import { CrimesGridSkeleton } from "../components/ui/Skeleton";
+import { Modal } from "../components/ui/Modal";
 import { userEvents } from "../utils/userEvents";
 import "../styles/Crimes.css";
 
@@ -72,7 +73,6 @@ export default function Crimes() {
   const [jailTimer, setJailTimer]         = useState(0);
   const [federalJailTimer, setFederalJailTimer] = useState(0);
 
-  // ── Load crimes ──
   const loadCrimes = useCallback(async () => {
     try {
       setError(null);
@@ -92,7 +92,6 @@ export default function Crimes() {
     loadCrimes();
   }, [loadCrimes]);
 
-  // ── Jail timer countdown ──
   useEffect(() => {
     if (!user) return;
     const updateTimers = () => {
@@ -104,7 +103,6 @@ export default function Crimes() {
     return () => clearInterval(interval);
   }, [user]);
 
-  // ── Attempt crime ──
   const handleAttempt = async (crimeKey: string) => {
     if (attempting) return;
     setAttempting(crimeKey);
@@ -119,7 +117,6 @@ export default function Crimes() {
         toast.error(`💀 ${result.message}`, 5000);
       }
 
-      // Patch local user state
       setUser((prev) => {
         if (!prev) return prev;
         return {
@@ -141,7 +138,6 @@ export default function Crimes() {
         };
       });
 
-      // ── Broadcast stat changes to Shell and any other subscribers ──
       userEvents.emit({
         money:    result.user.money,
         nerve:    result.user.nerve,
@@ -167,7 +163,6 @@ export default function Crimes() {
 
   const closeOutcome = () => setOutcome(null);
 
-  // ── Loading state ──
   if (loading) {
     return (
       <Shell>
@@ -181,11 +176,10 @@ export default function Crimes() {
     );
   }
 
-  // ── Error state ──
   if (error) {
     return (
       <Shell>
-        <div className="crimes-error">
+        <div className="crimes-error" role="alert">
           <p>❌ {error}</p>
           <button className="crimes-retry-btn" onClick={loadCrimes}>Retry</button>
         </div>
@@ -199,32 +193,33 @@ export default function Crimes() {
     return a.id - b.id;
   });
 
+  const outcomeStyle = outcome ? getOutcomeStyle(outcome.outcome) : null;
+
   return (
     <Shell>
       <div className="crimes-container">
 
-        {/* ── Header with Stats ── */}
         <div className="crimes-header">
           <h1 className="crimes-title">🔪 Crimes</h1>
           {user && (
-            <div className="crimes-stats-bar">
+            <div className="crimes-stats-bar" role="group" aria-label="Player stats">
               <div className="crimes-stat crimes-stat-nerve">
-                <span className="crimes-stat-icon">⚡</span>
+                <span className="crimes-stat-icon" aria-hidden>⚡</span>
                 <span className="crimes-stat-label">Nerve</span>
                 <span className="crimes-stat-value">{user.nerve}/{user.maxNerve}</span>
               </div>
               <div className="crimes-stat crimes-stat-life">
-                <span className="crimes-stat-icon">❤️</span>
+                <span className="crimes-stat-icon" aria-hidden>❤️</span>
                 <span className="crimes-stat-label">Life</span>
                 <span className="crimes-stat-value">{user.life}/{user.maxLife}</span>
               </div>
               <div className="crimes-stat crimes-stat-money">
-                <span className="crimes-stat-icon">💰</span>
+                <span className="crimes-stat-icon" aria-hidden>💰</span>
                 <span className="crimes-stat-label">Cash</span>
                 <span className="crimes-stat-value">{formatMoney(user.money)}</span>
               </div>
               <div className="crimes-stat crimes-stat-level">
-                <span className="crimes-stat-icon">🎯</span>
+                <span className="crimes-stat-icon" aria-hidden>🎯</span>
                 <span className="crimes-stat-label">Level</span>
                 <span className="crimes-stat-value">{user.level}</span>
               </div>
@@ -232,9 +227,8 @@ export default function Crimes() {
           )}
         </div>
 
-        {/* ── Jail Banner ── */}
         {isInJail && (
-          <div className="crimes-jail-banner">
+          <div className="crimes-jail-banner" role="alert">
             <div className="crimes-jail-title">
               {federalJailTimer > 0 ? "🏛️ FEDERAL JAIL" : "⛓️ IN JAIL"}
             </div>
@@ -244,8 +238,7 @@ export default function Crimes() {
           </div>
         )}
 
-        {/* ── 5x5 Grid ── */}
-        <div className="crimes-grid">
+        <div className="crimes-grid" role="grid" aria-label="Available crimes">
           {sortedCrimes.map((crime) => {
             const tierColor  = TIER_COLORS[crime.tier];
             const canAttempt =
@@ -261,6 +254,7 @@ export default function Crimes() {
                   key={crime.id}
                   className="crime-card crime-card-locked"
                   style={{ boxShadow: `inset 0 0 30px ${tierColor.glow}` }}
+                  aria-label={`Locked crime, unlocks at level ${crime.unlockLevel}`}
                 >
                   <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                     <p className="crime-card-locked-name">???</p>
@@ -279,12 +273,14 @@ export default function Crimes() {
                   boxShadow:   `inset 0 0 20px ${tierColor.glow}`,
                 }}
               >
-                {crime.isFederal && <div className="crime-federal-tag">FED</div>}
+                {crime.isFederal && <div className="crime-federal-tag" aria-label="Federal crime">FED</div>}
 
                 <div>
                   <p className="crime-card-name">{crime.name}</p>
                   <div className="crime-card-meta">
-                    <span className="crime-nerve-badge">⚡ {crime.nerveCost}</span>
+                    <span className="crime-nerve-badge" aria-label={`Costs ${crime.nerveCost} nerve`}>
+                      ⚡ {crime.nerveCost}
+                    </span>
                   </div>
                 </div>
 
@@ -292,7 +288,14 @@ export default function Crimes() {
                   <div className="crime-level-text" style={{ color: tierColor.accent }}>
                     {getCrimeLevelLabel(crime.progress.crimeLevel)}
                   </div>
-                  <div className="crime-progress-bar">
+                  <div
+                    className="crime-progress-bar"
+                    role="progressbar"
+                    aria-valuenow={crime.progress.crimeLevel}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label={`${crime.name} mastery progress`}
+                  >
                     <div
                       className="crime-progress-fill"
                       style={{
@@ -306,6 +309,7 @@ export default function Crimes() {
                     style={{ background: canAttempt ? tierColor.accent : undefined }}
                     disabled={!canAttempt}
                     onClick={() => handleAttempt(crime.key)}
+                    aria-label={`Attempt ${crime.name}, costs ${crime.nerveCost} nerve`}
                   >
                     {attempting === crime.key
                       ? "..."
@@ -322,18 +326,17 @@ export default function Crimes() {
         </div>
       </div>
 
-      {/* OUTCOME MODAL */}
-      {outcome && (
-        <div className="outcome-overlay" onClick={closeOutcome}>
-          <div
-            className="outcome-card"
-            style={{ borderColor: getOutcomeStyle(outcome.outcome).color }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="outcome-icon">{getOutcomeStyle(outcome.outcome).icon}</div>
-            <div className="outcome-label" style={{ color: getOutcomeStyle(outcome.outcome).color }}>
-              {getOutcomeStyle(outcome.outcome).label}
-            </div>
+      {/* ── OUTCOME MODAL ── */}
+      {outcome && outcomeStyle && (
+        <Modal
+          isOpen={!!outcome}
+          onClose={closeOutcome}
+          title={outcomeStyle.label}
+          titleId="outcome-modal-title"
+          className="outcome-card"
+        >
+          <div style={{ borderTop: `3px solid ${outcomeStyle.color}`, paddingTop: '1rem' }}>
+            <div className="outcome-icon" aria-hidden>{outcomeStyle.icon}</div>
             <div className="outcome-message">{outcome.message}</div>
 
             {outcome.special && (
@@ -398,11 +401,11 @@ export default function Crimes() {
               )}
             </div>
 
-            <button className="outcome-close-btn" onClick={closeOutcome}>
+            <button className="outcome-close-btn" onClick={closeOutcome} autoFocus>
               Continue
             </button>
           </div>
-        </div>
+        </Modal>
       )}
     </Shell>
   );

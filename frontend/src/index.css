@@ -170,3 +170,52 @@ input, textarea, select {
 .text-error { color: var(--error); }
 .text-info { color: var(--info); }
 .text-muted { color: var(--text-muted); }
+
+/* ════════════════════════════════════════════════════════════
+   ACCESSIBILITY — SKIP NAVIGATION
+   Invisible until keyboard focused
+   ════════════════════════════════════════════════════════════ */
+.skip-nav {
+  position: absolute;
+  top: -100px;
+  left: 0;
+  z-index: var(--z-tooltip);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--accent);
+  color: white;
+  font-weight: var(--font-bold);
+  border-radius: 0 0 var(--radius-md) 0;
+  transition: top var(--transition-fast);
+  text-decoration: none;
+}
+
+.skip-nav:focus {
+  top: 0;
+  outline: 3px solid white;
+  outline-offset: -3px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   ACCESSIBILITY — FOCUS VISIBLE
+   Better keyboard focus indicators everywhere
+   ════════════════════════════════════════════════════════════ */
+*:focus {
+  outline: none;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Make main content target focusable but not visually outlined */
+main[tabindex="-1"]:focus {
+  outline: none;
+}

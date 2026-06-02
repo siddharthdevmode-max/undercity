@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import SkipNav from './components/SkipNav';
 import Shell from './components/Shell';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -22,6 +23,7 @@ function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <SkipNav />
         <PageTransition>
           <Routes>
             {/* Public Routes */}
