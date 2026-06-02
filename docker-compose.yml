@@ -1,0 +1,72 @@
+# ════════════════════════════════════════════════════════════
+# UNDERCITY LOCAL DEV STACK
+# Run with: docker compose up
+# Stop with: docker compose down
+# Stop + wipe data: docker compose down -v
+# ════════════════════════════════════════════════════════════
+
+services:
+
+  # ─── PostgreSQL Database ───
+  postgres:
+    image: postgres:16-alpine
+    container_name: undercity_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: undercity_user
+      POSTGRES_PASSWORD: undercity123
+      POSTGRES_DB: undercity
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U undercity_user -d undercity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis Cache ───
+  redis:
+    image: redis:7-alpine
+    container_name: undercity_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Backend API (optional - run with `docker compose --profile full up`) ───
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: undercity_backend
+    restart: unless-stopped
+    profiles: ["full"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      DATABASE_URL: postgresql://undercity_user:undercity123@postgres:5432/undercity
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    env_file:
+      - ./backend/.env
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend/firebase-service-account.json:/app/firebase-service-account.json:ro
+
+volumes:
+  postgres_data:
+  redis_data:

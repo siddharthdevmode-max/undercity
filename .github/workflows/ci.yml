@@ -1,0 +1,110 @@
+# ════════════════════════════════════════════════════════════
+# CONTINUOUS INTEGRATION
+# Runs on every push and pull request
+# Tests backend + builds frontend
+# ════════════════════════════════════════════════════════════
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # ─── Backend Tests ───
+  backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: undercity_user
+          POSTGRES_PASSWORD: undercity123
+          POSTGRES_DB: undercity_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U undercity_user"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: TypeScript check
+        working-directory: ./backend
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        working-directory: ./backend
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://undercity_user:undercity123@localhost:5432/undercity_test
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379
+          JWT_SECRET: test-secret-for-ci-only
+          JWT_EXPIRY: 1h
+          ADMIN_UIDS: test-admin-uid
+          ALLOWED_ORIGINS: http://localhost:5173
+          LOG_LEVEL: error
+        run: npm test
+
+  # ─── Frontend Build ───
+  frontend:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: TypeScript check
+        working-directory: ./frontend
+        run: npx tsc --noEmit
+
+      - name: Build
+        working-directory: ./frontend
+        env:
+          VITE_API_URL: http://localhost:5000/api
+          VITE_FIREBASE_API_KEY: dummy_ci_key
+          VITE_FIREBASE_AUTH_DOMAIN: dummy.firebaseapp.com
+          VITE_FIREBASE_PROJECT_ID: dummy
+          VITE_FIREBASE_APP_ID: dummy_app_id
+        run: npm run build

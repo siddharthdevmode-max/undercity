@@ -4,7 +4,7 @@
   "description": "Undercity backend - Crime MMO API",
   "main": "dist/app.js",
   "scripts": {
-    "dev": "ts-node src/app.ts",
+    "dev": "ts-node-dev --respawn --transpile-only --exit-child src/app.ts",
     "build": "tsc",
     "start": "node dist/app.js",
     "test": "vitest run",
@@ -14,9 +14,15 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "backup": "ts-node src/scripts/backupDatabase.ts"
+    "backup": "ts-node src/scripts/backupDatabase.ts",
+    "dev:slow": "ts-node src/app.ts"
   },
-  "keywords": ["mmo", "crime", "game", "api"],
+  "keywords": [
+    "mmo",
+    "crime",
+    "game",
+    "api"
+  ],
   "author": "Challenger_69",
   "license": "ISC",
   "dependencies": {
@@ -54,6 +60,7 @@
     "@types/uuid": "^11.0.0",
     "@vitest/ui": "^4.1.8",
     "supertest": "^7.2.2",
+    "ts-node-dev": "^2.0.0",
     "vitest": "^4.1.8"
   }
 }
