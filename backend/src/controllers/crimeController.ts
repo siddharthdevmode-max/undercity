@@ -8,7 +8,7 @@ import {
   calcMaxNerve,
   calcMaxLife,
 } from "../models/userModels";
-import { logger } from "../utils/logger";
+import { getRequestLogger } from "../utils/logger";
 import { UnauthorizedError, NotFoundError } from "../utils/errors";
 import { recordFingerprint } from "../services/fingerprintEngine";
 import { analyzeBehavior } from "../services/behaviorEngine";
@@ -28,9 +28,9 @@ import {
 
 // ============================================================
 // GET /api/crimes
-// List all crimes with user's progress
 // ============================================================
 export const getCrimes = async (req: Request, res: Response) => {
+  const log = getRequestLogger(req as any);
   const client: PoolClient = await pool.connect();
   try {
     const firebaseUid = (req as any).firebaseUser?.uid;
@@ -127,9 +127,9 @@ export const getCrimes = async (req: Request, res: Response) => {
 
 // ============================================================
 // POST /api/crimes/attempt
-// Clean orchestrator — delegates to crimeService
 // ============================================================
 export const attemptCrime = async (req: Request, res: Response) => {
+  const log = getRequestLogger(req as any);
   const client: PoolClient = await pool.connect();
 
   try {
@@ -144,29 +144,25 @@ export const attemptCrime = async (req: Request, res: Response) => {
 
     // Fire-and-forget anti-cheat tracking
     recordFingerprint(firebaseUid, req.ip, req.headers["user-agent"]).catch(
-      (e) => logger.warn("Fingerprint record failed", { error: e.message })
+      (e) => log.warn("Fingerprint record failed", { error: e.message })
     );
     analyzeBehavior(firebaseUid, req.ip, req.headers["user-agent"]).catch(
-      (e) => logger.warn("Behavior analysis failed", { error: e.message })
+      (e) => log.warn("Behavior analysis failed", { error: e.message })
     );
 
     await client.query("BEGIN");
 
-    // 1. Load user
     const user = await getUserByFirebaseUid(client, firebaseUid);
     if (!user) {
       await client.query("ROLLBACK");
       throw new NotFoundError("User");
     }
 
-    // 2. Pre-flight checks (throws if cooldown / jail)
     assertCanAttempt(user);
 
-    // 3. Load crime + verify requirements
     const crime = await loadCrime(client, crimeKey);
     assertCrimeRequirements(user, crime);
 
-    // 4. Load progress + available special
     const progress = await loadOrCreateProgress(client, user.id, crime.id);
     const availableSpecial = await pickAvailableSpecial(
       client,
@@ -175,14 +171,11 @@ export const attemptCrime = async (req: Request, res: Response) => {
       progress.crime_level
     );
 
-    // 5. Calculate outcome (handles shadow ban internally)
     const outcome = calculateOutcome(crime, progress, availableSpecial, user, trustInfo);
 
-    // 6. Build all new stats
     const totalCrimeXp = await getTotalCrimeXp(client, user.id);
     const stats = buildUpdatedStats(user, crime, progress, outcome, totalCrimeXp);
 
-    // 7. Persist special discovery if happened
     let specialDiscovered = false;
     if (outcome.outcome === "special" && outcome.special) {
       specialDiscovered = await saveSpecialDiscovery(
@@ -194,7 +187,6 @@ export const attemptCrime = async (req: Request, res: Response) => {
     const updatedSpecialsFoundCount =
       progress.specials_found_count + (specialDiscovered ? 1 : 0);
 
-    // 8. Save everything
     await updateProgress(client, user.id, crime.id, {
       crimeXp: stats.crimeXp,
       crimeLevel: stats.crimeLevel,
@@ -219,7 +211,12 @@ export const attemptCrime = async (req: Request, res: Response) => {
 
     await client.query("COMMIT");
 
-    // 9. Respond
+    log.info("Crime attempted", {
+      uid: firebaseUid.substring(0, 8),
+      crime: crime.crime_key,
+      outcome: outcome.outcome,
+    });
+
     return res.json({
       outcome: outcome.outcome,
       message: outcome.message,
@@ -282,7 +279,7 @@ export const attemptCrime = async (req: Request, res: Response) => {
     });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
-    throw error; // Let errorHandler middleware handle it
+    throw error;
   } finally {
     client.release();
   }

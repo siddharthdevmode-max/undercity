@@ -2,9 +2,7 @@ import rateLimit from "express-rate-limit";
 import type { Request } from "express";
 
 // ============================================================
-// SHARED KEY GENERATOR
-// Uses Firebase UID if available, falls back to IP
-// (NOT a shared "anonymous" bucket anymore)
+// SHARED KEY GENERATORS
 // ============================================================
 
 const keyByUidOrIp = (req: Request): string => {
@@ -17,10 +15,8 @@ const keyByIp = (req: Request): string => `ip:${req.ip || "unknown"}`;
 
 // ============================================================
 // CRIME RATE LIMITER
-// Max 30 attempts per minute per user
-// (Lowered from 120 — humans don't crime faster than this)
+// 30 attempts/min — humans can't crime faster
 // ============================================================
-
 export const crimeLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 30,
@@ -36,10 +32,8 @@ export const crimeLimiter = rateLimit({
 
 // ============================================================
 // CHALLENGE RATE LIMITER
-// Max 60 challenge tokens per minute per user
-// (Lowered from 200 — one per action is plenty)
+// 60 tokens/min — one per crime attempt + buffer
 // ============================================================
-
 export const challengeLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
@@ -54,31 +48,43 @@ export const challengeLimiter = rateLimit({
 });
 
 // ============================================================
-// AUTH RATE LIMITER
-// For /auth/sync and /auth/me
-// Max 10 requests per 15 min per IP
-// (Registration & profile fetch should be rare)
+// AUTH SYNC LIMITER (STRICT — registration only)
+// 5 syncs per 15 min per IP — accounts are rare to create
 // ============================================================
-
-export const authLimiter = rateLimit({
+export const authSyncLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 5,
   standardHeaders: true,
   legacyHeaders: false,
   validate: {
     xForwardedForHeader: false,
     keyGeneratorIpFallback: false,
   },
-  message: { message: "Too many auth requests. Try again later." },
+  message: { message: "Too many registration attempts. Try again later." },
   keyGenerator: keyByIp,
 });
 
 // ============================================================
-// USERNAME CHECK LIMITER
-// For /auth/check-username — public endpoint
-// Max 20 per minute per IP
+// AUTH ME LIMITER (LENIENT — called every page load)
+// 120/min per user — covers normal navigation + StrictMode
 // ============================================================
+export const authMeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: {
+    xForwardedForHeader: false,
+    keyGeneratorIpFallback: false,
+  },
+  message: { message: "Too many requests." },
+  keyGenerator: keyByUidOrIp,
+});
 
+// ============================================================
+// USERNAME CHECK LIMITER
+// 20/min per IP — typing username on registration
+// ============================================================
 export const usernameCheckLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
@@ -93,11 +99,9 @@ export const usernameCheckLimiter = rateLimit({
 });
 
 // ============================================================
-// STATS LIMITER
-// For /stats/live — public endpoint
-// Max 30 per minute per IP
+// STATS LIMITER (public endpoint)
+// 30/min per IP
 // ============================================================
-
 export const statsLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 30,

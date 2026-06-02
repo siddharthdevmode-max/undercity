@@ -1,18 +1,19 @@
 import { Router } from "express";
 import { verifyFirebaseToken } from "../middleware/firebaseAuth";
-import { authLimiter, usernameCheckLimiter } from "../middleware/rateLimiter";
+import {
+  authSyncLimiter,
+  authMeLimiter,
+  usernameCheckLimiter,
+} from "../middleware/rateLimiter";
 import { validate } from "../middleware/validate";
 import { syncUserSchema, checkUsernameSchema } from "../utils/schemas";
 import { asyncHandler } from "../utils/asyncHandler";
 import { pool } from "../config/database";
-import { logger } from "../utils/logger";
+import { getRequestLogger } from "../utils/logger";
 import { ConflictError, NotFoundError, ValidationError } from "../utils/errors";
 
 const router = Router();
 
-// ============================================================
-// Safe user fields — never SELECT *
-// ============================================================
 const USER_FIELDS = `
   id, firebase_uid, email, username, level, money, points,
   nerve, max_nerve, life, max_life,
@@ -21,14 +22,15 @@ const USER_FIELDS = `
 `;
 
 // ============================================================
-// POST /api/auth/sync
+// POST /api/auth/sync — strict limit (registration only)
 // ============================================================
 router.post(
   "/sync",
-  authLimiter,
+  authSyncLimiter,
   verifyFirebaseToken,
   validate(syncUserSchema),
   asyncHandler(async (req, res) => {
+    const log = getRequestLogger(req as any);
     const firebaseUser = (req as any).firebaseUser;
     const { uid, email } = firebaseUser;
     const { username } = req.body as { username?: string };
@@ -67,17 +69,20 @@ router.post(
       [uid, email, username]
     );
 
-    logger.info(`👤 New user created: ${username} (${uid.substring(0, 8)}...)`);
+    log.info("👤 New user created", {
+      username,
+      uid: uid.substring(0, 8),
+    });
     res.status(201).json(newUser.rows[0]);
   })
 );
 
 // ============================================================
-// GET /api/auth/me
+// GET /api/auth/me — lenient limit (called constantly)
 // ============================================================
 router.get(
   "/me",
-  authLimiter,
+  authMeLimiter,
   verifyFirebaseToken,
   asyncHandler(async (req, res) => {
     const firebaseUser = (req as any).firebaseUser;
@@ -97,7 +102,7 @@ router.get(
 );
 
 // ============================================================
-// GET /api/auth/check-username/:username
+// GET /api/auth/check-username/:username — public
 // ============================================================
 router.get(
   "/check-username/:username",
