@@ -3,6 +3,35 @@ import { getAuth } from "firebase/auth";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 // ============================================================
+// TRANSFORM
+// Converts raw DB snake_case user to camelCase for React
+// ============================================================
+
+function transformUser(raw: any): any {
+  return {
+    id:         raw.id,
+    username:   raw.username,
+    email:      raw.email,
+    level:      raw.level,
+    money:      raw.money,
+    experience: raw.experience,
+    points:     raw.points,
+    strength:   raw.strength,
+    defense:    raw.defense,
+    speed:      raw.speed,
+    dexterity:  raw.dexterity,
+    energy:     raw.energy,
+    maxEnergy:  raw.max_energy,
+    nerve:      raw.nerve,
+    maxNerve:   raw.max_nerve,
+    life:       raw.life,
+    maxLife:    raw.max_life,
+    happiness:  raw.happiness,
+    status:     raw.status,
+  };
+}
+
+// ============================================================
 // CHALLENGE TOKEN FETCHER
 // Gets a one-time token from the SERVER
 // No secret ever lives in the frontend
@@ -97,7 +126,12 @@ export const authAPI = {
       method: "POST",
       body: JSON.stringify({ username }),
     }),
-  me: () => apiCall("/auth/me"),
+
+  me: async (): Promise<any> => {
+    const raw = await apiCall("/auth/me");
+    // raw.user if wrapped, or raw directly depending on backend response
+    return transformUser(raw.user ?? raw);
+  },
 };
 
 export async function checkUsernameAvailable(

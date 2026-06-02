@@ -1,13 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import Shell from "../components/Shell";
 import { crimesAPI } from "../services/crimes";
-import type {
-  Crime,
-  UserStats,
-  CrimeAttemptResponse,
-} from "../services/crimes";
+import type { Crime, UserStats, CrimeAttemptResponse } from "../services/crimes";
 import { toast } from "../components/ui/Toast";
 import { CrimesGridSkeleton } from "../components/ui/Skeleton";
+import { userEvents } from "../utils/userEvents";
 import "../styles/Crimes.css";
 
 // ════════════════════════════════════════
@@ -15,11 +12,11 @@ import "../styles/Crimes.css";
 // ════════════════════════════════════════
 
 const TIER_COLORS: Record<number, { glow: string; accent: string }> = {
-  1: { glow: "rgba(46,204,113,0.15)", accent: "#2ecc71" },
-  2: { glow: "rgba(241,196,15,0.15)", accent: "#f1c40f" },
-  3: { glow: "rgba(230,126,34,0.15)", accent: "#e67e22" },
-  4: { glow: "rgba(231,76,60,0.15)", accent: "#e74c3c" },
-  5: { glow: "rgba(155,89,182,0.15)", accent: "#9b59b6" },
+  1: { glow: "rgba(46,204,113,0.15)",  accent: "#2ecc71" },
+  2: { glow: "rgba(241,196,15,0.15)",  accent: "#f1c40f" },
+  3: { glow: "rgba(230,126,34,0.15)",  accent: "#e67e22" },
+  4: { glow: "rgba(231,76,60,0.15)",   accent: "#e74c3c" },
+  5: { glow: "rgba(155,89,182,0.15)",  accent: "#9b59b6" },
 };
 
 // ════════════════════════════════════════
@@ -42,16 +39,11 @@ function formatMoney(amount: number): string {
 
 function getOutcomeStyle(outcome: string) {
   switch (outcome) {
-    case "special":
-      return { color: "#f39c12", icon: "🌟", label: "SPECIAL DISCOVERY" };
-    case "success":
-      return { color: "#2ecc71", icon: "✅", label: "SUCCESS" };
-    case "fail":
-      return { color: "#95a5a6", icon: "❌", label: "FAILED" };
-    case "crit_fail":
-      return { color: "#e74c3c", icon: "💀", label: "CRITICAL FAILURE" };
-    default:
-      return { color: "#95a5a6", icon: "❓", label: "UNKNOWN" };
+    case "special":   return { color: "#f39c12", icon: "🌟", label: "SPECIAL DISCOVERY" };
+    case "success":   return { color: "#2ecc71", icon: "✅", label: "SUCCESS" };
+    case "fail":      return { color: "#95a5a6", icon: "❌", label: "FAILED" };
+    case "crit_fail": return { color: "#e74c3c", icon: "💀", label: "CRITICAL FAILURE" };
+    default:          return { color: "#95a5a6", icon: "❓", label: "UNKNOWN" };
   }
 }
 
@@ -71,13 +63,13 @@ function getCrimeLevelLabel(level: number): string {
 // ════════════════════════════════════════
 
 export default function Crimes() {
-  const [crimes, setCrimes] = useState<Crime[]>([]);
-  const [user, setUser] = useState<UserStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [attempting, setAttempting] = useState<string | null>(null);
-  const [outcome, setOutcome] = useState<CrimeAttemptResponse | null>(null);
-  const [jailTimer, setJailTimer] = useState(0);
+  const [crimes, setCrimes]               = useState<Crime[]>([]);
+  const [user, setUser]                   = useState<UserStats | null>(null);
+  const [loading, setLoading]             = useState(true);
+  const [error, setError]                 = useState<string | null>(null);
+  const [attempting, setAttempting]       = useState<string | null>(null);
+  const [outcome, setOutcome]             = useState<CrimeAttemptResponse | null>(null);
+  const [jailTimer, setJailTimer]         = useState(0);
   const [federalJailTimer, setFederalJailTimer] = useState(0);
 
   // ── Load crimes ──
@@ -121,24 +113,24 @@ export default function Crimes() {
       const result = await crimesAPI.attemptCrime(crimeKey);
       setOutcome(result);
 
-      // Toast feedback based on outcome
       if (result.outcome === "special") {
         toast.success(`🌟 ${result.special?.title || "Special discovered!"}`, 5000);
       } else if (result.outcome === "crit_fail") {
         toast.error(`💀 ${result.message}`, 5000);
       }
 
+      // Patch local user state
       setUser((prev) => {
         if (!prev) return prev;
         return {
           ...prev,
-          money: result.user.money,
-          points: result.user.points,
-          nerve: result.user.nerve,
-          maxNerve: result.user.maxNerve,
-          life: result.user.life,
-          maxLife: result.user.maxLife,
-          jailUntil: result.user.jailUntil,
+          money:           result.user.money,
+          points:          result.user.points,
+          nerve:           result.user.nerve,
+          maxNerve:        result.user.maxNerve,
+          life:            result.user.life,
+          maxLife:         result.user.maxLife,
+          jailUntil:       result.user.jailUntil,
           federalJailUntil: result.user.federalJailUntil,
           inJail:
             !!result.user.jailUntil &&
@@ -147,6 +139,16 @@ export default function Crimes() {
             !!result.user.federalJailUntil &&
             new Date(result.user.federalJailUntil).getTime() > Date.now(),
         };
+      });
+
+      // ── Broadcast stat changes to Shell and any other subscribers ──
+      userEvents.emit({
+        money:    result.user.money,
+        nerve:    result.user.nerve,
+        maxNerve: result.user.maxNerve,
+        life:     result.user.life,
+        maxLife:  result.user.maxLife,
+        points:   result.user.points,
       });
 
       setCrimes((prev) =>
@@ -165,7 +167,7 @@ export default function Crimes() {
 
   const closeOutcome = () => setOutcome(null);
 
-  // ── Loading state with skeleton ──
+  // ── Loading state ──
   if (loading) {
     return (
       <Shell>
@@ -185,16 +187,13 @@ export default function Crimes() {
       <Shell>
         <div className="crimes-error">
           <p>❌ {error}</p>
-          <button className="crimes-retry-btn" onClick={loadCrimes}>
-            Retry
-          </button>
+          <button className="crimes-retry-btn" onClick={loadCrimes}>Retry</button>
         </div>
       </Shell>
     );
   }
 
-  const isInJail = jailTimer > 0 || federalJailTimer > 0;
-
+  const isInJail    = jailTimer > 0 || federalJailTimer > 0;
   const sortedCrimes = [...crimes].sort((a, b) => {
     if (a.tier !== b.tier) return a.tier - b.tier;
     return a.id - b.id;
@@ -203,32 +202,26 @@ export default function Crimes() {
   return (
     <Shell>
       <div className="crimes-container">
+
         {/* ── Header with Stats ── */}
         <div className="crimes-header">
           <h1 className="crimes-title">🔪 Crimes</h1>
-
           {user && (
             <div className="crimes-stats-bar">
               <div className="crimes-stat crimes-stat-nerve">
                 <span className="crimes-stat-icon">⚡</span>
                 <span className="crimes-stat-label">Nerve</span>
-                <span className="crimes-stat-value">
-                  {user.nerve}/{user.maxNerve}
-                </span>
+                <span className="crimes-stat-value">{user.nerve}/{user.maxNerve}</span>
               </div>
               <div className="crimes-stat crimes-stat-life">
                 <span className="crimes-stat-icon">❤️</span>
                 <span className="crimes-stat-label">Life</span>
-                <span className="crimes-stat-value">
-                  {user.life}/{user.maxLife}
-                </span>
+                <span className="crimes-stat-value">{user.life}/{user.maxLife}</span>
               </div>
               <div className="crimes-stat crimes-stat-money">
                 <span className="crimes-stat-icon">💰</span>
                 <span className="crimes-stat-label">Cash</span>
-                <span className="crimes-stat-value">
-                  {formatMoney(user.money)}
-                </span>
+                <span className="crimes-stat-value">{formatMoney(user.money)}</span>
               </div>
               <div className="crimes-stat crimes-stat-level">
                 <span className="crimes-stat-icon">🎯</span>
@@ -246,8 +239,7 @@ export default function Crimes() {
               {federalJailTimer > 0 ? "🏛️ FEDERAL JAIL" : "⛓️ IN JAIL"}
             </div>
             <div className="crimes-jail-time">
-              Time remaining:{" "}
-              {formatTime(federalJailTimer > 0 ? federalJailTimer : jailTimer)}
+              Time remaining: {formatTime(federalJailTimer > 0 ? federalJailTimer : jailTimer)}
             </div>
           </div>
         )}
@@ -255,7 +247,7 @@ export default function Crimes() {
         {/* ── 5x5 Grid ── */}
         <div className="crimes-grid">
           {sortedCrimes.map((crime) => {
-            const tierColor = TIER_COLORS[crime.tier];
+            const tierColor  = TIER_COLORS[crime.tier];
             const canAttempt =
               crime.unlocked &&
               !isInJail &&
@@ -263,7 +255,6 @@ export default function Crimes() {
               user.nerve >= crime.nerveCost &&
               !attempting;
 
-            // ── LOCKED CARD ──
             if (!crime.unlocked) {
               return (
                 <div
@@ -271,67 +262,48 @@ export default function Crimes() {
                   className="crime-card crime-card-locked"
                   style={{ boxShadow: `inset 0 0 30px ${tierColor.glow}` }}
                 >
-                  <div
-                    style={{
-                      flex: 1,
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "center",
-                    }}
-                  >
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                     <p className="crime-card-locked-name">???</p>
-                    <p className="crime-card-locked-sub">
-                      🔒 LEVEL {crime.unlockLevel}
-                    </p>
+                    <p className="crime-card-locked-sub">🔒 LEVEL {crime.unlockLevel}</p>
                   </div>
                 </div>
               );
             }
 
-            // ── UNLOCKED CARD ──
             return (
               <div
                 key={crime.id}
                 className="crime-card"
                 style={{
                   borderColor: `${tierColor.accent}33`,
-                  boxShadow: `inset 0 0 20px ${tierColor.glow}`,
+                  boxShadow:   `inset 0 0 20px ${tierColor.glow}`,
                 }}
               >
-                {crime.isFederal && (
-                  <div className="crime-federal-tag">FED</div>
-                )}
+                {crime.isFederal && <div className="crime-federal-tag">FED</div>}
 
                 <div>
                   <p className="crime-card-name">{crime.name}</p>
                   <div className="crime-card-meta">
-                    <span className="crime-nerve-badge">
-                      ⚡ {crime.nerveCost}
-                    </span>
+                    <span className="crime-nerve-badge">⚡ {crime.nerveCost}</span>
                   </div>
                 </div>
 
                 <div>
-                  <div
-                    className="crime-level-text"
-                    style={{ color: tierColor.accent }}
-                  >
+                  <div className="crime-level-text" style={{ color: tierColor.accent }}>
                     {getCrimeLevelLabel(crime.progress.crimeLevel)}
                   </div>
                   <div className="crime-progress-bar">
                     <div
                       className="crime-progress-fill"
                       style={{
-                        width: `${Math.min(100, crime.progress.crimeLevel)}%`,
+                        width:      `${Math.min(100, crime.progress.crimeLevel)}%`,
                         background: tierColor.accent,
                       }}
                     />
                   </div>
                   <button
                     className="crime-commit-btn"
-                    style={{
-                      background: canAttempt ? tierColor.accent : undefined,
-                    }}
+                    style={{ background: canAttempt ? tierColor.accent : undefined }}
                     disabled={!canAttempt}
                     onClick={() => handleAttempt(crime.key)}
                   >
@@ -355,31 +327,20 @@ export default function Crimes() {
         <div className="outcome-overlay" onClick={closeOutcome}>
           <div
             className="outcome-card"
-            style={{
-              borderColor: getOutcomeStyle(outcome.outcome).color,
-            }}
+            style={{ borderColor: getOutcomeStyle(outcome.outcome).color }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="outcome-icon">
-              {getOutcomeStyle(outcome.outcome).icon}
-            </div>
-            <div
-              className="outcome-label"
-              style={{ color: getOutcomeStyle(outcome.outcome).color }}
-            >
+            <div className="outcome-icon">{getOutcomeStyle(outcome.outcome).icon}</div>
+            <div className="outcome-label" style={{ color: getOutcomeStyle(outcome.outcome).color }}>
               {getOutcomeStyle(outcome.outcome).label}
             </div>
             <div className="outcome-message">{outcome.message}</div>
 
             {outcome.special && (
               <div className="outcome-special-box">
-                <div className="outcome-special-title">
-                  🌟 {outcome.special.title}
-                </div>
+                <div className="outcome-special-title">🌟 {outcome.special.title}</div>
                 {outcome.special.wasNewlyDiscovered && (
-                  <div className="outcome-special-new">
-                    ✨ NEW DISCOVERY
-                  </div>
+                  <div className="outcome-special-new">✨ NEW DISCOVERY</div>
                 )}
               </div>
             )}
@@ -431,9 +392,7 @@ export default function Crimes() {
                     ⛓️ {formatTime(outcome.penalties.jailSeconds)}
                   </span>
                   <span className="outcome-detail-label">
-                    {outcome.penalties.jailType === "federal"
-                      ? "FEDERAL JAIL"
-                      : "JAIL"}
+                    {outcome.penalties.jailType === "federal" ? "FEDERAL JAIL" : "JAIL"}
                   </span>
                 </div>
               )}

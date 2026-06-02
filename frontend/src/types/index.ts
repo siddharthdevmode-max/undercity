@@ -11,11 +11,11 @@ export interface User {
   speed: number;
   dexterity: number;
   energy: number;
-  max_energy: number;
+  maxEnergy: number;
   nerve: number;
-  max_nerve: number;
+  maxNerve: number;
   life: number;
-  max_life: number;
+  maxLife: number;
   happiness: number;
   status: string;
 }

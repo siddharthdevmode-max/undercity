@@ -1,17 +1,65 @@
+import { useEffect, useState } from 'react';
 import '../styles/Home.css';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { getAuth, signOut } from 'firebase/auth';
 import { useAuth } from '../hooks/useAuth';
+import { userEvents } from '../utils/userEvents';
 
 interface Props {
   children: React.ReactNode;
 }
 
+// ============================================================
+// SHELL
+// Layout wrapper with sidebar + header
+// Gets initial user from AuthContext
+// Subscribes to userEvents for live stat updates after crimes
+// ============================================================
+
 export default function Shell({ children }: Props) {
-  const { user, loading } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const auth = getAuth();
+  const { user: authUser, loading } = useAuth();
+  const navigate  = useNavigate();
+  const location  = useLocation();
+  const auth      = getAuth();
+
+  // Local stat state — starts from auth user, patches via event bus
+  const [stats, setStats] = useState({
+    money:    authUser?.money    ?? 0,
+    life:     authUser?.life     ?? 0,
+    maxLife:  authUser?.maxLife  ?? 100,
+    nerve:    authUser?.nerve    ?? 0,
+    maxNerve: authUser?.maxNerve ?? 30,
+    level:    authUser?.level    ?? 1,
+  });
+
+  // Sync stats when auth user first loads or changes
+  useEffect(() => {
+    if (authUser) {
+      setStats({
+        money:    authUser.money,
+        life:     authUser.life,
+        maxLife:  authUser.maxLife,
+        nerve:    authUser.nerve,
+        maxNerve: authUser.maxNerve,
+        level:    authUser.level,
+      });
+    }
+  }, [authUser]);
+
+  // Subscribe to live updates from crimes/other game actions
+  useEffect(() => {
+    const unsub = userEvents.subscribe((update) => {
+      setStats((prev) => ({
+        money:    update.money    ?? prev.money,
+        life:     update.life     ?? prev.life,
+        maxLife:  update.maxLife  ?? prev.maxLife,
+        nerve:    update.nerve    ?? prev.nerve,
+        maxNerve: update.maxNerve ?? prev.maxNerve,
+        level:    update.level    ?? prev.level,
+      }));
+    });
+    return unsub;
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -49,18 +97,18 @@ export default function Shell({ children }: Props) {
 
         <div className="header-stats">
           <span className="header-stat">
-            💰 ${Number(user?.money ?? 0).toLocaleString()}
+            💰 ${stats.money.toLocaleString()}
           </span>
           <span className="header-stat">
-            ❤️ {user?.life ?? 0}/{user?.max_life ?? 100}
+            ❤️ {stats.life}/{stats.maxLife}
           </span>
           <span className="header-stat">
-            🧠 {user?.nerve ?? 0}/{user?.max_nerve ?? 30}
+            🧠 {stats.nerve}/{stats.maxNerve}
           </span>
         </div>
 
         <div className="user-info">
-          <span className="username">{user?.username}</span>
+          <span className="username">{authUser?.username}</span>
           <button onClick={handleLogout} className="logout-btn">
             Logout
           </button>
@@ -72,23 +120,23 @@ export default function Shell({ children }: Props) {
         {/* ── Sidebar ── */}
         <aside className="sidebar">
           <div className="player-card">
-            <div className="player-name">{user?.username}</div>
-            <div className="player-level">Level {user?.level ?? 1}</div>
+            <div className="player-name">{authUser?.username}</div>
+            <div className="player-level">Level {stats.level}</div>
 
             <div className="stat-bar">
               <div className="stat-bar-header">
                 <label>Life</label>
-                <span>{user?.life ?? 0}/{user?.max_life ?? 100}</span>
+                <span>{stats.life}/{stats.maxLife}</span>
               </div>
-              <progress value={user?.life ?? 0} max={user?.max_life ?? 100} />
+              <progress value={stats.life} max={stats.maxLife} />
             </div>
 
             <div className="stat-bar">
               <div className="stat-bar-header">
                 <label>Nerve</label>
-                <span>{user?.nerve ?? 0}/{user?.max_nerve ?? 30}</span>
+                <span>{stats.nerve}/{stats.maxNerve}</span>
               </div>
-              <progress value={user?.nerve ?? 0} max={user?.max_nerve ?? 30} />
+              <progress value={stats.nerve} max={stats.maxNerve} />
             </div>
           </div>
 
