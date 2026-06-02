@@ -7,6 +7,8 @@ export interface LiveStats {
   casino24h: number;
 }
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api"\;
+
 const FALLBACK: LiveStats = {
   onlineNow: 47,
   last3Hours: 312,
@@ -18,13 +20,13 @@ const FALLBACK: LiveStats = {
 
 export async function getLiveStats(): Promise<LiveStats> {
   try {
-    const res = await fetch('http://localhost:5000/api/stats/live');
+    const res = await fetch(`${API_BASE_URL}/stats/live`);
     if (res.ok) {
       const data = await res.json();
       return { ...FALLBACK, ...data };
     }
   } catch (e) {
-    // backend not ready yet — use fallback silently
+    // backend not reachable — use fallback silently
   }
   return FALLBACK;
 }
