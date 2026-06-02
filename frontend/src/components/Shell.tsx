@@ -12,8 +12,8 @@ interface Props {
 // ============================================================
 // SHELL
 // Layout wrapper with sidebar + header
-// Gets initial user from AuthContext
-// Subscribes to userEvents for live stat updates after crimes
+// Mobile: hamburger menu opens slide-out drawer (Torn-style)
+// Desktop: sidebar always visible
 // ============================================================
 
 export default function Shell({ children }: Props) {
@@ -21,6 +21,8 @@ export default function Shell({ children }: Props) {
   const navigate  = useNavigate();
   const location  = useLocation();
   const auth      = getAuth();
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [stats, setStats] = useState({
     money:    authUser?.money    ?? 0,
@@ -58,6 +60,23 @@ export default function Shell({ children }: Props) {
     return unsub;
   }, []);
 
+  // Close sidebar when route changes (mobile UX)
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  // Lock body scroll when sidebar open on mobile
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [sidebarOpen]);
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -90,6 +109,16 @@ export default function Shell({ children }: Props) {
 
       {/* ── Top Header ── */}
       <header className="game-header" role="banner">
+        <button
+          className="hamburger-btn"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={sidebarOpen}
+          aria-controls="main-sidebar"
+        >
+          {sidebarOpen ? '✕' : '☰'}
+        </button>
+
         <div className="logo">UNDERCITY</div>
 
         <div className="header-stats" role="group" aria-label="Player stats">
@@ -114,8 +143,19 @@ export default function Shell({ children }: Props) {
 
       <div className="game-content">
 
+        {/* ── Sidebar Overlay (mobile only, click to close) ── */}
+        <div
+          className={`sidebar-overlay ${sidebarOpen ? 'active' : ''}`}
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+
         {/* ── Sidebar ── */}
-        <aside className="sidebar" aria-label="Player information">
+        <aside
+          id="main-sidebar"
+          className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}
+          aria-label="Player information and navigation"
+        >
           <div className="player-card">
             <div className="player-name">{authUser?.username}</div>
             <div className="player-level">Level {stats.level}</div>
