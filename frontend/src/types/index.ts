@@ -1,23 +1,32 @@
+// ============================================================
+// USER TYPE
+// CamelCase (transformed from snake_case in api.ts)
+// Matches actual DB schema — no placeholder fields
+// ============================================================
+
 export interface User {
   id: number;
+  firebaseUid: string;
   username: string;
   email: string;
+
+  // Progression
   level: number;
   money: number;
-  experience: number;
   points: number;
-  strength: number;
-  defense: number;
-  speed: number;
-  dexterity: number;
-  energy: number;
-  maxEnergy: number;
+
+  // Vitals
   nerve: number;
   maxNerve: number;
   life: number;
   maxLife: number;
-  happiness: number;
-  status: string;
+
+  // Status timestamps (ISO strings, nullable)
+  jailUntil: string | null;
+  federalJailUntil: string | null;
+  lastCrimeAt: string | null;
+
+  createdAt: string;
 }
 
 export interface AuthResponse {

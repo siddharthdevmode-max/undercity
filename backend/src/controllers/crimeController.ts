@@ -30,7 +30,6 @@ import {
 // GET /api/crimes
 // ============================================================
 export const getCrimes = async (req: Request, res: Response) => {
-  const log = getRequestLogger(req);
   const client: PoolClient = await pool.connect();
   try {
     const firebaseUid = req.firebaseUser?.uid;

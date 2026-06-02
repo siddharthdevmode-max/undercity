@@ -24,7 +24,7 @@ export interface CrimeOutcomeForPunish {
 
 export function applyShadowPunishment(
   outcome: CrimeOutcomeForPunish,
-  trustScore: number
+  _trustScore: number
 ): CrimeOutcomeForPunish {
   // Force fail for most attempts (95% fail rate)
   // Use deterministic random based on time so it feels natural

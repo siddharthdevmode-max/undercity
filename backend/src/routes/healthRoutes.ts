@@ -77,7 +77,7 @@ router.get("/metrics", asyncHandler(async (_req, res) => {
     dbLatency = Date.now() - dbStart;
     dbStatus = 1;
   } catch {
-    dbStatus = 0;
+    // dbStatus already 0
   }
 
   let redisLatency = -1;
@@ -88,7 +88,7 @@ router.get("/metrics", asyncHandler(async (_req, res) => {
     redisLatency = Date.now() - redisStart;
     redisStatus = 1;
   } catch {
-    redisStatus = 0;
+    // redisStatus already 0
   }
 
   const metrics = [

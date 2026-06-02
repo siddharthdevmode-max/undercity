@@ -4,20 +4,18 @@ import { Link } from 'react-router-dom';
 import '../styles/Home.css';
 
 // ============================================================
-// HOME — Dashboard with real schema fields
-// Fields: money, points, nerve, max_nerve, life, max_life,
-//         level, last_crime_at, jail_until
+// HOME — Dashboard with real schema fields (camelCase)
 // ============================================================
 
 export default function Home() {
   const { user } = useAuth();
 
-  const isInJail = user?.jail_until
-    ? new Date(user.jail_until) > new Date()
+  const isInJail = user?.jailUntil
+    ? new Date(user.jailUntil) > new Date()
     : false;
 
-  const isInFederalJail = user?.federal_jail_until
-    ? new Date(user.federal_jail_until) > new Date()
+  const isInFederalJail = user?.federalJailUntil
+    ? new Date(user.federalJailUntil) > new Date()
     : false;
 
   return (
@@ -68,33 +66,33 @@ export default function Home() {
             <tbody>
               <tr>
                 <td>Life</td>
-                <td>{user?.life ?? 0} / {user?.max_life ?? 100}</td>
+                <td>{user?.life ?? 0} / {user?.maxLife ?? 100}</td>
               </tr>
               <tr>
                 <td>Nerve</td>
-                <td>{user?.nerve ?? 0} / {user?.max_nerve ?? 30}</td>
+                <td>{user?.nerve ?? 0} / {user?.maxNerve ?? 30}</td>
               </tr>
               <tr>
                 <td>Last Crime</td>
                 <td>
-                  {user?.last_crime_at
-                    ? new Date(user.last_crime_at).toLocaleTimeString()
+                  {user?.lastCrimeAt
+                    ? new Date(user.lastCrimeAt).toLocaleTimeString()
                     : 'Never'}
                 </td>
               </tr>
-              {isInJail && user?.jail_until && (
+              {isInJail && user?.jailUntil && (
                 <tr>
                   <td>Released</td>
                   <td className="text-error">
-                    {new Date(user.jail_until).toLocaleTimeString()}
+                    {new Date(user.jailUntil).toLocaleTimeString()}
                   </td>
                 </tr>
               )}
-              {isInFederalJail && user?.federal_jail_until && (
+              {isInFederalJail && user?.federalJailUntil && (
                 <tr>
                   <td>Fed Release</td>
                   <td className="text-error">
-                    {new Date(user.federal_jail_until).toLocaleTimeString()}
+                    {new Date(user.federalJailUntil).toLocaleTimeString()}
                   </td>
                 </tr>
               )}

@@ -18,7 +18,7 @@ function loadServiceAccount(): admin.ServiceAccount | null {
   if (envJson) {
     try {
       return JSON.parse(envJson) as admin.ServiceAccount;
-    } catch (err) {
+    } catch {
       throw new Error(
         "FIREBASE_SERVICE_ACCOUNT_JSON env var is not valid JSON"
       );

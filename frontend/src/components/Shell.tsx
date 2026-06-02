@@ -5,7 +5,6 @@ import { getAuth, signOut } from 'firebase/auth';
 import { useAuth } from '../hooks/useAuth';
 import { userEvents } from '../utils/userEvents';
 import { toast } from './ui/Toast';
-import { Toast } from './ui/Toast';
 
 interface Props {
   children: React.ReactNode;

@@ -43,7 +43,7 @@ const honeypotHandler = async (req: Request, res: Response) => {
     }
 
     return res.status(404).json({ message: "Not found" });
-  } catch (error) {
+  } catch {
     return res.status(404).json({ message: "Not found" });
   }
 };

@@ -1,4 +1,5 @@
 import { getAuth } from "firebase/auth";
+import type { User } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
@@ -7,34 +8,46 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
 // Converts raw DB snake_case user to camelCase for React
 // ============================================================
 
-function transformUser(raw: any): any {
+interface RawUser {
+  id: number;
+  firebase_uid: string;
+  username: string;
+  email: string;
+  level: number;
+  money: number;
+  points: number;
+  nerve: number;
+  max_nerve: number;
+  life: number;
+  max_life: number;
+  jail_until: string | null;
+  federal_jail_until: string | null;
+  last_crime_at: string | null;
+  created_at: string;
+}
+
+function transformUser(raw: RawUser): User {
   return {
-    id:         raw.id,
-    username:   raw.username,
-    email:      raw.email,
-    level:      raw.level,
-    money:      raw.money,
-    experience: raw.experience,
-    points:     raw.points,
-    strength:   raw.strength,
-    defense:    raw.defense,
-    speed:      raw.speed,
-    dexterity:  raw.dexterity,
-    energy:     raw.energy,
-    maxEnergy:  raw.max_energy,
-    nerve:      raw.nerve,
-    maxNerve:   raw.max_nerve,
-    life:       raw.life,
-    maxLife:    raw.max_life,
-    happiness:  raw.happiness,
-    status:     raw.status,
+    id:               raw.id,
+    firebaseUid:      raw.firebase_uid,
+    username:         raw.username,
+    email:            raw.email,
+    level:            raw.level,
+    money:            raw.money,
+    points:           raw.points,
+    nerve:            raw.nerve,
+    maxNerve:         raw.max_nerve,
+    life:             raw.life,
+    maxLife:          raw.max_life,
+    jailUntil:        raw.jail_until,
+    federalJailUntil: raw.federal_jail_until,
+    lastCrimeAt:      raw.last_crime_at,
+    createdAt:        raw.created_at,
   };
 }
 
 // ============================================================
 // CHALLENGE TOKEN FETCHER
-// Gets a one-time token from the SERVER
-// No secret ever lives in the frontend
 // ============================================================
 
 async function getChallengeToken(firebaseToken: string): Promise<string> {
@@ -56,7 +69,7 @@ async function getChallengeToken(firebaseToken: string): Promise<string> {
 // CORE API CALL
 // ============================================================
 
-export async function apiCall(endpoint: string, options: any = {}) {
+export async function apiCall(endpoint: string, options: RequestInit = {}) {
   const auth = getAuth();
   const user = auth.currentUser;
 
@@ -67,10 +80,9 @@ export async function apiCall(endpoint: string, options: any = {}) {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${firebaseToken}`,
-    ...options.headers,
+    ...(options.headers as Record<string, string>),
   };
 
-  // For POST/PUT/DELETE: get a challenge token from server
   if (
     options.method === "POST" ||
     options.method === "PUT" ||
@@ -97,10 +109,10 @@ export async function apiCall(endpoint: string, options: any = {}) {
 // PUBLIC API CALL
 // ============================================================
 
-export async function publicCall(endpoint: string, options: any = {}) {
+export async function publicCall(endpoint: string, options: RequestInit = {}) {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...options.headers,
+    ...(options.headers as Record<string, string>),
   };
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -127,9 +139,8 @@ export const authAPI = {
       body: JSON.stringify({ username }),
     }),
 
-  me: async (): Promise<any> => {
+  me: async (): Promise<User> => {
     const raw = await apiCall("/auth/me");
-    // raw.user if wrapped, or raw directly depending on backend response
     return transformUser(raw.user ?? raw);
   },
 };
