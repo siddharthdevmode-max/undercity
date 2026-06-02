@@ -5,7 +5,7 @@ import { ValidationError } from "../utils/errors";
 // ============================================================
 // validate(schema)
 // Generic middleware that validates request against Zod schema
-// Throws ValidationError if invalid -> caught by error handler
+// Uses next(error) — proper Express error pipeline
 // ============================================================
 
 export const validate = (schema: ZodSchema) => {
@@ -21,7 +21,7 @@ export const validate = (schema: ZodSchema) => {
         path: issue.path.join("."),
         message: issue.message,
       }));
-      throw new ValidationError("Invalid request data", formatted);
+      return next(new ValidationError("Invalid request data", formatted));
     }
 
     next();

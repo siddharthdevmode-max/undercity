@@ -30,10 +30,10 @@ import {
 // GET /api/crimes
 // ============================================================
 export const getCrimes = async (req: Request, res: Response) => {
-  const log = getRequestLogger(req as any);
+  const log = getRequestLogger(req);
   const client: PoolClient = await pool.connect();
   try {
-    const firebaseUid = (req as any).firebaseUser?.uid;
+    const firebaseUid = req.firebaseUser?.uid;
     if (!firebaseUid) throw new UnauthorizedError();
 
     const user = await getUserByFirebaseUid(client, firebaseUid);
@@ -129,15 +129,15 @@ export const getCrimes = async (req: Request, res: Response) => {
 // POST /api/crimes/attempt
 // ============================================================
 export const attemptCrime = async (req: Request, res: Response) => {
-  const log = getRequestLogger(req as any);
+  const log = getRequestLogger(req);
   const client: PoolClient = await pool.connect();
 
   try {
-    const firebaseUid = (req as any).firebaseUser?.uid;
+    const firebaseUid = req.firebaseUser?.uid;
     if (!firebaseUid) throw new UnauthorizedError();
 
     const { crimeKey } = req.body as { crimeKey: string };
-    const trustInfo = (req as any).trustInfo || {
+    const trustInfo = req.trustInfo ?? {
       isShadowBanned: false,
       trustScore: 100,
     };

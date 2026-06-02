@@ -30,9 +30,8 @@ router.post(
   verifyFirebaseToken,
   validate(syncUserSchema),
   asyncHandler(async (req, res) => {
-    const log = getRequestLogger(req as any);
-    const firebaseUser = (req as any).firebaseUser;
-    const { uid, email } = firebaseUser;
+    const log = getRequestLogger(req);
+    const { uid, email } = req.firebaseUser!;
     const { username } = req.body as { username?: string };
 
     const existing = await pool.query(
@@ -85,8 +84,7 @@ router.get(
   authMeLimiter,
   verifyFirebaseToken,
   asyncHandler(async (req, res) => {
-    const firebaseUser = (req as any).firebaseUser;
-    const { uid } = firebaseUser;
+    const { uid } = req.firebaseUser!;
 
     const result = await pool.query(
       `SELECT ${USER_FIELDS} FROM users WHERE firebase_uid = $1 LIMIT 1`,

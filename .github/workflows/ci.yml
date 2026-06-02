@@ -62,6 +62,10 @@ jobs:
         working-directory: ./backend
         run: npx tsc --noEmit
 
+      - name: Lint
+        working-directory: ./backend
+        run: npm run lint
+
       - name: Run tests
         working-directory: ./backend
         env:
@@ -75,6 +79,14 @@ jobs:
           ALLOWED_ORIGINS: http://localhost:5173
           LOG_LEVEL: error
         run: npm test
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: backend/coverage/
+          retention-days: 7
 
   # ─── Frontend Build ───
   frontend:

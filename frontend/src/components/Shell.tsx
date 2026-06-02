@@ -4,6 +4,8 @@ import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { getAuth, signOut } from 'firebase/auth';
 import { useAuth } from '../hooks/useAuth';
 import { userEvents } from '../utils/userEvents';
+import { toast } from './ui/Toast';
+import { Toast } from './ui/Toast';
 
 interface Props {
   children: React.ReactNode;
@@ -82,7 +84,7 @@ export default function Shell({ children }: Props) {
       await signOut(auth);
       navigate('/login');
     } catch (err) {
-      console.error('Logout failed', err);
+      toast.error('Logout failed. Please try again.');
     }
   };
 

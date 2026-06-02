@@ -114,3 +114,20 @@ export const statsLimiter = rateLimit({
   message: { message: "Too many requests." },
   keyGenerator: keyByIp,
 });
+
+// ============================================================
+// ADMIN LIMITER (strict — admin actions are rare)
+// 30/min per UID — protects admin endpoints
+// ============================================================
+export const adminLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: {
+    xForwardedForHeader: false,
+    keyGeneratorIpFallback: false,
+  },
+  message: { message: "Too many admin requests." },
+  keyGenerator: keyByUidOrIp,
+});

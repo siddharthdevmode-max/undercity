@@ -48,7 +48,7 @@
 .confirm-btn-cancel:hover { background: rgba(255, 255, 255, 0.12); }
 
 .confirm-btn-confirm.confirm-btn-danger  { background: #e74c3c; color: #fff; }
-.confirm-btn-confirm.confirm-btn-warning { background: #f39c12; color: #fff; }
+.confirm-btn-confirm.confirm-btn-warning { background: #d4820a; color: #fff; }
 .confirm-btn-confirm.confirm-btn-info    { background: #3498db; color: #fff; }
 .confirm-btn-confirm:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); }
 

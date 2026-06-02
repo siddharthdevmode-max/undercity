@@ -62,6 +62,7 @@ const apiSpec = {
           max_life: { type: "integer" },
           jail_until: { type: "string", nullable: true },
           federal_jail_until: { type: "string", nullable: true },
+          last_crime_at: { type: "string", nullable: true },
         },
       },
       Crime: {

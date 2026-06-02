@@ -1,6 +1,7 @@
 import admin from "firebase-admin";
 import path from "path";
 import fs from "fs";
+import { logger } from "../utils/logger";
 
 // ============================================================
 // FIREBASE ADMIN CONFIG
@@ -38,7 +39,7 @@ if (!admin.apps.length) {
   if (process.env.NODE_ENV === "test") {
     // CI / unit tests: skip real Firebase init
     // Tests should mock the auth module if they need it
-    console.log("⚠️  Firebase Admin skipped in test environment");
+    logger.warn("⚠️  Firebase Admin skipped in test environment");
   } else {
     const serviceAccount = loadServiceAccount();
     if (!serviceAccount) {

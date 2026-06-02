@@ -1,7 +1,7 @@
 .site-header {
   position: sticky;
   top: 0;
-  z-index: 100;
+  z-index: var(--z-dropdown);
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border);
 }

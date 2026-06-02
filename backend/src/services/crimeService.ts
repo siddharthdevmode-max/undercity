@@ -128,10 +128,13 @@ export async function pickAvailableSpecial(
          SELECT 1 FROM user_crime_specials ucs
          WHERE ucs.user_id = $3 AND ucs.crime_special_id = cs.id
        )
-     ORDER BY RANDOM() LIMIT 1`,
+`,
     [crimeId, crimeLevel, userId]
   );
-  return result.rows.length > 0 ? parseSpecial(result.rows[0]) : null;
+  // Pick random in app code — avoids ORDER BY RANDOM() table scan
+  if (result.rows.length === 0) return null;
+  const idx = Math.floor(Math.random() * result.rows.length);
+  return parseSpecial(result.rows[idx]);
 }
 
 // ─── Persistence ─────────────────────────────────────────

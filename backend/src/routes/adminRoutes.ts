@@ -6,6 +6,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { validate } from "../middleware/validate";
 import { adminUidParamSchema } from "../utils/schemas";
 import { ForbiddenError } from "../utils/errors";
+import { adminLimiter } from "../middleware/rateLimiter";
 import { logger } from "../utils/logger";
 
 const router = Router();
@@ -13,7 +14,7 @@ const router = Router();
 const ADMIN_UIDS = (process.env.ADMIN_UIDS || "").split(",").filter(Boolean);
 
 const requireAdmin = (req: Request, _res: Response, next: NextFunction) => {
-  const uid = (req as any).firebaseUser?.uid;
+  const uid = req.firebaseUser?.uid;
   if (!uid || !ADMIN_UIDS.includes(uid)) {
     throw new ForbiddenError();
   }
@@ -27,6 +28,7 @@ router.get(
   "/cheaters",
   verifyFirebaseToken,
   requireAdmin,
+  adminLimiter,
   asyncHandler(async (_req, res) => {
     const result = await pool.query(`
       SELECT id, username, firebase_uid, trust_score, total_flags,
@@ -47,6 +49,7 @@ router.get(
   "/violations/:uid",
   verifyFirebaseToken,
   requireAdmin,
+  adminLimiter,
   validate(adminUidParamSchema),
   asyncHandler(async (req, res) => {
     const uid = String(req.params.uid);
@@ -67,6 +70,7 @@ router.post(
   "/unban/:uid",
   verifyFirebaseToken,
   requireAdmin,
+  adminLimiter,
   validate(adminUidParamSchema),
   asyncHandler(async (req, res) => {
     const uid = String(req.params.uid);
@@ -90,6 +94,7 @@ router.get(
   "/stats",
   verifyFirebaseToken,
   requireAdmin,
+  adminLimiter,
   asyncHandler(async (_req, res) => {
     const stats = await pool.query(`
       SELECT
@@ -111,6 +116,7 @@ router.get(
   "/multi-accounts",
   verifyFirebaseToken,
   requireAdmin,
+  adminLimiter,
   asyncHandler(async (_req, res) => {
     const result = await pool.query(`
       SELECT fingerprint_hash, COUNT(DISTINCT firebase_uid) AS account_count,
@@ -131,6 +137,7 @@ router.get(
   "/db-health",
   verifyFirebaseToken,
   requireAdmin,
+  adminLimiter,
   asyncHandler(async (_req, res) => {
     const poolStats = getPoolStats();
 
