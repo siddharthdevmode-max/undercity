@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { verifyFirebaseToken } from "../middleware/firebaseAuth";
 import { flagUser } from "../services/trustEngine";
+import { logger } from "../utils/logger";
 
 const router = Router();
 
@@ -17,17 +18,16 @@ const honeypotHandler = async (req: Request, res: Response) => {
     const uid = firebaseUser?.uid;
 
     if (uid) {
-      console.log(
-        `🍯 HONEYPOT TRIGGERED by ${uid.substring(0, 8)}... ` +
-        `| Path: ${req.path} ` +
-        `| IP: ${req.ip}`
-      );
-      
-      // Massive trust score hit = instant hard ban
+      logger.warn("🍯 HONEYPOT TRIGGERED", {
+        uid: uid.substring(0, 8),
+        path: req.path,
+        ip: req.ip,
+      });
+
       await flagUser({
         firebaseUid: uid,
         violationType: "HONEYPOT_TRIGGERED",
-        details: { 
+        details: {
           path: req.path,
           method: req.method,
           body: req.body,
@@ -36,18 +36,18 @@ const honeypotHandler = async (req: Request, res: Response) => {
         userAgent: req.headers["user-agent"],
       });
     } else {
-      // No auth = still log the IP for fingerprinting later
-      console.log(`🍯 ANONYMOUS HONEYPOT HIT | Path: ${req.path} | IP: ${req.ip}`);
+      logger.warn("🍯 ANONYMOUS HONEYPOT HIT", {
+        path: req.path,
+        ip: req.ip,
+      });
     }
 
-    // Always return generic 404 - never reveal it was a honeypot
     return res.status(404).json({ message: "Not found" });
   } catch (error) {
     return res.status(404).json({ message: "Not found" });
   }
 };
 
-// Tempting endpoints that look real but are traps
 router.post("/admin/add-money", verifyFirebaseToken, honeypotHandler);
 router.post("/admin/set-level", verifyFirebaseToken, honeypotHandler);
 router.post("/debug/skip-jail", verifyFirebaseToken, honeypotHandler);

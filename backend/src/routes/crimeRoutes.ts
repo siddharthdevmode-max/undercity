@@ -4,12 +4,18 @@ import { verifyChallenge } from "../middleware/securityHeaders";
 import { crimeLimiter } from "../middleware/rateLimiter";
 import { checkBanStatus } from "../middleware/banCheck";
 import { validate } from "../middleware/validate";
+import { asyncHandler } from "../utils/asyncHandler";
 import { attemptCrimeSchema } from "../utils/schemas";
 import { getCrimes, attemptCrime } from "../controllers/crimeController";
 
 const router = Router();
 
-router.get("/", verifyFirebaseToken, checkBanStatus, getCrimes);
+router.get(
+  "/",
+  verifyFirebaseToken,
+  checkBanStatus,
+  asyncHandler(getCrimes)
+);
 
 router.post(
   "/attempt",
@@ -17,8 +23,8 @@ router.post(
   checkBanStatus,
   crimeLimiter,
   verifyChallenge,
-  validate(attemptCrimeSchema),  // ← NEW: Validate input with Zod
-  attemptCrime
+  validate(attemptCrimeSchema),
+  asyncHandler(attemptCrime)
 );
 
 export default router;

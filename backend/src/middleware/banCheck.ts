@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { pool } from "../config/database";
+import { logger } from "../utils/logger";
 
 // ============================================================
 // checkBanStatus
@@ -16,33 +17,29 @@ export const checkBanStatus = async (
     const firebaseUser = (req as any).firebaseUser;
     const uid = firebaseUser?.uid;
 
-    if (!uid) {
-      return next(); // Let other middleware handle auth
-    }
+    if (!uid) return next();
 
     const result = await pool.query(
-      `SELECT is_hard_banned, is_shadow_banned, trust_score 
-       FROM users 
-       WHERE firebase_uid = $1 
+      `SELECT is_hard_banned, is_shadow_banned, trust_score
+       FROM users
+       WHERE firebase_uid = $1
        LIMIT 1`,
       [uid]
     );
 
-    if (result.rows.length === 0) {
-      return next(); // User not in DB yet, let other middleware handle
-    }
+    if (result.rows.length === 0) return next();
 
     const { is_hard_banned, is_shadow_banned, trust_score } = result.rows[0];
 
-    // HARD BAN - Block everything
     if (is_hard_banned) {
-      console.log(`🚫 Blocked hard-banned user: ${uid.substring(0, 8)}...`);
-      return res.status(403).json({ 
-        message: "Account suspended for violations of terms of service." 
+      logger.warn("🚫 Blocked hard-banned user", {
+        uid: uid.substring(0, 8),
+      });
+      return res.status(403).json({
+        message: "Account suspended for violations of terms of service.",
       });
     }
 
-    // Attach trust info to request for downstream use
     (req as any).trustInfo = {
       isShadowBanned: !!is_shadow_banned,
       trustScore: trust_score ?? 100,
@@ -50,7 +47,7 @@ export const checkBanStatus = async (
 
     next();
   } catch (error: any) {
-    console.error("Ban check error:", error.message);
-    next(); // Don't break the API if ban check fails
+    logger.error("Ban check error", { error: error.message });
+    next();
   }
 };

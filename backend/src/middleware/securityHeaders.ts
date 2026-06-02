@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import redis from "../config/redis";
 import { flagUser } from "../services/trustEngine";
+import { logger } from "../utils/logger";
 
 // ============================================================
 // verifyChallenge
@@ -22,7 +23,6 @@ export const verifyChallenge = async (
     }
 
     if (!challengeToken) {
-      // No token = likely a script/bot bypassing the frontend
       await flagUser({
         firebaseUid: uid,
         violationType: "INVALID_CHALLENGE",
@@ -37,7 +37,6 @@ export const verifyChallenge = async (
     const exists = await redis.get(redisKey);
 
     if (!exists) {
-      // Token fake, expired, or reused
       await flagUser({
         firebaseUid: uid,
         violationType: "INVALID_CHALLENGE",
@@ -48,12 +47,10 @@ export const verifyChallenge = async (
       return res.status(403).json({ message: "Invalid or expired token." });
     }
 
-    // DELETE token immediately - can never be reused
     await redis.del(redisKey);
-
     next();
   } catch (error: any) {
-    console.error("Challenge verification error:", error);
+    logger.error("Challenge verification error", { error: error.message });
     return res.status(500).json({ message: "Security check failed." });
   }
 };
