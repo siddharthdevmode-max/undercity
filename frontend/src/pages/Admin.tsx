@@ -1,15 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Shell from "../components/Shell";
 import { Modal } from "../components/ui/Modal";
 import { toast } from "../utils/toast";
-import {
-  adminAPI,
+import type {
   AdminStats,
   CheaterUser,
   MultiAccountGroup,
   EarningsAnomaly,
   FullUserProfile,
 } from "../services/admin";
+import { adminAPI } from "../services/admin";
 import "../styles/Admin.css";
 
 type TabType = "cheaters" | "multi" | "earnings";
@@ -76,9 +76,15 @@ export default function Admin() {
     }
   }, []);
 
+  // Use ref to call loadData from effect without lint violation
+  const loadDataRef = useRef(loadData);
   useEffect(() => {
-    void loadData();
+    loadDataRef.current = loadData;
   }, [loadData]);
+
+  useEffect(() => {
+    void loadDataRef.current();
+  }, []);
 
   const openUserProfile = async (uid: string) => {
     setSelectedUid(uid);
@@ -277,7 +283,7 @@ export default function Admin() {
                         </span>
                       </td>
                       <td>{u.total_flags}</td>
-                      <td>{u.last_flag_reason || "—"}</td>
+                      <td>{u.last_flag_reason ?? "—"}</td>
                       <td style={{ fontSize: "0.75rem" }}>{formatDate(u.last_flag_at)}</td>
                       <td>
                         <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -388,7 +394,7 @@ export default function Admin() {
                           style={{ background: "none", padding: 0, color: "var(--accent-primary)" }}
                           onClick={() => void openUserProfile(e.firebase_uid)}
                         >
-                          {e.username || "Unknown"}
+                          {e.username ?? "Unknown"}
                         </button>
                       </td>
                       <td style={{ fontFamily: "monospace", fontSize: "0.75rem" }}>
@@ -398,8 +404,9 @@ export default function Admin() {
                         <span className="trust-badge suspicious">{e.severity}</span>
                       </td>
                       <td style={{ fontSize: "0.75rem" }}>
-                        {e.details.multiplier && `${e.details.multiplier as number}x avg`}
-                        {e.details.current_hour_earnings && ` ($${(e.details.current_hour_earnings as number).toLocaleString()}/hr)`}
+                        {typeof e.details.multiplier === "number" && `${e.details.multiplier}x avg`}
+                        {typeof e.details.current_hour_earnings === "number" &&
+                          ` ($${e.details.current_hour_earnings.toLocaleString()}/hr)`}
                       </td>
                       <td style={{ fontSize: "0.75rem" }}>{formatDate(e.created_at)}</td>
                     </tr>
@@ -415,7 +422,7 @@ export default function Admin() {
       <Modal
         isOpen={!!selectedUid}
         onClose={closeProfile}
-        title={userProfile?.user.username || "Loading..."}
+        title={userProfile?.user.username ?? "Loading..."}
         titleId="user-profile-modal"
         className="user-profile-modal"
       >
@@ -510,13 +517,17 @@ export default function Admin() {
             <div className="user-detail-section">
               <h3>⚡ Actions</h3>
               <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-                {(userProfile.user.is_shadow_banned || userProfile.user.is_hard_banned || userProfile.user.trust_score < 100) && (
+                {(userProfile.user.is_shadow_banned ||
+                  userProfile.user.is_hard_banned ||
+                  userProfile.user.trust_score < 100) && (
                   <button
                     className="admin-btn admin-btn-success"
                     onClick={() => void handleUnban(userProfile.user.firebase_uid)}
                     disabled={!!actionLoading}
                   >
-                    {actionLoading === userProfile.user.firebase_uid ? "..." : "✓ Unban & Restore Trust"}
+                    {actionLoading === userProfile.user.firebase_uid
+                      ? "..."
+                      : "✓ Unban & Restore Trust"}
                   </button>
                 )}
                 {!userProfile.user.is_shadow_banned && !userProfile.user.is_hard_banned && (
