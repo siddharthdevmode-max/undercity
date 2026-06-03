@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import '../styles/Home.css';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { getAuth, signOut } from 'firebase/auth';
 import { useAuth } from '../hooks/useAuth';
 import { userEvents } from '../utils/userEvents';
-import { toast } from './ui/Toast';
+import { toast } from '../utils/toast';
 
 interface Props {
   children: React.ReactNode;
@@ -13,8 +13,9 @@ interface Props {
 // ============================================================
 // SHELL
 // Layout wrapper with sidebar + header
-// Mobile: hamburger menu opens slide-out drawer (Torn-style)
+// Mobile: hamburger menu opens slide-out drawer
 // Desktop: sidebar always visible
+// Stats synced via userEvents bus (no prop drilling)
 // ============================================================
 
 export default function Shell({ children }: Props) {
@@ -25,6 +26,7 @@ export default function Shell({ children }: Props) {
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Derive initial stats from authUser — no useEffect needed
   const [stats, setStats] = useState({
     money:    authUser?.money    ?? 0,
     life:     authUser?.life     ?? 0,
@@ -34,8 +36,12 @@ export default function Shell({ children }: Props) {
     level:    authUser?.level    ?? 1,
   });
 
+  // Sync stats when authUser changes — use ref to avoid
+  // calling setState synchronously in effect body
+  const prevAuthUser = useRef(authUser);
   useEffect(() => {
-    if (authUser) {
+    if (authUser && authUser !== prevAuthUser.current) {
+      prevAuthUser.current = authUser;
       setStats({
         money:    authUser.money,
         life:     authUser.life,
@@ -47,8 +53,9 @@ export default function Shell({ children }: Props) {
     }
   }, [authUser]);
 
+  // Subscribe to live stat updates from crime attempts
   useEffect(() => {
-    const unsub = userEvents.subscribe((update) => {
+    return userEvents.subscribe((update) => {
       setStats((prev) => ({
         money:    update.money    ?? prev.money,
         life:     update.life     ?? prev.life,
@@ -58,31 +65,29 @@ export default function Shell({ children }: Props) {
         level:    update.level    ?? prev.level,
       }));
     });
-    return unsub;
   }, []);
 
-  // Close sidebar when route changes (mobile UX)
+  // Close sidebar when route changes — use ref to avoid
+  // calling setState synchronously in effect body
+  const prevPath = useRef(location.pathname);
   useEffect(() => {
-    setSidebarOpen(false);
+    if (prevPath.current !== location.pathname) {
+      prevPath.current = location.pathname;
+      setSidebarOpen(false);
+    }
   }, [location.pathname]);
 
   // Lock body scroll when sidebar open on mobile
   useEffect(() => {
-    if (sidebarOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
+    document.body.style.overflow = sidebarOpen ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
   }, [sidebarOpen]);
 
   const handleLogout = async () => {
     try {
       await signOut(auth);
       navigate('/login');
-    } catch (err) {
+    } catch {
       toast.error('Logout failed. Please try again.');
     }
   };
@@ -144,7 +149,7 @@ export default function Shell({ children }: Props) {
 
       <div className="game-content">
 
-        {/* ── Sidebar Overlay (mobile only, click to close) ── */}
+        {/* ── Sidebar Overlay (mobile only) ── */}
         <div
           className={`sidebar-overlay ${sidebarOpen ? 'active' : ''}`}
           onClick={() => setSidebarOpen(false)}
@@ -188,7 +193,6 @@ export default function Shell({ children }: Props) {
             </div>
           </div>
 
-          {/* ── Nav ── */}
           <nav className="sidebar-nav" aria-label="Main navigation">
             {navItems.map((item) => (
               <Link

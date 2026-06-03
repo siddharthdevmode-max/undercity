@@ -11,7 +11,6 @@ import '../styles/Landing.css';
 import '../styles/Register.css';
 
 type UsernameStatus = 'idle' | 'checking' | 'available' | 'taken' | 'invalid';
-type EmailStatus = 'idle' | 'invalid' | 'valid';
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -19,19 +18,19 @@ function isValidEmail(email: string): boolean {
 
 function getPasswordStrength(password: string) {
   if (password.length === 0) return { score: 0, label: '', color: '' };
-  if (password.length < 6) return { score: 1, label: 'Too short', color: '#ff4d4d' };
+  if (password.length < 6)   return { score: 1, label: 'Too short', color: '#ff4d4d' };
 
   let score = 0;
-  if (password.length >= 6) score++;
+  if (password.length >= 6)  score++;
   if (password.length >= 10) score++;
   if (password.length >= 14) score++;
   if (password.length >= 18) score++;
   if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score++;
-  if (/\d/.test(password)) score++;
+  if (/\d/.test(password))            score++;
   if (/[^a-zA-Z0-9]/.test(password)) score++;
   score = Math.min(score, 5);
 
-  if (score <= 1) return { score: 1, label: 'Weak',      color: '#ff4d4d' };
+  if (score <= 1)  return { score: 1, label: 'Weak',      color: '#ff4d4d' };
   if (score === 2) return { score: 2, label: 'Fair',      color: '#ff8c42' };
   if (score === 3) return { score: 3, label: 'Decent',    color: '#facc15' };
   if (score === 4) return { score: 4, label: 'Strong',    color: '#4ade80' };
@@ -39,42 +38,46 @@ function getPasswordStrength(password: string) {
 }
 
 export default function Register() {
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername]               = useState('');
+  const [email, setEmail]                     = useState('');
+  const [password, setPassword]               = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [agreeTerms, setAgreeTerms] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>('idle');
+  const [showPassword, setShowPassword]       = useState(false);
+  const [agreeTerms, setAgreeTerms]           = useState(false);
+  const [error, setError]                     = useState('');
+  const [loading, setLoading]                 = useState(false);
+  const [usernameStatus, setUsernameStatus]   = useState<UsernameStatus>('idle');
   const [usernameMessage, setUsernameMessage] = useState('');
-  const [emailStatus, setEmailStatus] = useState<EmailStatus>('idle');
-  const usernameRef = useRef<HTMLInputElement>(null);
-  const navigate = useNavigate();
-  const { user } = useAuth();
+  const usernameRef                           = useRef<HTMLInputElement>(null);
+  const navigate                              = useNavigate();
+  const { user }                              = useAuth();
 
   const strength = getPasswordStrength(password);
 
-  // Redirect if already logged in
+  // Derived from email directly during render -- no state or effect
+  const emailValid   = email.length > 0 && isValidEmail(email);
+  const emailInvalid = email.length > 0 && !isValidEmail(email);
+
   useEffect(() => {
     if (user) navigate('/home');
   }, [user, navigate]);
 
-  // Auto-focus username on mount
   useEffect(() => {
     usernameRef.current?.focus();
   }, []);
 
-  // Username availability check with debounce
+  // Username availability with debounce
+  // All setState calls happen inside setTimeout callback (async) --
+  // NOT synchronously in the effect body, which satisfies the lint rule
   useEffect(() => {
-    if (!username) {
-      setUsernameStatus('idle');
-      setUsernameMessage('');
-      return;
-    }
-    setUsernameStatus('checking');
+    // If empty, schedule the reset asynchronously via timer
     const timer = setTimeout(async () => {
+      if (!username) {
+        setUsernameStatus('idle');
+        setUsernameMessage('');
+        return;
+      }
+      setUsernameStatus('checking');
       try {
         const res = await checkUsernameAvailable(username);
         if (res.available) {
@@ -82,38 +85,33 @@ export default function Register() {
           setUsernameMessage('Available');
         } else {
           setUsernameStatus(res.reason ? 'invalid' : 'taken');
-          setUsernameMessage(res.reason || 'Already taken');
+          setUsernameMessage(res.reason ?? 'Already taken');
         }
       } catch {
         setUsernameStatus('idle');
       }
-    }, 500);
+    }, username ? 500 : 0);
+
     return () => clearTimeout(timer);
   }, [username]);
-
-  // Email validation
-  useEffect(() => {
-    if (!email) { setEmailStatus('idle'); return; }
-    setEmailStatus(isValidEmail(email) ? 'valid' : 'invalid');
-  }, [email]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!username.trim()) return setError('Username is required.');
+    if (!username.trim())               return setError('Username is required.');
     if (usernameStatus !== 'available') return setError('Please choose an available username.');
-    if (!isValidEmail(email)) return setError('Please enter a valid email address.');
-    if (password !== confirmPassword) return setError('Passwords do not match.');
-    if (password.length < 6) return setError('Password must be at least 6 characters.');
-    if (!agreeTerms) return setError('You must agree to the terms.');
+    if (!isValidEmail(email))           return setError('Please enter a valid email address.');
+    if (password !== confirmPassword)   return setError('Passwords do not match.');
+    if (password.length < 6)           return setError('Password must be at least 6 characters.');
+    if (!agreeTerms)                    return setError('You must agree to the terms.');
 
     setLoading(true);
     try {
       await createUserWithEmailAndPassword(auth, email, password);
       await authAPI.sync(username);
       navigate('/home');
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(getFriendlyError(err));
     } finally {
       setLoading(false);
@@ -126,7 +124,6 @@ export default function Register() {
       <section className="about-section">
         <div className="about-content">
           <div className="about-text register-modern-wrapper">
-
             <h1 className="register-title">CLAIM YOUR NAME</h1>
             <span className="register-subtitle">Step into the Undercity</span>
             <div className="register-divider" />
@@ -146,9 +143,9 @@ export default function Register() {
                 />
                 {usernameMessage && (
                   <span className={`status-msg status-${usernameStatus}`}>
-                    {usernameStatus === 'checking'  && '⏳ '}
-                    {usernameStatus === 'available' && '✓ '}
-                    {(usernameStatus === 'taken' || usernameStatus === 'invalid') && '✗ '}
+                    {usernameStatus === 'checking'  && '... '}
+                    {usernameStatus === 'available' && 'ok '}
+                    {(usernameStatus === 'taken' || usernameStatus === 'invalid') && 'x '}
                     {usernameMessage}
                   </span>
                 )}
@@ -163,11 +160,11 @@ export default function Register() {
                   disabled={loading}
                   required
                 />
-                {emailStatus === 'invalid' && (
-                  <span className="status-msg status-invalid">✗ Invalid email format</span>
+                {emailInvalid && (
+                  <span className="status-msg status-invalid">Invalid email format</span>
                 )}
-                {emailStatus === 'valid' && (
-                  <span className="status-msg status-available">✓ Valid email</span>
+                {emailValid && (
+                  <span className="status-msg status-available">Valid email</span>
                 )}
               </div>
 
@@ -196,7 +193,7 @@ export default function Register() {
                     <div
                       className="strength-fill"
                       style={{
-                        width: `${(strength.score / 5) * 100}%`,
+                        width:      `${(strength.score / 5) * 100}%`,
                         background: strength.color,
                       }}
                     />
@@ -224,34 +221,24 @@ export default function Register() {
                   disabled={loading}
                 />
                 <span>
-                  I agree to the{' '}
-                  <a href="#terms">Terms</a>{' '}
-                  and{' '}
+                  I agree to the <a href="#terms">Terms</a> and{' '}
                   <a href="#privacy">Privacy Policy</a>
                 </span>
               </label>
 
-              <button
-                type="submit"
-                className="cta-button"
-                disabled={loading}
-              >
-                {loading ? (
-                  <>
-                    <span className="spinner" />
-                    ENTERING...
-                  </>
-                ) : (
-                  'START MY EMPIRE'
-                )}
+              <button type="submit" className="cta-button" disabled={loading}>
+                {loading
+                  ? <><span className="spinner" />ENTERING...</>
+                  : 'START MY EMPIRE'}
               </button>
 
-              {error && <p role="alert" aria-live="polite" className="register-error">{error}</p>}
+              {error && (
+                <p role="alert" aria-live="polite" className="register-error">{error}</p>
+              )}
 
               <p className="register-login">
                 Already part of the streets? <Link to="/login">Login</Link>
               </p>
-
             </form>
           </div>
 

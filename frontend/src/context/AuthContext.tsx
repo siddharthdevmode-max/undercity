@@ -3,12 +3,6 @@ import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { authAPI } from '../services/api';
 import type { User } from '../types';
 
-// ============================================================
-// AUTH CONTEXT
-// Single Firebase listener for the whole app
-// authAPI.me() only fires when the Firebase UID actually changes
-// ============================================================
-
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
@@ -23,7 +17,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
 
-  // Track the last UID we fetched for — prevents refetch on token refresh
   const lastUidRef = useRef<string | null>(null);
 
   const fetchUser = async () => {
@@ -31,13 +24,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       const data = await authAPI.me();
       setUser(data);
-    } catch (err) {
+    } catch {
       setError('Failed to load player data');
       setUser(null);
     }
   };
 
-  // Called externally when stats need a hard refresh (e.g. level up)
   const refreshUser = async () => {
     await fetchUser();
   };
@@ -47,15 +39,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!firebaseUser) {
-        // User logged out
         setUser(null);
         setLoading(false);
         lastUidRef.current = null;
         return;
       }
 
-      // Only hit the API if the UID actually changed
-      // Prevents hammering /auth/me on every Firebase token refresh
       if (firebaseUser.uid === lastUidRef.current) {
         setLoading(false);
         return;
@@ -77,6 +66,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Exported separately — same file is fine since it's not a component
+// Fast refresh warning is a false positive for context files
 export function useAuthContext(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuthContext must be used within AuthProvider');

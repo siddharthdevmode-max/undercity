@@ -16,51 +16,51 @@ import hero from '../assets/hero.png';
 import '../styles/Landing.css';
 import '../styles/Register.css';
 
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS        = 5;
 const LOCKOUT_DURATION_MS = 5 * 60 * 1000;
 
+function loadLockout(): number | null {
+  const stored = localStorage.getItem('login_lockout');
+  if (!stored) return null;
+  const until = parseInt(stored, 10);
+  if (until > Date.now()) return until;
+  localStorage.removeItem('login_lockout');
+  return null;
+}
+
 export default function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail]               = useState('');
+  const [password, setPassword]         = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [stayLoggedIn, setStayLoggedIn] = useState(true);
-  const [error, setError] = useState('');
-  const [info, setInfo] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [attempts, setAttempts] = useState(0);
-  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [error, setError]               = useState('');
+  const [info, setInfo]                 = useState('');
+  const [loading, setLoading]           = useState(false);
+  const [attempts, setAttempts]         = useState(0);
+
+  // Initialize directly from localStorage — no effect needed
+  const [lockedUntil, setLockedUntil]   = useState<number | null>(loadLockout);
+  const [now, setNow]                   = useState(() => Date.now());
+
   const emailRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // Redirect if already logged in
   useEffect(() => {
     if (user) navigate('/home');
   }, [user, navigate]);
 
-  // Auto-focus email on mount
   useEffect(() => {
     emailRef.current?.focus();
   }, []);
 
-  // Load lockout state from localStorage
-  useEffect(() => {
-    const stored = localStorage.getItem('login_lockout');
-    if (stored) {
-      const until = parseInt(stored, 10);
-      if (until > Date.now()) {
-        setLockedUntil(until);
-      } else {
-        localStorage.removeItem('login_lockout');
-      }
-    }
-  }, []);
-
-  // Countdown for lockout
+  // Tick clock every second while locked
   useEffect(() => {
     if (!lockedUntil) return;
     const id = setInterval(() => {
-      if (Date.now() >= lockedUntil) {
+      const current = Date.now();
+      setNow(current);
+      if (current >= lockedUntil) {
         setLockedUntil(null);
         setAttempts(0);
         localStorage.removeItem('login_lockout');
@@ -70,16 +70,15 @@ export default function Login() {
     return () => clearInterval(id);
   }, [lockedUntil]);
 
-  const minutesLeft = lockedUntil
-    ? Math.ceil((lockedUntil - Date.now()) / 60000)
-    : 0;
+  const isLocked    = lockedUntil !== null && now < lockedUntil;
+  const minutesLeft = lockedUntil ? Math.ceil((lockedUntil - now) / 60000) : 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setInfo('');
 
-    if (lockedUntil && Date.now() < lockedUntil) {
+    if (isLocked) {
       setError(`Too many failed attempts. Try again in ${minutesLeft} min.`);
       return;
     }
@@ -95,14 +94,15 @@ export default function Login() {
       setAttempts(0);
       localStorage.removeItem('login_lockout');
       navigate('/home');
-    } catch (err: any) {
+    } catch (err: unknown) {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
       if (newAttempts >= MAX_ATTEMPTS) {
         const until = Date.now() + LOCKOUT_DURATION_MS;
         setLockedUntil(until);
+        setNow(Date.now());
         localStorage.setItem('login_lockout', until.toString());
-        setError(`Too many failed attempts. Locked for 5 minutes.`);
+        setError('Too many failed attempts. Locked for 5 minutes.');
       } else {
         const remaining = MAX_ATTEMPTS - newAttempts;
         setError(`${getFriendlyError(err)} (${remaining} attempts left)`);
@@ -122,12 +122,10 @@ export default function Login() {
     try {
       await sendPasswordResetEmail(auth, email);
       setInfo(`Reset email sent to ${email}. Check your inbox.`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(getFriendlyError(err));
     }
   };
-
-  const isLocked = lockedUntil !== null && Date.now() < lockedUntil;
 
   return (
     <div className="landing-page">
@@ -135,13 +133,11 @@ export default function Login() {
       <section className="about-section">
         <div className="about-content">
           <div className="about-text register-modern-wrapper">
-
             <h1 className="register-title">WELCOME BACK</h1>
             <span className="register-subtitle">The city missed you</span>
             <div className="register-divider" />
 
             <form onSubmit={handleSubmit} className="register-modern-form" noValidate>
-
               <input
                 ref={emailRef}
                 type="email"
@@ -197,24 +193,24 @@ export default function Login() {
                 disabled={loading || isLocked}
               >
                 {loading ? (
-                  <>
-                    <span className="spinner" />
-                    ACCESSING...
-                  </>
+                  <><span className="spinner" />ACCESSING...</>
                 ) : isLocked ? (
-                  `LOCKED — ${minutesLeft} MIN`
+                  `LOCKED - ${minutesLeft} MIN`
                 ) : (
                   'ENTER THE CITY'
                 )}
               </button>
 
-              {error && <p role="alert" aria-live="polite" className="register-error">{error}</p>}
-              {info && <p className="register-info" role="status" aria-live="polite">{info}</p>}
+              {error && (
+                <p role="alert" aria-live="polite" className="register-error">{error}</p>
+              )}
+              {info && (
+                <p className="register-info" role="status" aria-live="polite">{info}</p>
+              )}
 
               <p className="register-login">
                 Don't have an account? <Link to="/register">Register</Link>
               </p>
-
             </form>
           </div>
 

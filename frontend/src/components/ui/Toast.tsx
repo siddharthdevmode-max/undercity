@@ -1,81 +1,30 @@
 import { useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { toastManager } from "../../utils/toast";
+import type { ToastData, ToastType } from "../../utils/toast";
 import "../../styles/Toast.css";
 
-export type ToastType = "success" | "error" | "warning" | "info";
-
-export interface ToastData {
-  id: string;
-  type: ToastType;
-  message: string;
-  duration?: number;
-}
-
-type ToastListener = (toasts: ToastData[]) => void;
-
-class ToastManager {
-  private toasts: ToastData[] = [];
-  private listeners: Set<ToastListener> = new Set();
-
-  subscribe(listener: ToastListener): () => void {
-    this.listeners.add(listener);
-    listener(this.toasts);
-    return () => { this.listeners.delete(listener); };
-  }
-
-  private notify() {
-    this.listeners.forEach((l) => l([...this.toasts]));
-  }
-
-  show(type: ToastType, message: string, duration = 4000): string {
-    const id    = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const toast: ToastData = { id, type, message, duration };
-    this.toasts.push(toast);
-    this.notify();
-    if (duration > 0) {
-      setTimeout(() => this.dismiss(id), duration);
-    }
-    return id;
-  }
-
-  dismiss(id: string) {
-    this.toasts = this.toasts.filter((t) => t.id !== id);
-    this.notify();
-  }
-}
-
-const manager = new ToastManager();
-
-export const toast = {
-  success: (message: string, duration?: number) =>
-    manager.show("success", message, duration),
-  error: (message: string, duration?: number) =>
-    manager.show("error", message, duration),
-  warning: (message: string, duration?: number) =>
-    manager.show("warning", message, duration),
-  info: (message: string, duration?: number) =>
-    manager.show("info", message, duration),
-  dismiss: (id: string) => manager.dismiss(id),
-};
+// ============================================================
+// TOAST CONTAINER + TOAST ITEM
+// Only component exports in this file.
+// toast singleton lives in utils/toast.ts
+// ============================================================
 
 export function ToastContainer() {
   const [toasts, setToasts] = useState<ToastData[]>([]);
 
   useEffect(() => {
-    // subscribe returns () => void — correct EffectCallback cleanup
-    const unsubscribe = manager.subscribe(setToasts);
-    return unsubscribe;
+    return toastManager.subscribe(setToasts);
   }, []);
 
   const handleDismiss = useCallback((id: string) => {
-    manager.dismiss(id);
+    toastManager.dismiss(id);
   }, []);
 
   if (typeof document === "undefined") return null;
 
   return createPortal(
     <>
-      {/* Polite region — success/info/warning */}
       <div
         className="toast-container"
         role="status"
@@ -90,7 +39,6 @@ export function ToastContainer() {
           ))}
       </div>
 
-      {/* Assertive region — errors only */}
       <div
         className="toast-container toast-container-errors"
         role="alert"
@@ -110,7 +58,7 @@ export function ToastContainer() {
 }
 
 function ToastItem({
-  toast,
+  toast: t,
   onDismiss,
 }: {
   toast: ToastData;
@@ -120,7 +68,7 @@ function ToastItem({
 
   const handleClose = () => {
     setIsLeaving(true);
-    setTimeout(() => onDismiss(toast.id), 300);
+    setTimeout(() => onDismiss(t.id), 300);
   };
 
   const icons: Record<ToastType, string> = {
@@ -139,20 +87,20 @@ function ToastItem({
 
   return (
     <div
-      className={`toast toast-${toast.type} ${isLeaving ? "toast-leaving" : ""}`}
+      className={`toast toast-${t.type} ${isLeaving ? "toast-leaving" : ""}`}
       role="none"
     >
-      <span className="toast-icon" aria-hidden="true">{icons[toast.type]}</span>
+      <span className="toast-icon" aria-hidden="true">{icons[t.type]}</span>
       <span className="toast-message">
-        <span className="visually-hidden">{labels[toast.type]}: </span>
-        {toast.message}
+        <span className="visually-hidden">{labels[t.type]}: </span>
+        {t.message}
       </span>
       <button
         className="toast-close"
         onClick={handleClose}
-        aria-label={`Dismiss ${labels[toast.type].toLowerCase()} notification`}
+        aria-label={`Dismiss ${labels[t.type].toLowerCase()} notification`}
       >
-        ×
+        x
       </button>
     </div>
   );

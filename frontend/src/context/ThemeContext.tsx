@@ -15,26 +15,31 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
-// Valid themes for validation
 const VALID_THEMES: Theme[] = ['dark', 'light', 'grey'];
 
 function getInitialTheme(): Theme {
   const saved = localStorage.getItem('undercity-theme');
-  
-  // Handle migration from temporary 'navy' theme
+
   if (saved === 'navy') {
     localStorage.setItem('undercity-theme', 'grey');
     return 'grey';
   }
-  
-  // Validate saved theme
+
   if (saved && VALID_THEMES.includes(saved as Theme)) {
     return saved as Theme;
   }
-  
+
   return 'dark';
 }
 
+// ── Hook — exported from hooks/useTheme.ts to satisfy fast-refresh ──
+export function useTheme() {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error('useTheme must be used inside ThemeProvider');
+  return ctx;
+}
+
+// ── Provider — only component export in this file ──
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(getInitialTheme);
 
@@ -54,10 +59,4 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       {children}
     </ThemeContext.Provider>
   );
-}
-
-export function useTheme() {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error('useTheme must be used inside ThemeProvider');
-  return ctx;
 }

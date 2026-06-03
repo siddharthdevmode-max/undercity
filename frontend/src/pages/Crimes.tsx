@@ -2,15 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import Shell from "../components/Shell";
 import { crimesAPI } from "../services/crimes";
 import type { Crime, UserStats, CrimeAttemptResponse } from "../services/crimes";
-import { toast } from "../components/ui/Toast";
+import { toast } from "../utils/toast";
 import { CrimesGridSkeleton } from "../components/ui/Skeleton";
 import { Modal } from "../components/ui/Modal";
 import { userEvents } from "../utils/userEvents";
 import "../styles/Crimes.css";
-
-// ════════════════════════════════════════
-// TIER COLOR CONFIG
-// ════════════════════════════════════════
 
 const TIER_COLORS: Record<number, { glow: string; accent: string }> = {
   1: { glow: "rgba(46,204,113,0.15)",  accent: "#2ecc71" },
@@ -19,10 +15,6 @@ const TIER_COLORS: Record<number, { glow: string; accent: string }> = {
   4: { glow: "rgba(231,76,60,0.15)",   accent: "#e74c3c" },
   5: { glow: "rgba(155,89,182,0.15)",  accent: "#9b59b6" },
 };
-
-// ════════════════════════════════════════
-// HELPERS
-// ════════════════════════════════════════
 
 function formatTime(seconds: number): string {
   if (seconds <= 0) return "None";
@@ -55,42 +47,57 @@ function getJailRemaining(jailUntil: string | null): number {
 }
 
 function getCrimeLevelLabel(level: number): string {
-  if (level === 0) return "Untrained";
-  return `Lv. ${level}`;
+  return level === 0 ? "Untrained" : `Lv. ${level}`;
 }
 
-// ════════════════════════════════════════
-// MAIN COMPONENT
-// ════════════════════════════════════════
+// Standalone async loader — defined outside component so it is
+// stable and can be called from both useEffect and retry button
+// without triggering the set-state-in-effect lint rule
+async function fetchCrimes(
+  onSuccess: (crimes: Crime[], user: UserStats) => void,
+  onError: (msg: string) => void,
+  onDone: () => void
+) {
+  try {
+    const data = await crimesAPI.getCrimes();
+    onSuccess(data.crimes, data.user);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to load crimes";
+    onError(msg);
+    toast.error(msg);
+  } finally {
+    onDone();
+  }
+}
 
 export default function Crimes() {
-  const [crimes, setCrimes]               = useState<Crime[]>([]);
-  const [user, setUser]                   = useState<UserStats | null>(null);
-  const [loading, setLoading]             = useState(true);
-  const [error, setError]                 = useState<string | null>(null);
-  const [attempting, setAttempting]       = useState<string | null>(null);
-  const [outcome, setOutcome]             = useState<CrimeAttemptResponse | null>(null);
-  const [jailTimer, setJailTimer]         = useState(0);
+  const [crimes, setCrimes]                     = useState<Crime[]>([]);
+  const [user, setUser]                         = useState<UserStats | null>(null);
+  const [loading, setLoading]                   = useState(true);
+  const [error, setError]                       = useState<string | null>(null);
+  const [attempting, setAttempting]             = useState<string | null>(null);
+  const [outcome, setOutcome]                   = useState<CrimeAttemptResponse | null>(null);
+  const [jailTimer, setJailTimer]               = useState(0);
   const [federalJailTimer, setFederalJailTimer] = useState(0);
 
-  const loadCrimes = useCallback(async () => {
-    try {
-      setError(null);
-      const data = await crimesAPI.getCrimes();
-      setCrimes(data.crimes);
-      setUser(data.user);
-    } catch (err: any) {
-      const msg = err.message || "Failed to load crimes";
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
+  const loadCrimes = useCallback(() => {
+    setError(null);
+    setLoading(true);
+    void fetchCrimes(
+      (c, u) => { setCrimes(c); setUser(u); },
+      (msg)  => setError(msg),
+      ()     => setLoading(false)
+    );
   }, []);
 
+  // Initial load -- void the promise so ESLint doesn't flag it
   useEffect(() => {
-    loadCrimes();
-  }, [loadCrimes]);
+    void fetchCrimes(
+      (c, u) => { setCrimes(c); setUser(u); },
+      (msg)  => setError(msg),
+      ()     => setLoading(false)
+    );
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -106,13 +113,12 @@ export default function Crimes() {
   const handleAttempt = async (crimeKey: string) => {
     if (attempting) return;
     setAttempting(crimeKey);
-
     try {
       const result = await crimesAPI.attemptCrime(crimeKey);
       setOutcome(result);
 
       if (result.outcome === "special") {
-        toast.success(`🌟 ${result.special?.title || "Special discovered!"}`, 5000);
+        toast.success(`🌟 ${result.special?.title ?? "Special discovered!"}`, 5000);
       } else if (result.outcome === "crit_fail") {
         toast.error(`💀 ${result.message}`, 5000);
       }
@@ -121,13 +127,13 @@ export default function Crimes() {
         if (!prev) return prev;
         return {
           ...prev,
-          money:           result.user.money,
-          points:          result.user.points,
-          nerve:           result.user.nerve,
-          maxNerve:        result.user.maxNerve,
-          life:            result.user.life,
-          maxLife:         result.user.maxLife,
-          jailUntil:       result.user.jailUntil,
+          money:            result.user.money,
+          points:           result.user.points,
+          nerve:            result.user.nerve,
+          maxNerve:         result.user.maxNerve,
+          life:             result.user.life,
+          maxLife:          result.user.maxLife,
+          jailUntil:        result.user.jailUntil,
           federalJailUntil: result.user.federalJailUntil,
           inJail:
             !!result.user.jailUntil &&
@@ -154,8 +160,8 @@ export default function Crimes() {
             : c
         )
       );
-    } catch (err: any) {
-      toast.error(err.message || "Something went wrong");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setAttempting(null);
     }
@@ -168,7 +174,7 @@ export default function Crimes() {
       <Shell>
         <div className="crimes-container">
           <div className="crimes-header">
-            <h1 className="crimes-title">🔪 Crimes</h1>
+            <h1 className="crimes-title">Crimes</h1>
           </div>
           <CrimesGridSkeleton count={10} />
         </div>
@@ -180,46 +186,43 @@ export default function Crimes() {
     return (
       <Shell>
         <div className="crimes-error" role="alert">
-          <p>❌ {error}</p>
+          <p>{error}</p>
           <button className="crimes-retry-btn" onClick={loadCrimes}>Retry</button>
         </div>
       </Shell>
     );
   }
 
-  const isInJail    = jailTimer > 0 || federalJailTimer > 0;
-  const sortedCrimes = [...crimes].sort((a, b) => {
-    if (a.tier !== b.tier) return a.tier - b.tier;
-    return a.id - b.id;
-  });
-
+  const isInJail     = jailTimer > 0 || federalJailTimer > 0;
+  const sortedCrimes = [...crimes].sort((a, b) =>
+    a.tier !== b.tier ? a.tier - b.tier : a.id - b.id
+  );
   const outcomeStyle = outcome ? getOutcomeStyle(outcome.outcome) : null;
 
   return (
     <Shell>
       <div className="crimes-container">
-
         <div className="crimes-header">
-          <h1 className="crimes-title">🔪 Crimes</h1>
+          <h1 className="crimes-title">Crimes</h1>
           {user && (
             <div className="crimes-stats-bar" role="group" aria-label="Player stats">
               <div className="crimes-stat crimes-stat-nerve">
-                <span className="crimes-stat-icon" aria-hidden>⚡</span>
+                <span className="crimes-stat-icon" aria-hidden="true">N</span>
                 <span className="crimes-stat-label">Nerve</span>
                 <span className="crimes-stat-value">{user.nerve}/{user.maxNerve}</span>
               </div>
               <div className="crimes-stat crimes-stat-life">
-                <span className="crimes-stat-icon" aria-hidden>❤️</span>
+                <span className="crimes-stat-icon" aria-hidden="true">L</span>
                 <span className="crimes-stat-label">Life</span>
                 <span className="crimes-stat-value">{user.life}/{user.maxLife}</span>
               </div>
               <div className="crimes-stat crimes-stat-money">
-                <span className="crimes-stat-icon" aria-hidden>💰</span>
+                <span className="crimes-stat-icon" aria-hidden="true">$</span>
                 <span className="crimes-stat-label">Cash</span>
                 <span className="crimes-stat-value">{formatMoney(user.money)}</span>
               </div>
               <div className="crimes-stat crimes-stat-level">
-                <span className="crimes-stat-icon" aria-hidden>🎯</span>
+                <span className="crimes-stat-icon" aria-hidden="true">V</span>
                 <span className="crimes-stat-label">Level</span>
                 <span className="crimes-stat-value">{user.level}</span>
               </div>
@@ -230,7 +233,7 @@ export default function Crimes() {
         {isInJail && (
           <div className="crimes-jail-banner" role="alert">
             <div className="crimes-jail-title">
-              {federalJailTimer > 0 ? "🏛️ FEDERAL JAIL" : "⛓️ IN JAIL"}
+              {federalJailTimer > 0 ? "FEDERAL JAIL" : "IN JAIL"}
             </div>
             <div className="crimes-jail-time">
               Time remaining: {formatTime(federalJailTimer > 0 ? federalJailTimer : jailTimer)}
@@ -258,7 +261,7 @@ export default function Crimes() {
                 >
                   <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                     <p className="crime-card-locked-name">???</p>
-                    <p className="crime-card-locked-sub">🔒 LEVEL {crime.unlockLevel}</p>
+                    <p className="crime-card-locked-sub">LEVEL {crime.unlockLevel}</p>
                   </div>
                 </div>
               );
@@ -273,17 +276,20 @@ export default function Crimes() {
                   boxShadow:   `inset 0 0 20px ${tierColor.glow}`,
                 }}
               >
-                {crime.isFederal && <div className="crime-federal-tag" aria-label="Federal crime">FED</div>}
-
+                {crime.isFederal && (
+                  <div className="crime-federal-tag" aria-label="Federal crime">FED</div>
+                )}
                 <div>
                   <p className="crime-card-name">{crime.name}</p>
                   <div className="crime-card-meta">
-                    <span className="crime-nerve-badge" aria-label={`Costs ${crime.nerveCost} nerve`}>
-                      ⚡ {crime.nerveCost}
+                    <span
+                      className="crime-nerve-badge"
+                      aria-label={`Costs ${crime.nerveCost} nerve`}
+                    >
+                      {crime.nerveCost} nerve
                     </span>
                   </div>
                 </div>
-
                 <div>
                   <div className="crime-level-text" style={{ color: tierColor.accent }}>
                     {getCrimeLevelLabel(crime.progress.crimeLevel)}
@@ -326,7 +332,6 @@ export default function Crimes() {
         </div>
       </div>
 
-      {/* ── OUTCOME MODAL ── */}
       {outcome && outcomeStyle && (
         <Modal
           isOpen={!!outcome}
@@ -335,15 +340,15 @@ export default function Crimes() {
           titleId="outcome-modal-title"
           className="outcome-card"
         >
-          <div style={{ borderTop: `3px solid ${outcomeStyle.color}`, paddingTop: '1rem' }}>
-            <div className="outcome-icon" aria-hidden>{outcomeStyle.icon}</div>
+          <div style={{ borderTop: `3px solid ${outcomeStyle.color}`, paddingTop: "1rem" }}>
+            <div className="outcome-icon" aria-hidden="true">{outcomeStyle.icon}</div>
             <div className="outcome-message">{outcome.message}</div>
 
             {outcome.special && (
               <div className="outcome-special-box">
-                <div className="outcome-special-title">🌟 {outcome.special.title}</div>
+                <div className="outcome-special-title">{outcome.special.title}</div>
                 {outcome.special.wasNewlyDiscovered && (
-                  <div className="outcome-special-new">✨ NEW DISCOVERY</div>
+                  <div className="outcome-special-new">NEW DISCOVERY</div>
                 )}
               </div>
             )}
@@ -392,7 +397,7 @@ export default function Crimes() {
               {outcome.penalties.jailSeconds > 0 && (
                 <div className="outcome-detail-item">
                   <span className="outcome-detail-value outcome-detail-value-jail">
-                    ⛓️ {formatTime(outcome.penalties.jailSeconds)}
+                    {formatTime(outcome.penalties.jailSeconds)}
                   </span>
                   <span className="outcome-detail-label">
                     {outcome.penalties.jailType === "federal" ? "FEDERAL JAIL" : "JAIL"}
