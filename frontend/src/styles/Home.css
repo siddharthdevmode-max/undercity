@@ -688,3 +688,44 @@
   .hq-resource-strip { grid-template-columns: 1fr 1fr; }
   .hq-action-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* ════════════════════════════════════════════════════════════
+   ACTION CARD — locked / coming soon variant
+   ════════════════════════════════════════════════════════════ */
+
+.hq-action-card {
+  position: relative;
+}
+
+.hq-action-locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.hq-action-soon {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent);
+}
+
+/* ── Resource strip 5 cols ── */
+@media (min-width: 900px) {
+  .hq-resource-strip {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .hq-action-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}

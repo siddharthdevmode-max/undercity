@@ -16,6 +16,14 @@ const TIER_COLORS: Record<number, { glow: string; accent: string }> = {
   5: { glow: "rgba(155,89,182,0.15)",  accent: "#9b59b6" },
 };
 
+const TIER_LABELS: Record<number, string> = {
+  1: "STREET",
+  2: "HUSTLE",
+  3: "RACKET",
+  4: "CARTEL",
+  5: "SYNDICATE",
+};
+
 function formatTime(seconds: number): string {
   if (seconds <= 0) return "None";
   const d = Math.floor(seconds / 86400);
@@ -50,9 +58,6 @@ function getCrimeLevelLabel(level: number): string {
   return level === 0 ? "Untrained" : `Lv. ${level}`;
 }
 
-// Standalone async loader — defined outside component so it is
-// stable and can be called from both useEffect and retry button
-// without triggering the set-state-in-effect lint rule
 async function fetchCrimes(
   onSuccess: (crimes: Crime[], user: UserStats) => void,
   onError: (msg: string) => void,
@@ -79,6 +84,7 @@ export default function Crimes() {
   const [outcome, setOutcome]                   = useState<CrimeAttemptResponse | null>(null);
   const [jailTimer, setJailTimer]               = useState(0);
   const [federalJailTimer, setFederalJailTimer] = useState(0);
+  const [activeTab, setActiveTab]               = useState<number | "all">("all");
 
   const loadCrimes = useCallback(() => {
     setError(null);
@@ -90,7 +96,6 @@ export default function Crimes() {
     );
   }, []);
 
-  // Initial load -- void the promise so ESLint doesn't flag it
   useEffect(() => {
     void fetchCrimes(
       (c, u) => { setCrimes(c); setUser(u); },
@@ -174,7 +179,7 @@ export default function Crimes() {
       <Shell>
         <div className="crimes-container">
           <div className="crimes-header">
-            <h1 className="crimes-title">Crimes</h1>
+            <h1 className="crimes-title">🔫 Crimes</h1>
           </div>
           <CrimesGridSkeleton count={10} />
         </div>
@@ -197,52 +202,81 @@ export default function Crimes() {
   const sortedCrimes = [...crimes].sort((a, b) =>
     a.tier !== b.tier ? a.tier - b.tier : a.id - b.id
   );
+
+  const tiers = [...new Set(sortedCrimes.filter(c => c.unlocked).map(c => c.tier))].sort();
+
+  const filteredCrimes = activeTab === "all"
+    ? sortedCrimes
+    : sortedCrimes.filter(c => c.tier === activeTab);
+
   const outcomeStyle = outcome ? getOutcomeStyle(outcome.outcome) : null;
 
   return (
     <Shell>
       <div className="crimes-container">
+
+        {/* Header */}
         <div className="crimes-header">
-          <h1 className="crimes-title">Crimes</h1>
-          {user && (
-            <div className="crimes-stats-bar" role="group" aria-label="Player stats">
-              <div className="crimes-stat crimes-stat-nerve">
-                <span className="crimes-stat-icon" aria-hidden="true">N</span>
-                <span className="crimes-stat-label">Nerve</span>
-                <span className="crimes-stat-value">{user.nerve}/{user.maxNerve}</span>
+          <div className="crimes-header-left">
+            <h1 className="crimes-title">🔫 Crimes</h1>
+            {user && (
+              <div className="crimes-stats-bar" role="group" aria-label="Player stats">
+                <div className="crimes-stat crimes-stat-nerve">
+                  <span className="crimes-stat-label">Nerve</span>
+                  <span className="crimes-stat-value">{user.nerve}/{user.maxNerve}</span>
+                </div>
+                <div className="crimes-stat-divider" />
+                <div className="crimes-stat crimes-stat-life">
+                  <span className="crimes-stat-label">Life</span>
+                  <span className="crimes-stat-value">{user.life}/{user.maxLife}</span>
+                </div>
+                <div className="crimes-stat-divider" />
+                <div className="crimes-stat crimes-stat-money">
+                  <span className="crimes-stat-label">Cash</span>
+                  <span className="crimes-stat-value">{formatMoney(user.money)}</span>
+                </div>
               </div>
-              <div className="crimes-stat crimes-stat-life">
-                <span className="crimes-stat-icon" aria-hidden="true">L</span>
-                <span className="crimes-stat-label">Life</span>
-                <span className="crimes-stat-value">{user.life}/{user.maxLife}</span>
-              </div>
-              <div className="crimes-stat crimes-stat-money">
-                <span className="crimes-stat-icon" aria-hidden="true">$</span>
-                <span className="crimes-stat-label">Cash</span>
-                <span className="crimes-stat-value">{formatMoney(user.money)}</span>
-              </div>
-              <div className="crimes-stat crimes-stat-level">
-                <span className="crimes-stat-icon" aria-hidden="true">V</span>
-                <span className="crimes-stat-label">Level</span>
-                <span className="crimes-stat-value">{user.level}</span>
-              </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
+        {/* Jail Banner */}
         {isInJail && (
           <div className="crimes-jail-banner" role="alert">
             <div className="crimes-jail-title">
-              {federalJailTimer > 0 ? "FEDERAL JAIL" : "IN JAIL"}
+              {federalJailTimer > 0 ? "🏛️ FEDERAL JAIL" : "🔒 IN JAIL"}
             </div>
             <div className="crimes-jail-time">
-              Time remaining: {formatTime(federalJailTimer > 0 ? federalJailTimer : jailTimer)}
+              Released in: <strong>{formatTime(federalJailTimer > 0 ? federalJailTimer : jailTimer)}</strong>
             </div>
           </div>
         )}
 
+        {/* Tier Tabs */}
+        {tiers.length > 1 && (
+          <div className="crimes-tabs">
+            <button
+              className={`crimes-tab ${activeTab === "all" ? "active" : ""}`}
+              onClick={() => setActiveTab("all")}
+            >
+              All
+            </button>
+            {tiers.map(tier => (
+              <button
+                key={tier}
+                className={`crimes-tab ${activeTab === tier ? "active" : ""}`}
+                style={activeTab === tier ? { borderBottomColor: TIER_COLORS[tier]?.accent } : {}}
+                onClick={() => setActiveTab(tier)}
+              >
+                {TIER_LABELS[tier] ?? `Tier ${tier}`}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Grid */}
         <div className="crimes-grid" role="grid" aria-label="Available crimes">
-          {sortedCrimes.map((crime) => {
+          {filteredCrimes.map((crime) => {
             const tierColor  = TIER_COLORS[crime.tier];
             const canAttempt =
               crime.unlocked &&
@@ -251,15 +285,18 @@ export default function Crimes() {
               user.nerve >= crime.nerveCost &&
               !attempting;
 
+            const isAttempting = attempting === crime.key;
+            const lowNerve = user !== null && user.nerve < crime.nerveCost;
+
             if (!crime.unlocked) {
               return (
                 <div
                   key={crime.id}
                   className="crime-card crime-card-locked"
-                  style={{ boxShadow: `inset 0 0 30px ${tierColor.glow}` }}
                   aria-label={`Locked crime, unlocks at level ${crime.unlockLevel}`}
                 >
-                  <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                  <div className="crime-locked-content">
+                    <span className="crime-locked-icon">🔒</span>
                     <p className="crime-card-locked-name">???</p>
                     <p className="crime-card-locked-sub">LEVEL {crime.unlockLevel}</p>
                   </div>
@@ -270,29 +307,37 @@ export default function Crimes() {
             return (
               <div
                 key={crime.id}
-                className="crime-card"
+                className={`crime-card ${isAttempting ? "crime-card-attempting" : ""}`}
                 style={{
-                  borderColor: `${tierColor.accent}33`,
+                  borderColor: `${tierColor.accent}44`,
                   boxShadow:   `inset 0 0 20px ${tierColor.glow}`,
                 }}
               >
                 {crime.isFederal && (
                   <div className="crime-federal-tag" aria-label="Federal crime">FED</div>
                 )}
-                <div>
+
+                <div className="crime-card-top">
+                  <div className="crime-tier-dot" style={{ background: tierColor.accent }} />
                   <p className="crime-card-name">{crime.name}</p>
                   <div className="crime-card-meta">
-                    <span
-                      className="crime-nerve-badge"
-                      aria-label={`Costs ${crime.nerveCost} nerve`}
-                    >
-                      {crime.nerveCost} nerve
+                    <span className="crime-nerve-badge">
+                      ⚡ {crime.nerveCost}
+                    </span>
+                    <span className="crime-reward-badge">
+                      {formatMoney(crime.minReward)}–{formatMoney(crime.maxReward)}
                     </span>
                   </div>
                 </div>
-                <div>
-                  <div className="crime-level-text" style={{ color: tierColor.accent }}>
-                    {getCrimeLevelLabel(crime.progress.crimeLevel)}
+
+                <div className="crime-card-bottom">
+                  <div className="crime-level-row">
+                    <span className="crime-level-text" style={{ color: tierColor.accent }}>
+                      {getCrimeLevelLabel(crime.progress.crimeLevel)}
+                    </span>
+                    <span className="crime-attempts-text">
+                      {crime.progress.attempts} runs
+                    </span>
                   </div>
                   <div
                     className="crime-progress-bar"
@@ -300,7 +345,6 @@ export default function Crimes() {
                     aria-valuenow={crime.progress.crimeLevel}
                     aria-valuemin={0}
                     aria-valuemax={100}
-                    aria-label={`${crime.name} mastery progress`}
                   >
                     <div
                       className="crime-progress-fill"
@@ -312,18 +356,18 @@ export default function Crimes() {
                   </div>
                   <button
                     className="crime-commit-btn"
-                    style={{ background: canAttempt ? tierColor.accent : undefined }}
+                    style={canAttempt ? { background: tierColor.accent } : {}}
                     disabled={!canAttempt}
-                    onClick={() => handleAttempt(crime.key)}
-                    aria-label={`Attempt ${crime.name}, costs ${crime.nerveCost} nerve`}
+                    onClick={() => void handleAttempt(crime.key)}
+                    aria-label={`Attempt ${crime.name}`}
                   >
-                    {attempting === crime.key
-                      ? "..."
-                      : user && user.nerve < crime.nerveCost
-                      ? "Low Nerve"
+                    {isAttempting
+                      ? <span className="crime-btn-spinner" />
+                      : lowNerve
+                      ? "LOW NERVE"
                       : isInJail
-                      ? "In Jail"
-                      : "Commit"}
+                      ? "JAILED"
+                      : "COMMIT"}
                   </button>
                 </div>
               </div>
@@ -332,6 +376,7 @@ export default function Crimes() {
         </div>
       </div>
 
+      {/* Outcome Modal */}
       {outcome && outcomeStyle && (
         <Modal
           isOpen={!!outcome}
@@ -341,14 +386,14 @@ export default function Crimes() {
           className="outcome-card"
         >
           <div style={{ borderTop: `3px solid ${outcomeStyle.color}`, paddingTop: "1rem" }}>
-            <div className="outcome-icon" aria-hidden="true">{outcomeStyle.icon}</div>
+            <div className="outcome-icon">{outcomeStyle.icon}</div>
             <div className="outcome-message">{outcome.message}</div>
 
             {outcome.special && (
               <div className="outcome-special-box">
                 <div className="outcome-special-title">{outcome.special.title}</div>
                 {outcome.special.wasNewlyDiscovered && (
-                  <div className="outcome-special-new">NEW DISCOVERY</div>
+                  <div className="outcome-special-new">✨ NEW DISCOVERY</div>
                 )}
               </div>
             )}
@@ -381,7 +426,7 @@ export default function Crimes() {
               {outcome.rewards.xpGained > 0 && (
                 <div className="outcome-detail-item">
                   <span className="outcome-detail-value outcome-detail-value-xp">
-                    +{outcome.rewards.xpGained}
+                    +{outcome.rewards.xpGained} XP
                   </span>
                   <span className="outcome-detail-label">CRIME XP</span>
                 </div>
@@ -389,7 +434,7 @@ export default function Crimes() {
               {outcome.penalties.xpLost > 0 && (
                 <div className="outcome-detail-item">
                   <span className="outcome-detail-value outcome-detail-value-xp-loss">
-                    -{outcome.penalties.xpLost}
+                    -{outcome.penalties.xpLost} XP
                   </span>
                   <span className="outcome-detail-label">XP LOST</span>
                 </div>
@@ -400,7 +445,7 @@ export default function Crimes() {
                     {formatTime(outcome.penalties.jailSeconds)}
                   </span>
                   <span className="outcome-detail-label">
-                    {outcome.penalties.jailType === "federal" ? "FEDERAL JAIL" : "JAIL"}
+                    {outcome.penalties.jailType === "federal" ? "FED JAIL" : "JAIL"}
                   </span>
                 </div>
               )}

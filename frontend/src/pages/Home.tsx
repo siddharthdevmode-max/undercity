@@ -23,9 +23,17 @@ export default function Home() {
     ? { text: '🔒 IN JAIL',         cls: 'status-jail'    }
     : { text: '✅ FREE',             cls: 'status-free'    };
 
+  const actions = [
+    { path: '/crimes',     icon: '🔫', label: 'CRIMES',     sub: 'Earn & level up',      live: true  },
+    { path: '/gym',        icon: '💪', label: 'GYM',        sub: 'Train your stats',      live: false },
+    { path: '/city',       icon: '🏙️', label: 'CITY',       sub: 'Explore & hustle',      live: false },
+    { path: '/job',        icon: '💼', label: 'JOB',        sub: 'Earn steady income',    live: false },
+    { path: '/properties', icon: '🏢', label: 'PROPERTIES', sub: 'Own the city',          live: false },
+    { path: '/missions',   icon: '📋', label: 'MISSIONS',   sub: 'Take contracts',        live: false },
+  ];
+
   return (
     <Shell>
-
       {/* ══════════════════════════════════════════
           WELCOME HERO PANEL
       ══════════════════════════════════════════ */}
@@ -51,17 +59,18 @@ export default function Home() {
           RESOURCE STRIP
       ══════════════════════════════════════════ */}
       <div className="hq-resource-strip">
-
         <div className="resource-card">
           <span className="resource-label">💰 MONEY</span>
           <span className="resource-value">${(user?.money ?? 0).toLocaleString()}</span>
         </div>
-
         <div className="resource-card">
           <span className="resource-label">⭐ POINTS</span>
           <span className="resource-value">{(user?.points ?? 0).toLocaleString()}</span>
         </div>
-
+        <div className="resource-card">
+          <span className="resource-label">🎖️ LEVEL</span>
+          <span className="resource-value">{user?.level ?? 1}</span>
+        </div>
         <div className="resource-card resource-bar-card">
           <div className="resource-bar-header">
             <span className="resource-label">❤️ LIFE</span>
@@ -76,7 +85,6 @@ export default function Home() {
             />
           </div>
         </div>
-
         <div className="resource-card resource-bar-card">
           <div className="resource-bar-header">
             <span className="resource-label">⚡ NERVE</span>
@@ -91,11 +99,10 @@ export default function Home() {
             />
           </div>
         </div>
-
       </div>
 
       {/* ══════════════════════════════════════════
-          EMPIRE STATUS + ACTION GRID
+          MAIN GRID
       ══════════════════════════════════════════ */}
       <div className="hq-main-grid">
 
@@ -109,6 +116,14 @@ export default function Home() {
             <div className="hq-stat-row">
               <span className="hq-stat-label">Level</span>
               <span className="hq-stat-value accent">{user?.level ?? 1}</span>
+            </div>
+            <div className="hq-stat-row">
+              <span className="hq-stat-label">Money</span>
+              <span className="hq-stat-value">${(user?.money ?? 0).toLocaleString()}</span>
+            </div>
+            <div className="hq-stat-row">
+              <span className="hq-stat-label">Points</span>
+              <span className="hq-stat-value">{(user?.points ?? 0).toLocaleString()}</span>
             </div>
             <div className="hq-stat-row">
               <span className="hq-stat-label">Last Crime</span>
@@ -136,53 +151,41 @@ export default function Home() {
             )}
           </div>
 
-          {/* ── Street Intel ── */}
           <div className="hq-intel">
             <span className="hq-intel-label">◆ STREET INTEL</span>
             <p className="hq-intel-body">
               {isInFederalJail
                 ? 'The feds have you locked down. Sit tight — your crew is waiting.'
                 : isInJail
-                ? 'You\'re locked up. Use the time to plan your next move.'
+                ? "You're locked up. Use the time to plan your next move."
                 : 'The city is yours tonight. Every street is an opportunity.'}
             </p>
           </div>
         </div>
 
-        {/* ── Action Grid ── */}
+        {/* ── Operations Grid ── */}
         <div className="hq-panel">
           <div className="hq-panel-header">
             <span className="hq-panel-accent" />
             <h3 className="hq-panel-title">OPERATIONS</h3>
           </div>
           <div className="hq-action-grid">
-            <Link to="/crimes" className="hq-action-card">
-              <span className="hq-action-icon">🔫</span>
-              <span className="hq-action-label">CRIMES</span>
-              <span className="hq-action-sub">Earn & level up</span>
-            </Link>
-            <Link to="/gym" className="hq-action-card">
-              <span className="hq-action-icon">💪</span>
-              <span className="hq-action-label">GYM</span>
-              <span className="hq-action-sub">Train your stats</span>
-            </Link>
-            <Link to="/city" className="hq-action-card">
-              <span className="hq-action-icon">🏙️</span>
-              <span className="hq-action-label">CITY</span>
-              <span className="hq-action-sub">Explore & hustle</span>
-            </Link>
-            {(isInJail || isInFederalJail) && (
-              <Link to="/jail" className="hq-action-card hq-action-danger">
-                <span className="hq-action-icon">🔒</span>
-                <span className="hq-action-label">JAIL</span>
-                <span className="hq-action-sub">View your sentence</span>
+            {actions.map((a) => (
+              <Link
+                key={a.path}
+                to={a.path}
+                className={`hq-action-card ${!a.live ? 'hq-action-locked' : ''}`}
+              >
+                <span className="hq-action-icon">{a.icon}</span>
+                <span className="hq-action-label">{a.label}</span>
+                <span className="hq-action-sub">{a.sub}</span>
+                {!a.live && <span className="hq-action-soon">SOON</span>}
               </Link>
-            )}
+            ))}
           </div>
         </div>
 
       </div>
-
     </Shell>
   );
 }
