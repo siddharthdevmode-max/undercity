@@ -1,13 +1,22 @@
 // ============================================================
 // LOAD TEST ENV BEFORE ANYTHING ELSE
-// This runs before app.ts imports dotenv
-// Overrides local .env with test database settings
+// In CI: env vars are already set via GitHub Actions env
+// Locally: loads .env.test file
 // ============================================================
 import { config } from "dotenv";
 import { resolve } from "path";
+import { existsSync } from "fs";
 
-// Load .env.test — overrides .env values
-config({
-  path: resolve(__dirname, "../../.env.test"),
-  override: true,
-});
+const testEnvPath = resolve(__dirname, "../../.env.test");
+
+if (existsSync(testEnvPath)) {
+  // Local development — load .env.test
+  config({
+    path: testEnvPath,
+    override: true,
+  });
+} else {
+  // CI — env vars already set by GitHub Actions
+  // Just ensure NODE_ENV is test
+  process.env.NODE_ENV = "test";
+}
