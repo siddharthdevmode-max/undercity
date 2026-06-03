@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Home from './pages/Home';
 import Crimes from './pages/Crimes';
+import Admin from './pages/Admin';
 import { ToastContainer } from './components/ui/Toast';
 import { ComingSoon } from './components/ui/EmptyState';
 import { PageTransition } from './components/ui/PageTransition';
@@ -52,6 +53,11 @@ function App() {
             } />
             <Route path="/missions" element={
               <ProtectedRoute><ComingSoonPage feature="Missions" /></ProtectedRoute>
+            } />
+
+            {/* Admin Route */}
+            <Route path="/admin" element={
+              <ProtectedRoute><Admin /></ProtectedRoute>
             } />
 
             {/* Fallback */}

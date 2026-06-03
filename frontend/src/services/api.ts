@@ -1,12 +1,9 @@
 import { getAuth } from "firebase/auth";
 import type { User } from "../types";
 import { ApiError } from "../utils/apiError";
+import { getVisitorId } from "./fingerprint";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
-
-// ============================================================
-// TRANSFORM
-// ============================================================
 
 interface RawUser {
   id: number;
@@ -28,32 +25,27 @@ interface RawUser {
 
 function transformUser(raw: RawUser): User {
   return {
-    id:               raw.id,
-    firebaseUid:      raw.firebase_uid,
-    username:         raw.username,
-    email:            raw.email,
-    level:            raw.level,
-    money:            raw.money,
-    points:           raw.points,
-    nerve:            raw.nerve,
-    maxNerve:         raw.max_nerve,
-    life:             raw.life,
-    maxLife:          raw.max_life,
-    jailUntil:        raw.jail_until,
+    id: raw.id,
+    firebaseUid: raw.firebase_uid,
+    username: raw.username,
+    email: raw.email,
+    level: raw.level,
+    money: raw.money,
+    points: raw.points,
+    nerve: raw.nerve,
+    maxNerve: raw.max_nerve,
+    life: raw.life,
+    maxLife: raw.max_life,
+    jailUntil: raw.jail_until,
     federalJailUntil: raw.federal_jail_until,
-    lastCrimeAt:      raw.last_crime_at,
-    createdAt:        raw.created_at,
+    lastCrimeAt: raw.last_crime_at,
+    createdAt: raw.created_at,
   };
 }
-
-// ============================================================
-// CHALLENGE TOKEN — with simple in-memory cache
-// ============================================================
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
 async function getChallengeToken(firebaseToken: string): Promise<string> {
-  // Reuse token if still valid (TTL is 30s, use for 20s max)
   if (cachedToken && Date.now() < cachedToken.expiresAt) {
     return cachedToken.token;
   }
@@ -74,16 +66,12 @@ async function getChallengeToken(firebaseToken: string): Promise<string> {
   const data = await response.json();
 
   cachedToken = {
-    token:     data.token,
-    expiresAt: Date.now() + 20_000, // 20s cache (token TTL is 30s)
+    token: data.token,
+    expiresAt: Date.now() + 20000,
   };
 
   return data.token;
 }
-
-// ============================================================
-// CORE API CALL
-// ============================================================
 
 export async function apiCall(endpoint: string, options: RequestInit = {}) {
   const auth = getAuth();
@@ -93,9 +81,12 @@ export async function apiCall(endpoint: string, options: RequestInit = {}) {
 
   const firebaseToken = await user.getIdToken();
 
+  const visitorId = await getVisitorId().catch(() => null);
+
   const headers: Record<string, string> = {
-    "Content-Type":  "application/json",
-    Authorization:   `Bearer ${firebaseToken}`,
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${firebaseToken}`,
+    ...(visitorId ? { "x-fp-visitor": visitorId } : {}),
     ...(options.headers as Record<string, string>),
   };
 
@@ -104,10 +95,10 @@ export async function apiCall(endpoint: string, options: RequestInit = {}) {
   );
 
   if (needsChallenge) {
-    // Invalidate cache — each challenge is one-time use
     cachedToken = null;
     const challengeToken = await getChallengeToken(firebaseToken);
     headers["x-uac-challenge"] = challengeToken;
+    headers["x-idempotency-key"] = crypto.randomUUID();
   }
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -120,17 +111,13 @@ export async function apiCall(endpoint: string, options: RequestInit = {}) {
     throw new ApiError(
       errorData.message || "API request failed",
       response.status,
-      errorData.code   || "UNKNOWN_ERROR",
+      errorData.code || "UNKNOWN_ERROR",
       errorData.details
     );
   }
 
   return response.json();
 }
-
-// ============================================================
-// PUBLIC API CALL
-// ============================================================
 
 export async function publicCall(endpoint: string, options: RequestInit = {}) {
   const headers: Record<string, string> = {
@@ -148,23 +135,21 @@ export async function publicCall(endpoint: string, options: RequestInit = {}) {
     throw new ApiError(
       errorData.message || "API request failed",
       response.status,
-      errorData.code   || "UNKNOWN_ERROR"
+      errorData.code || "UNKNOWN_ERROR"
     );
   }
 
   return response.json();
 }
 
-// ============================================================
-// AUTH API
-// ============================================================
-
 export const authAPI = {
-  sync: (username?: string) =>
-    apiCall("/auth/sync", {
+  sync: async (username?: string): Promise<User> => {
+    const raw = await apiCall("/auth/sync", {
       method: "POST",
       body: JSON.stringify({ username }),
-    }),
+    });
+    return transformUser(raw.user ?? raw);
+  },
 
   me: async (): Promise<User> => {
     const raw = await apiCall("/auth/me");

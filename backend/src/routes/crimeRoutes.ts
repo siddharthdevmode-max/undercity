@@ -3,6 +3,8 @@ import { verifyFirebaseToken } from "../middleware/firebaseAuth";
 import { verifyChallenge } from "../middleware/challengeVerifier";
 import { crimeLimiter } from "../middleware/rateLimiter";
 import { checkBanStatus } from "../middleware/banCheck";
+import { idempotencyCheck } from "../middleware/idempotency";
+import { verifyTurnstile } from "../middleware/turnstileVerifier";
 import { validate } from "../middleware/validate";
 import { asyncHandler } from "../utils/asyncHandler";
 import { attemptCrimeSchema } from "../utils/schemas";
@@ -23,6 +25,8 @@ router.post(
   checkBanStatus,
   crimeLimiter,
   verifyChallenge,
+  idempotencyCheck,
+  verifyTurnstile,
   validate(attemptCrimeSchema),
   asyncHandler(attemptCrime)
 );

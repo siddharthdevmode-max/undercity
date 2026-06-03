@@ -1,33 +1,48 @@
+/* ════════════════════════════════════════════════════════════
+   AUTH PAGES — Login + Register
+   Matches Landing page visual quality
+   ════════════════════════════════════════════════════════════ */
+
 .register-modern-wrapper {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
 }
 
-.register-title {
-  font-size: 36px;
+/* ── Eyebrow (reuse .hero-eyebrow from Landing) ── */
+.hero-eyebrow {
+  font-size: 13px;
+  letter-spacing: 6px;
+  font-weight: 700;
   color: var(--accent);
-  text-align: center;
-  margin-bottom: 10px;
-  letter-spacing: 3px;
-  font-weight: 900;
-}
-
-.register-subtitle {
-  color: var(--text-secondary);
-  font-size: 14px;
-  letter-spacing: 2px;
-  margin-bottom: 16px;
   text-transform: uppercase;
+  margin-bottom: 12px;
 }
 
-.register-divider {
-  width: 70px;
-  height: 2px;
-  background: var(--accent);
-  margin-bottom: 24px;
+/* ── Auth Title ── */
+.auth-title {
+  font-size: 56px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  line-height: 1.05;
+  color: var(--text-primary);
+  margin: 0 0 20px 0;
 }
 
+.auth-title .accent {
+  color: var(--accent);
+}
+
+/* ── Supporting copy ── */
+.auth-supporting {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  margin: 0 0 28px 0;
+  max-width: 400px;
+}
+
+/* ── Form ── */
 .register-modern-form {
   width: 100%;
   max-width: 420px;
@@ -44,6 +59,8 @@
   color: var(--text-primary);
   font-size: 14px;
   transition: all 0.25s ease;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .register-modern-form input:focus {
@@ -52,6 +69,7 @@
   box-shadow: 0 0 14px rgba(220, 31, 46, 0.25);
 }
 
+/* ── Password wrap ── */
 .password-wrap {
   position: relative;
   display: flex;
@@ -76,28 +94,38 @@
   font-weight: 600;
 }
 
-.password-toggle:hover {
-  color: var(--accent);
-}
+.password-toggle:hover { color: var(--accent); }
 
+/* ── CTA button ── */
 .register-modern-form .cta-button {
-  margin-top: 12px;
+  margin-top: 8px;
   justify-content: center;
+  width: 100%;
 }
 
+/* ── Error / Info ── */
 .register-error {
   color: #ff4d4d;
   font-size: 13px;
-  margin-top: 6px;
   padding: 10px 14px;
   background: rgba(255, 77, 77, 0.08);
   border-left: 3px solid #ff4d4d;
   border-radius: 4px;
+  margin: 0;
+}
+
+.register-info {
+  color: #4ade80;
+  font-size: 13px;
+  padding: 10px 14px;
+  background: rgba(74, 222, 128, 0.08);
+  border-left: 3px solid #4ade80;
+  border-radius: 4px;
+  margin: 0;
 }
 
 .register-login {
-  margin-top: 20px;
-  text-align: center;
+  margin-top: 16px;
   color: var(--text-secondary);
   font-size: 14px;
 }
@@ -108,10 +136,9 @@
   font-weight: 600;
 }
 
-.register-login a:hover {
-  text-decoration: underline;
-}
+.register-login a:hover { text-decoration: underline; }
 
+/* ── Terms ── */
 .register-terms {
   display: flex;
   align-items: flex-start;
@@ -119,7 +146,6 @@
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.5;
-  margin-top: 4px;
 }
 
 .register-terms input {
@@ -134,83 +160,11 @@
   text-decoration: none;
 }
 
-.forgot-link {
-  text-align: right;
-  font-size: 13px;
-  color: var(--accent);
-  text-decoration: none;
-  margin-top: -6px;
-}
-
-.forgot-link:hover {
-  text-decoration: underline;
-}
-
-/* ============ Username Status ============ */
-.input-with-status {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.status-msg {
-  font-size: 12px;
-  padding: 2px 4px;
-  letter-spacing: 0.5px;
-  font-weight: 600;
-}
-
-.status-checking {
-  color: var(--text-secondary);
-}
-
-.status-available {
-  color: #4ade80;
-}
-
-.status-taken,
-.status-invalid {
-  color: #ff4d4d;
-}
-
-/* ============ Password Strength Meter ============ */
-.strength-meter {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: -8px;
-}
-
-.strength-bar {
-  flex: 1;
-  height: 6px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.strength-fill {
-  height: 100%;
-  transition: width 0.3s ease, background 0.3s ease;
-  border-radius: 2px;
-}
-
-.strength-label {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  min-width: 75px;
-  text-align: right;
-}
-
-/* ============ Login row (stay + forgot) ============ */
+/* ── Login row (stay + forgot) ── */
 .login-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: -4px;
 }
 
 .stay-logged {
@@ -239,21 +193,109 @@
   font-weight: 600;
 }
 
-.forgot-link:hover {
-  text-decoration: underline;
+.forgot-link:hover { text-decoration: underline; }
+
+/* ── Username / email status ── */
+.input-with-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-/* ============ Info message (forgot password sent) ============ */
-.register-info {
-  color: #4ade80;
+.status-msg {
+  font-size: 12px;
+  padding: 2px 4px;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.status-checking  { color: var(--text-secondary); }
+.status-available { color: #4ade80; }
+.status-taken,
+.status-invalid   { color: #ff4d4d; }
+
+/* ── Password strength ── */
+.strength-meter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.strength-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.strength-fill {
+  height: 100%;
+  transition: width 0.3s ease, background 0.3s ease;
+  border-radius: 2px;
+}
+
+.strength-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  min-width: 75px;
+  text-align: right;
+}
+
+/* ── Intel strip (login page) ── */
+.auth-intel-strip {
+  display: flex;
+  gap: 24px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+
+.auth-intel-strip span {
   font-size: 13px;
-  padding: 10px 14px;
-  background: rgba(74, 222, 128, 0.08);
-  border-left: 3px solid #4ade80;
-  border-radius: 4px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  letter-spacing: 1px;
 }
 
-/* ============ Spinner inside button ============ */
+/* ── Onboarding steps (register page) ── */
+.auth-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  width: 100%;
+  max-width: 420px;
+}
+
+.auth-step {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.step-num {
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--accent);
+  letter-spacing: 1px;
+  min-width: 32px;
+  line-height: 1;
+}
+
+.step-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* ── Spinner ── */
 .spinner {
   width: 14px;
   height: 14px;
@@ -276,9 +318,16 @@
 }
 
 .register-modern-form input:disabled,
-.register-modern-form input[type="checkbox"]:disabled,
 .password-toggle:disabled,
 .forgot-link:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  .auth-title { font-size: 36px; }
+  .auth-supporting { font-size: 14px; }
+  .auth-intel-strip { gap: 12px; }
+  .auth-steps { margin-top: 20px; }
 }

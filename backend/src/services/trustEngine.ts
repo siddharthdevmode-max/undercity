@@ -14,6 +14,10 @@ export const VIOLATIONS = {
   SIGNATURE_FAILURE:     { severity: 20,  reason: "Multiple signature failures" },
   CHALLENGE_REUSE:       { severity: 25,  reason: "Challenge token replay attempt" },
   IMPOSSIBLE_ACTION:     { severity: 50,  reason: "Physically impossible action" },
+  // UAC 2.0 — Pillar 2: Statistical Anomaly Detection
+  EARNINGS_VELOCITY:     { severity: 30,  reason: "Abnormal earnings velocity detected" },
+  ACTIVE_HOURS_ANOMALY:  { severity: 25,  reason: "Inhuman active hours detected" },
+  SUCCESS_RATE_SPIKE:    { severity: 20,  reason: "Suspicious success rate spike" },
 } as const;
 
 export type ViolationType = keyof typeof VIOLATIONS;

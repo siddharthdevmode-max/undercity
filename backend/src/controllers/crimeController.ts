@@ -10,8 +10,9 @@ import {
 } from "../models/userModels";
 import { getRequestLogger } from "../utils/logger";
 import { UnauthorizedError, NotFoundError } from "../utils/errors";
-import { recordFingerprint } from "../services/fingerprintEngine";
-import { analyzeBehavior } from "../services/behaviorEngine";
+import { recordFingerprint, checkMultiAccount } from "../services/fingerprintEngine";
+import { analyzeBehavior, analyzePostCrime } from "../services/behaviorEngine";
+import { flagUser } from "../services/trustEngine";
 import {
   assertCanAttempt,
   assertCrimeRequirements,
@@ -141,13 +142,44 @@ export const attemptCrime = async (req: Request, res: Response) => {
       trustScore: 100,
     };
 
-    // Fire-and-forget anti-cheat tracking
-    recordFingerprint(firebaseUid, req.ip, req.headers["user-agent"]).catch(
-      (e) => log.warn("Fingerprint record failed", { error: e.message })
+    // UAC 2.0 — grab visitorId from fingerprint header
+    const visitorId = req.headers["x-fp-visitor"] as string | undefined;
+    const ipAddress = req.ip;
+    const userAgent = req.headers["user-agent"] as string | undefined;
+
+    // Fire-and-forget: fingerprint + timing analysis
+    recordFingerprint(firebaseUid, ipAddress, userAgent, visitorId).catch(
+      (e: Error) => log.warn("Fingerprint record failed", { error: e.message })
     );
-    analyzeBehavior(firebaseUid, req.ip, req.headers["user-agent"]).catch(
-      (e) => log.warn("Behavior analysis failed", { error: e.message })
+
+    analyzeBehavior(firebaseUid, ipAddress, userAgent).catch(
+      (e: Error) => log.warn("Behavior analysis failed", { error: e.message })
     );
+
+    // Multi-account check
+    checkMultiAccount(firebaseUid, ipAddress, userAgent, visitorId)
+      .then(({ otherAccountsCount, otherUids }) => {
+        if (otherAccountsCount > 0) {
+          log.warn("🚨 Multi-account detected", {
+            uid:           firebaseUid.substring(0, 8),
+            otherAccounts: otherAccountsCount,
+            otherUids:     otherUids.map((u) => u.substring(0, 8)),
+          });
+          flagUser({
+            firebaseUid,
+            violationType: "IMPOSSIBLE_ACTION",
+            details: {
+              reason:             "Multi-account detected",
+              otherAccountsCount,
+            },
+            ipAddress,
+            userAgent,
+          }).catch(() => {});
+        }
+      })
+      .catch((e: Error) =>
+        log.warn("Multi-account check failed", { error: e.message })
+      );
 
     await client.query("BEGIN");
 
@@ -177,42 +209,49 @@ export const attemptCrime = async (req: Request, res: Response) => {
 
     let specialDiscovered = false;
     if (outcome.outcome === "special" && outcome.special) {
-      specialDiscovered = await saveSpecialDiscovery(
-        client,
-        user.id,
-        outcome.special.id
-      );
+      specialDiscovered = await saveSpecialDiscovery(client, user.id, outcome.special.id);
     }
     const updatedSpecialsFoundCount =
       progress.specials_found_count + (specialDiscovered ? 1 : 0);
 
     await updateProgress(client, user.id, crime.id, {
-      crimeXp: stats.crimeXp,
-      crimeLevel: stats.crimeLevel,
-      hiddenCpl: stats.hiddenCpl,
-      attempts: stats.attempts,
-      successes: stats.successes,
-      failures: stats.failures,
-      critFailures: stats.critFailures,
+      crimeXp:            stats.crimeXp,
+      crimeLevel:         stats.crimeLevel,
+      hiddenCpl:          stats.hiddenCpl,
+      attempts:           stats.attempts,
+      successes:          stats.successes,
+      failures:           stats.failures,
+      critFailures:       stats.critFailures,
       specialsFoundCount: updatedSpecialsFoundCount,
     });
 
     await updateUserStats(client, user.id, {
-      money: stats.money,
-      points: stats.points,
-      nerve: stats.nerve,
-      maxNerve: stats.maxNerve,
-      life: stats.life,
-      maxLife: stats.maxLife,
-      jailUntil: stats.jailUntil,
+      money:            stats.money,
+      points:           stats.points,
+      nerve:            stats.nerve,
+      maxNerve:         stats.maxNerve,
+      life:             stats.life,
+      maxLife:          stats.maxLife,
+      jailUntil:        stats.jailUntil,
       federalJailUntil: stats.federalJailUntil,
     });
 
     await client.query("COMMIT");
 
+    // ════════════════════════════════════════════════════════
+    // UAC 2.0 — Post-crime analysis (fire-and-forget)
+    // Tracks: earnings velocity, active hours, success rate
+    // ════════════════════════════════════════════════════════
+    const wasSuccess = outcome.outcome === "success" || outcome.outcome === "special";
+    const moneyEarned = outcome.reward_money;
+
+    analyzePostCrime(firebaseUid, moneyEarned, wasSuccess, ipAddress, userAgent).catch(
+      (e: Error) => log.warn("Post-crime analysis failed", { error: e.message })
+    );
+
     log.info("Crime attempted", {
-      uid: firebaseUid.substring(0, 8),
-      crime: crime.crime_key,
+      uid:     firebaseUid.substring(0, 8),
+      crime:   crime.crime_key,
       outcome: outcome.outcome,
     });
 
@@ -220,22 +259,22 @@ export const attemptCrime = async (req: Request, res: Response) => {
       outcome: outcome.outcome,
       message: outcome.message,
       crime: {
-        id: crime.id,
-        key: crime.crime_key,
-        name: crime.name,
-        tier: crime.tier,
+        id:        crime.id,
+        key:       crime.crime_key,
+        name:      crime.name,
+        tier:      crime.tier,
         nerveCost: crime.nerve_cost,
         isFederal: crime.is_federal,
       },
       rewards: {
-        money: outcome.reward_money,
-        points: outcome.reward_points,
+        money:    outcome.reward_money,
+        points:   outcome.reward_points,
         xpGained: outcome.xp_gained,
       },
       penalties: {
-        moneyLost: outcome.money_loss,
-        lifeLost: outcome.life_loss,
-        xpLost: outcome.xp_lost,
+        moneyLost:   outcome.money_loss,
+        lifeLost:    outcome.life_loss,
+        xpLost:      outcome.xp_lost,
         jailSeconds: outcome.jail_seconds,
         jailType:
           outcome.jail_seconds > 0
@@ -246,31 +285,31 @@ export const attemptCrime = async (req: Request, res: Response) => {
       },
       special: outcome.special
         ? {
-            id: outcome.special.id,
-            title: outcome.special.title,
-            description: outcome.special.description,
-            rewardMoney: outcome.special.reward_money,
-            rewardPoints: outcome.special.reward_points,
+            id:                outcome.special.id,
+            title:             outcome.special.title,
+            description:       outcome.special.description,
+            rewardMoney:       outcome.special.reward_money,
+            rewardPoints:      outcome.special.reward_points,
             wasNewlyDiscovered: specialDiscovered,
           }
         : null,
       progress: {
-        crimeXp: stats.crimeXp,
-        crimeLevel: stats.crimeLevel,
-        attempts: stats.attempts,
-        successes: stats.successes,
-        failures: stats.failures,
-        critFailures: stats.critFailures,
+        crimeXp:            stats.crimeXp,
+        crimeLevel:         stats.crimeLevel,
+        attempts:           stats.attempts,
+        successes:          stats.successes,
+        failures:           stats.failures,
+        critFailures:       stats.critFailures,
         specialsFoundCount: updatedSpecialsFoundCount,
       },
       user: {
-        money: stats.money,
-        points: stats.points,
-        nerve: stats.nerve,
-        maxNerve: stats.maxNerve,
-        life: stats.life,
-        maxLife: stats.maxLife,
-        jailUntil: stats.jailUntil ? stats.jailUntil.toISOString() : null,
+        money:            stats.money,
+        points:           stats.points,
+        nerve:            stats.nerve,
+        maxNerve:         stats.maxNerve,
+        life:             stats.life,
+        maxLife:          stats.maxLife,
+        jailUntil:        stats.jailUntil ? stats.jailUntil.toISOString() : null,
         federalJailUntil: stats.federalJailUntil
           ? stats.federalJailUntil.toISOString()
           : null,

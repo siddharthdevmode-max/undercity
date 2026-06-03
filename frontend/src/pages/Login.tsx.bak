@@ -37,16 +37,24 @@ export default function Login() {
   const [info, setInfo]                 = useState('');
   const [loading, setLoading]           = useState(false);
   const [attempts, setAttempts]         = useState(0);
+
+  // Initialize directly from localStorage — no effect needed
   const [lockedUntil, setLockedUntil]   = useState<number | null>(loadLockout);
   const [now, setNow]                   = useState(() => Date.now());
 
   const emailRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
-  const { user, setUser } = useAuth();
+  const { user } = useAuth();
 
-  useEffect(() => { if (user) navigate('/home'); }, [user, navigate]);
-  useEffect(() => { emailRef.current?.focus(); }, []);
+  useEffect(() => {
+    if (user) navigate('/home');
+  }, [user, navigate]);
 
+  useEffect(() => {
+    emailRef.current?.focus();
+  }, []);
+
+  // Tick clock every second while locked
   useEffect(() => {
     if (!lockedUntil) return;
     const id = setInterval(() => {
@@ -69,10 +77,12 @@ export default function Login() {
     e.preventDefault();
     setError('');
     setInfo('');
+
     if (isLocked) {
       setError(`Too many failed attempts. Try again in ${minutesLeft} min.`);
       return;
     }
+
     setLoading(true);
     try {
       await setPersistence(
@@ -80,8 +90,7 @@ export default function Login() {
         stayLoggedIn ? browserLocalPersistence : browserSessionPersistence
       );
       await signInWithEmailAndPassword(auth, email, password);
-      const loggedInUser = await authAPI.sync();
-      setUser(loggedInUser);
+      await authAPI.sync();
       setAttempts(0);
       localStorage.removeItem('login_lockout');
       navigate('/home');
@@ -123,24 +132,10 @@ export default function Login() {
       <Header />
       <section className="about-section">
         <div className="about-content">
-
-          {/* ── Left: Login Form ── */}
           <div className="about-text register-modern-wrapper">
-
-            <span className="hero-eyebrow">UNDERCITY AWAITS</span>
-            <h1 className="auth-title">
-              RETURN TO<br />
-              <span className="accent">THE CITY</span>
-            </h1>
-            <div className="divider">
-              <span className="line" />
-              <span className="diamond">◆</span>
-              <span className="line" />
-            </div>
-            <p className="auth-supporting">
-              Your empire is still breathing.<br />
-              The streets never stopped moving.
-            </p>
+            <h1 className="register-title">WELCOME BACK</h1>
+            <span className="register-subtitle">The city missed you</span>
+            <div className="register-divider" />
 
             <form onSubmit={handleSubmit} className="register-modern-form" noValidate>
               <input
@@ -200,9 +195,9 @@ export default function Login() {
                 {loading ? (
                   <><span className="spinner" />ACCESSING...</>
                 ) : isLocked ? (
-                  `LOCKED — ${minutesLeft} MIN`
+                  `LOCKED - ${minutesLeft} MIN`
                 ) : (
-                  <>ENTER THE CITY <span className="arrow">→</span></>
+                  'ENTER THE CITY'
                 )}
               </button>
 
@@ -212,25 +207,16 @@ export default function Login() {
               {info && (
                 <p className="register-info" role="status" aria-live="polite">{info}</p>
               )}
+
+              <p className="register-login">
+                Don't have an account? <Link to="/register">Register</Link>
+              </p>
             </form>
-
-            {/* ── Session Intel Strip ── */}
-            <div className="auth-intel-strip">
-              <span>⚡ Persistent world</span>
-              <span>🔒 Secure login</span>
-              <span>🏙️ Your city waits</span>
-            </div>
-
-            <p className="register-login">
-              New to the streets? <Link to="/register">Create an account</Link>
-            </p>
           </div>
 
-          {/* ── Right: Hero Image ── */}
           <div className="about-image">
             <img src={hero} alt="Undercity skyline" />
           </div>
-
         </div>
       </section>
     </div>

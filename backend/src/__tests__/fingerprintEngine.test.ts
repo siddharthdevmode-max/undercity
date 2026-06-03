@@ -123,7 +123,7 @@ describe("fingerprintEngine — checkMultiAccount", () => {
     await checkMultiAccount("uid-2", "10.0.0.1", "Chrome/100");
     const hash1 = (mockQuery.mock.calls[0][1] as string[])[0];
     const hash2 = (mockQuery.mock.calls[1][1] as string[])[0];
-    expect(hash1).toBe(hash2);
+    expect(hash1).toStrictEqual(hash2);
   });
 
   it("generates different hash for different IP", async () => {

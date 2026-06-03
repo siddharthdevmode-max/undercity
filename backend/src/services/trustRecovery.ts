@@ -1,0 +1,119 @@
+import { pool } from "../config/database";
+import { logger } from "../utils/logger";
+import { getTrustTier } from "./trustEngine";
+
+// ============================================================
+// UAC 2.0 — TRUST RECOVERY ENGINE
+// Runs daily via cron script
+// +1 trust per day of clean play (no flags in 24h)
+// +5 bonus trust per 7-day clean streak
+// Max auto-regen = 70 (must appeal to reach 100)
+// ============================================================
+
+const MAX_AUTO_REGEN   = 70;
+const DAILY_REGEN      = 1;
+const WEEKLY_BONUS     = 5;
+const REGEN_INTERVAL_H = 24;
+
+export async function runTrustRecovery(): Promise<{
+  processed: number;
+  recovered: number;
+  skipped: number;
+}> {
+  let processed = 0;
+  let recovered = 0;
+  let skipped   = 0;
+
+  try {
+    // Find all users eligible for regen:
+    // - trust_score between 1 and MAX_AUTO_REGEN
+    // - not hard banned
+    // - no flags in last 24h
+    // - last regen was > 24h ago (or never)
+    const eligible = await pool.query(`
+      SELECT
+        u.id,
+        u.firebase_uid,
+        u.trust_score,
+        u.trust_regen_streak,
+        u.last_trust_regen_at,
+        u.last_flag_at
+      FROM users u
+      WHERE u.deleted_at IS NULL
+        AND u.is_hard_banned = FALSE
+        AND u.trust_score > 0
+        AND u.trust_score < $1
+        AND (
+          u.last_flag_at IS NULL
+          OR u.last_flag_at < NOW() - INTERVAL '24 hours'
+        )
+        AND (
+          u.last_trust_regen_at IS NULL
+          OR u.last_trust_regen_at < NOW() - INTERVAL '${REGEN_INTERVAL_H} hours'
+        )
+    `, [MAX_AUTO_REGEN]);
+
+    logger.info(`🔄 Trust recovery: ${eligible.rows.length} users eligible`);
+
+    for (const user of eligible.rows) {
+      processed++;
+
+      const oldScore  = user.trust_score as number;
+      const streak    = (user.trust_regen_streak as number) + 1;
+      const isWeekly  = streak % 7 === 0;
+
+      let gain = DAILY_REGEN;
+      if (isWeekly) gain += WEEKLY_BONUS;
+
+      const newScore = Math.min(MAX_AUTO_REGEN, oldScore + gain);
+
+      if (newScore === oldScore) {
+        skipped++;
+        continue;
+      }
+
+      const isShadowBanned = newScore > 0 && newScore < 20;
+
+      await pool.query(`
+        UPDATE users
+        SET
+          trust_score          = $1,
+          is_shadow_banned     = $2,
+          trust_regen_streak   = $3,
+          last_trust_regen_at  = NOW()
+        WHERE id = $4
+      `, [newScore, isShadowBanned, streak, user.id]);
+
+      await pool.query(`
+        INSERT INTO trust_recovery_log
+          (user_id, firebase_uid, old_score, new_score, reason)
+        VALUES ($1, $2, $3, $4, $5)
+      `, [
+        user.id,
+        user.firebase_uid,
+        oldScore,
+        newScore,
+        isWeekly ? "WEEKLY_STREAK_BONUS" : "DAILY_REGEN",
+      ]);
+
+      recovered++;
+
+      logger.info("✅ Trust recovered", {
+        uid:      (user.firebase_uid as string).substring(0, 8),
+        score:    `${oldScore} → ${newScore}`,
+        tier:     getTrustTier(newScore),
+        streak,
+        isWeekly,
+      });
+    }
+
+    logger.info(`✅ Trust recovery complete`, { processed, recovered, skipped });
+    return { processed, recovered, skipped };
+
+  } catch (error: unknown) {
+    logger.error("Trust recovery error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { processed, recovered, skipped };
+  }
+}

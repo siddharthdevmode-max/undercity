@@ -1,10 +1,3 @@
-// ============================================================
-// CENTRAL CONFIG
-// Single source of truth for all runtime configuration.
-// All values come from validated environment variables.
-// Import this instead of reading process.env directly.
-// ============================================================
-
 export const config = {
   // ─── Server ───
   port:    parseInt(process.env.PORT    || "5000", 10),
@@ -39,6 +32,9 @@ export const config = {
   // ─── Firebase ───
   firebaseServiceAccountJson:
     process.env.FIREBASE_SERVICE_ACCOUNT_JSON || undefined,
+
+  // ─── Cloudflare Turnstile ───
+  turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY || "",
 
   // ─── Derived helpers ───
   get isProduction() { return this.nodeEnv === "production"; },

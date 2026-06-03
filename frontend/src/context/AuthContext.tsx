@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { authAPI } from '../services/api';
+import { ApiError } from '../utils/apiError';
 import type { User } from '../types';
 
 interface AuthContextValue {
@@ -8,6 +9,7 @@ interface AuthContextValue {
   loading: boolean;
   error: string | null;
   refreshUser: () => Promise<void>;
+  setUser: (user: User | null) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -24,7 +26,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       const data = await authAPI.me();
       setUser(data);
-    } catch {
+    } catch (err: unknown) {
+      // 404 means Firebase user exists but DB record doesn't yet.
+      // This happens during registration — Register.tsx will call sync()
+      // and populate the user directly. Don't clear user / don't set error.
+      if (err instanceof ApiError && err.status === 404) {
+        return;
+      }
       setError('Failed to load player data');
       setUser(null);
     }
@@ -60,7 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, error, refreshUser, setUser }}>
       {children}
     </AuthContext.Provider>
   );
