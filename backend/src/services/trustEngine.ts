@@ -29,7 +29,7 @@ export function getTrustTier(score: number): string {
 export async function flagUser(params: {
   firebaseUid: string;
   violationType: ViolationType;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   ipAddress?: string;
   userAgent?: string;
 }): Promise<{ newTrustScore: number; tier: string; isBanned: boolean }> {
@@ -78,7 +78,7 @@ export async function flagUser(params: {
         params.firebaseUid,
         params.violationType,
         violation.severity,
-        JSON.stringify(params.details || {}),
+        JSON.stringify(params.details ?? {}),
         params.ipAddress || null,
         params.userAgent || null,
       ]
@@ -96,9 +96,9 @@ export async function flagUser(params: {
     });
 
     return { newTrustScore: newScore, tier, isBanned: isHardBanned };
-  } catch (error: any) {
+  } catch (error: unknown) {
     await client.query("ROLLBACK");
-    logger.error("flagUser error", { error: error.message });
+    logger.error("flagUser error", { error: error instanceof Error ? error.message : String(error) });
     return { newTrustScore: 100, tier: "ERROR", isBanned: false };
   } finally {
     client.release();

@@ -208,8 +208,8 @@ export default function Login() {
                 )}
               </button>
 
-              {error && <p className="register-error">{error}</p>}
-              {info && <p className="register-info">{info}</p>}
+              {error && <p role="alert" aria-live="polite" className="register-error">{error}</p>}
+              {info && <p className="register-info" role="status" aria-live="polite">{info}</p>}
 
               <p className="register-login">
                 Don't have an account? <Link to="/register">Register</Link>

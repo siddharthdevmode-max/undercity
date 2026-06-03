@@ -389,3 +389,142 @@
     gap: var(--space-md);
   }
 }
+
+/* ════════════════════════════════════════════════════════════
+   SHELL — RESPONSIVE (Mobile First)
+   ════════════════════════════════════════════════════════════ */
+
+/* Sidebar slide-out on mobile */
+@media (max-width: 768px) {
+  .game-shell {
+    flex-direction: column;
+  }
+
+  .game-content {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: var(--header-height);
+    left: -100%;
+    width: 280px;
+    height: calc(100vh - var(--header-height));
+    z-index: var(--z-modal);
+    transition: left var(--transition-normal);
+    overflow-y: auto;
+  }
+
+  .sidebar.sidebar-open {
+    left: 0;
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    top: var(--header-height);
+    background: rgba(0, 0, 0, 0.6);
+    z-index: calc(var(--z-modal) - 1);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--transition-normal);
+  }
+
+  .sidebar-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .hamburger-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    font-size: 1.25rem;
+    border-radius: var(--radius-md);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .main-content {
+    width: 100%;
+    min-height: calc(100vh - var(--header-height));
+    padding: var(--space-md);
+  }
+
+  .game-header {
+    padding: 0 var(--space-md);
+    gap: var(--space-sm);
+  }
+
+  .header-stats {
+    display: none;
+  }
+
+  .user-info .username {
+    display: none;
+  }
+}
+
+/* Desktop — sidebar always visible */
+@media (min-width: 769px) {
+  .hamburger-btn {
+    display: none !important;
+  }
+
+  .sidebar-overlay {
+    display: none !important;
+  }
+
+  .sidebar {
+    position: relative;
+    left: 0 !important;
+    width: var(--sidebar-width);
+    min-height: calc(100vh - var(--header-height));
+    flex-shrink: 0;
+  }
+
+  .game-content {
+    display: flex;
+    flex-direction: row;
+  }
+
+  .main-content {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-lg);
+  }
+}
+
+/* Dashboard grid responsive */
+@media (max-width: 900px) {
+  .dashboard {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .dashboard {
+    grid-template-columns: 1fr !important;
+  }
+
+  .game-header .logo {
+    font-size: var(--text-md);
+  }
+}
+
+/* Touch targets minimum size */
+@media (max-width: 768px) {
+  .nav-item,
+  .logout-btn,
+  .hamburger-btn,
+  button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}

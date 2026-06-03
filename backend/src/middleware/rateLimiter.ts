@@ -6,8 +6,7 @@ import type { Request } from "express";
 // ============================================================
 
 const keyByUidOrIp = (req: Request): string => {
-  const firebaseUser = (req as any).firebaseUser;
-  if (firebaseUser?.uid) return `uid:${firebaseUser.uid}`;
+  if (req.firebaseUser?.uid) return `uid:${req.firebaseUser.uid}`;
   return `ip:${req.ip || "unknown"}`;
 };
 
@@ -22,12 +21,10 @@ export const crimeLimiter = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: {
-    xForwardedForHeader: false,
-    keyGeneratorIpFallback: false,
-  },
+  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
   message: { message: "Too many requests. Slow down." },
   keyGenerator: keyByUidOrIp,
+  skipSuccessfulRequests: false,
 });
 
 // ============================================================
@@ -39,67 +36,57 @@ export const challengeLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: {
-    xForwardedForHeader: false,
-    keyGeneratorIpFallback: false,
-  },
+  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
   message: { message: "Too many requests." },
   keyGenerator: keyByUidOrIp,
 });
 
 // ============================================================
-// AUTH SYNC LIMITER (STRICT — registration only)
-// 5 syncs per 15 min per IP — accounts are rare to create
+// AUTH SYNC LIMITER (STRICT)
+// 5 syncs per 15 min per IP
 // ============================================================
 export const authSyncLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: {
-    xForwardedForHeader: false,
-    keyGeneratorIpFallback: false,
-  },
+  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
   message: { message: "Too many registration attempts. Try again later." },
   keyGenerator: keyByIp,
 });
 
 // ============================================================
-// AUTH ME LIMITER (LENIENT — called every page load)
-// 120/min per user — covers normal navigation + StrictMode
+// AUTH ME LIMITER
+// 60/min per user — React StrictMode double-fires once
+// Reduced from 120 since UID caching in AuthContext
+// prevents most duplicate calls
 // ============================================================
 export const authMeLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 120,
+  max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: {
-    xForwardedForHeader: false,
-    keyGeneratorIpFallback: false,
-  },
+  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
   message: { message: "Too many requests." },
   keyGenerator: keyByUidOrIp,
 });
 
 // ============================================================
 // USERNAME CHECK LIMITER
-// 20/min per IP — typing username on registration
+// 20/min per IP
 // ============================================================
 export const usernameCheckLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: {
-    xForwardedForHeader: false,
-    keyGeneratorIpFallback: false,
-  },
+  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
   message: { message: "Too many username checks. Slow down." },
   keyGenerator: keyByIp,
 });
 
 // ============================================================
-// STATS LIMITER (public endpoint)
+// STATS LIMITER (public)
 // 30/min per IP
 // ============================================================
 export const statsLimiter = rateLimit({
@@ -107,27 +94,21 @@ export const statsLimiter = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: {
-    xForwardedForHeader: false,
-    keyGeneratorIpFallback: false,
-  },
+  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
   message: { message: "Too many requests." },
   keyGenerator: keyByIp,
 });
 
 // ============================================================
-// ADMIN LIMITER (strict — admin actions are rare)
-// 30/min per UID — protects admin endpoints
+// ADMIN LIMITER
+// 30/min per UID
 // ============================================================
 export const adminLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: {
-    xForwardedForHeader: false,
-    keyGeneratorIpFallback: false,
-  },
+  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
   message: { message: "Too many admin requests." },
   keyGenerator: keyByUidOrIp,
 });

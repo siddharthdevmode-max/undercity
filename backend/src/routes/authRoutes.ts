@@ -22,7 +22,7 @@ const USER_FIELDS = `
 `;
 
 // ============================================================
-// POST /api/auth/sync — strict limit (registration only)
+// POST /api/auth/sync
 // ============================================================
 router.post(
   "/sync",
@@ -77,7 +77,7 @@ router.post(
 );
 
 // ============================================================
-// GET /api/auth/me — lenient limit (called constantly)
+// GET /api/auth/me
 // ============================================================
 router.get(
   "/me",
@@ -100,24 +100,15 @@ router.get(
 );
 
 // ============================================================
-// GET /api/auth/check-username/:username — public
+// GET /api/auth/check-username/:username
+// Schema is the single source of truth — no manual checks
 // ============================================================
 router.get(
   "/check-username/:username",
   usernameCheckLimiter,
   validate(checkUsernameSchema),
   asyncHandler(async (req, res) => {
-    const username = String(req.params.username || "");
-
-    if (username.length < 3) {
-      return res.json({ available: false, reason: "Too short" });
-    }
-    if (username.length > 20) {
-      return res.json({ available: false, reason: "Too long" });
-    }
-    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-      return res.json({ available: false, reason: "Invalid characters" });
-    }
+    const username = String(req.params.username);
 
     const result = await pool.query(
       `SELECT id FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,

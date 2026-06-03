@@ -101,7 +101,9 @@ const apiSpec = {
             properties: {
               moneyLost: { type: "integer" },
               lifeLost: { type: "integer" },
+              xpLost: { type: "integer" },
               jailSeconds: { type: "integer" },
+              jailType: { type: "string", nullable: true, enum: ["normal", "federal"] },
             },
           },
         },

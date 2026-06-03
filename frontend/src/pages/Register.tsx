@@ -246,7 +246,7 @@ export default function Register() {
                 )}
               </button>
 
-              {error && <p className="register-error">{error}</p>}
+              {error && <p role="alert" aria-live="polite" className="register-error">{error}</p>}
 
               <p className="register-login">
                 Already part of the streets? <Link to="/login">Login</Link>

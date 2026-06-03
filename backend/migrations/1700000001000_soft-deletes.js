@@ -1,14 +1,20 @@
-exports.shorthands = undefined;
+/* eslint-disable camelcase */
 
 exports.up = (pgm) => {
+  // deleted_at already exists in initial schema
+  // Only add deletion_reason which is new
   pgm.addColumns("users", {
-    deleted_at: { type: "timestamp", notNull: false, default: null },
-    deletion_reason: { type: "text", notNull: false },
+    deletion_reason: { type: "text", ifNotExists: true },
   });
-  pgm.createIndex("users", "id", { name: "idx_users_active", ifNotExists: true, where: "deleted_at IS NULL" });
+
+  pgm.createIndex("users", ["id"], {
+    name: "idx_users_active",
+    where: "deleted_at IS NULL",
+    ifNotExists: true,
+  });
 };
 
 exports.down = (pgm) => {
-  pgm.dropIndex("users", [], { name: "idx_users_active", ifExists: true });
-  pgm.dropColumns("users", ["deleted_at", "deletion_reason"]);
+  pgm.dropIndex("users", ["id"], { name: "idx_users_active" });
+  pgm.dropColumns("users", ["deletion_reason"]);
 };

@@ -14,7 +14,7 @@ const router = Router();
 
 const honeypotHandler = async (req: Request, res: Response) => {
   try {
-    const firebaseUser = (req as any).firebaseUser;
+    const firebaseUser = req.firebaseUser;
     const uid = firebaseUser?.uid;
 
     if (uid) {

@@ -2,24 +2,19 @@ import { Request, Response, NextFunction } from "express";
 import redis from "../config/redis";
 import { flagUser } from "../services/trustEngine";
 import { logger } from "../utils/logger";
-
-// ============================================================
-// verifyChallenge
-// Checks one-time challenge token & flags cheaters
-// ============================================================
+import { UnauthorizedError, ForbiddenError, AppError } from "../utils/errors";
 
 export const verifyChallenge = async (
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ) => {
   try {
     const challengeToken = req.headers["x-uac-challenge"] as string;
-    const firebaseUser = (req as any).firebaseUser;
-    const uid = firebaseUser?.uid;
+    const uid = req.firebaseUser?.uid;
 
     if (!uid) {
-      return res.status(401).json({ message: "Unauthorized." });
+      return next(new UnauthorizedError());
     }
 
     if (!challengeToken) {
@@ -30,27 +25,28 @@ export const verifyChallenge = async (
         ipAddress: req.ip,
         userAgent: req.headers["user-agent"],
       });
-      return res.status(403).json({ message: "Access denied." });
+      return next(new ForbiddenError("Access denied."));
     }
 
     const redisKey = `challenge:${uid}:${challengeToken}`;
-    const exists = await redis.get(redisKey);
+    const exists   = await redis.get(redisKey);
 
     if (!exists) {
       await flagUser({
         firebaseUid: uid,
         violationType: "INVALID_CHALLENGE",
-        details: { reason: "Token not found in Redis", path: req.path },
+        details: { reason: "Token not found or expired", path: req.path },
         ipAddress: req.ip,
         userAgent: req.headers["user-agent"],
       });
-      return res.status(403).json({ message: "Invalid or expired token." });
+      return next(new ForbiddenError("Invalid or expired token."));
     }
 
     await redis.del(redisKey);
     next();
-  } catch (error: any) {
-    logger.error("Challenge verification error", { error: error.message });
-    return res.status(500).json({ message: "Security check failed." });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error("Challenge verification error", { error: message });
+    next(new AppError("Security check failed.", 500, "CHALLENGE_ERROR"));
   }
 };

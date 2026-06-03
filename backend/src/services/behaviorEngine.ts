@@ -2,15 +2,11 @@ import redis from "../config/redis";
 import { flagUser } from "./trustEngine";
 import { logger } from "../utils/logger";
 
-// ============================================================
-// BEHAVIORAL DETECTION CONFIG
-// ============================================================
-
 const CONFIG = {
-  WINDOW_SIZE: 10,
-  MIN_ATTEMPTS_TO_ANALYZE: 8,
-  BOT_STDDEV_THRESHOLD: 150,
-  REDIS_TTL: 600,
+  WINDOW_SIZE:              10,
+  MIN_ATTEMPTS_TO_ANALYZE:  8,
+  BOT_STDDEV_THRESHOLD:     150,
+  REDIS_TTL:                600,
 };
 
 export async function recordAndAnalyze(firebaseUid: string): Promise<{
@@ -20,7 +16,7 @@ export async function recordAndAnalyze(firebaseUid: string): Promise<{
 } | null> {
   try {
     const redisKey = `timing:${firebaseUid}`;
-    const now = Date.now();
+    const now      = Date.now();
 
     await redis.rpush(redisKey, now.toString());
     await redis.ltrim(redisKey, -CONFIG.WINDOW_SIZE, -1);
@@ -34,22 +30,22 @@ export async function recordAndAnalyze(firebaseUid: string): Promise<{
 
     const gaps: number[] = [];
     for (let i = 1; i < timestamps.length; i++) {
-      const gap = parseInt(timestamps[i]) - parseInt(timestamps[i - 1]);
-      gaps.push(gap);
+      gaps.push(parseInt(timestamps[i]) - parseInt(timestamps[i - 1]));
     }
 
-    const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
-    const variance =
-      gaps.reduce((sum, gap) => sum + Math.pow(gap - mean, 2), 0) / gaps.length;
-    const stddev = Math.sqrt(variance);
+    const mean     = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+    const variance = gaps.reduce((sum, gap) => sum + Math.pow(gap - mean, 2), 0) / gaps.length;
+    const stddev   = Math.sqrt(variance);
 
     return {
-      isBotLike: stddev < CONFIG.BOT_STDDEV_THRESHOLD,
-      stddev: Math.round(stddev),
+      isBotLike:    stddev < CONFIG.BOT_STDDEV_THRESHOLD,
+      stddev:       Math.round(stddev),
       attemptCount: timestamps.length,
     };
-  } catch (error: any) {
-    logger.error("Behavior analysis error", { error: error.message });
+  } catch (error: unknown) {
+    logger.error("Behavior analysis error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 }
@@ -64,9 +60,9 @@ export async function analyzeBehavior(
 
   if (analysis.isBotLike) {
     logger.warn("🤖 Bot-like behavior detected", {
-      uid: firebaseUid.substring(0, 8),
-      stddev_ms: analysis.stddev,
-      threshold_ms: CONFIG.BOT_STDDEV_THRESHOLD,
+      uid:               firebaseUid.substring(0, 8),
+      stddev_ms:         analysis.stddev,
+      threshold_ms:      CONFIG.BOT_STDDEV_THRESHOLD,
       attempts_analyzed: analysis.attemptCount,
     });
 
@@ -74,8 +70,8 @@ export async function analyzeBehavior(
       firebaseUid,
       violationType: "SUSPICIOUS_TIMING",
       details: {
-        stddev_ms: analysis.stddev,
-        threshold_ms: CONFIG.BOT_STDDEV_THRESHOLD,
+        stddev_ms:         analysis.stddev,
+        threshold_ms:      CONFIG.BOT_STDDEV_THRESHOLD,
         attempts_analyzed: analysis.attemptCount,
       },
       ipAddress,

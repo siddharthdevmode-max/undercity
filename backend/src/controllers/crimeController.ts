@@ -71,7 +71,7 @@ export const getCrimes = async (req: Request, res: Response) => {
       [user.id, playerLevel]
     );
 
-    const crimes = crimesResult.rows.map((row: any) => ({
+    const crimes = crimesResult.rows.map((row: Record<string, unknown>) => ({
       id: toNumber(row.id),
       key: row.crime_key,
       name: row.name,
@@ -136,7 +136,7 @@ export const attemptCrime = async (req: Request, res: Response) => {
     if (!firebaseUid) throw new UnauthorizedError();
 
     const { crimeKey } = req.body as { crimeKey: string };
-    const trustInfo = req.trustInfo ?? {
+    const trustInfo: { isShadowBanned: boolean; trustScore: number } = req.trustInfo ?? {
       isShadowBanned: false,
       trustScore: 100,
     };

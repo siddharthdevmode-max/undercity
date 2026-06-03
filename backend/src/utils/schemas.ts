@@ -1,10 +1,5 @@
 import { z } from "zod";
 
-// ============================================================
-// REQUEST VALIDATION SCHEMAS
-// Used by validate() middleware
-// ============================================================
-
 export const attemptCrimeSchema = z.object({
   body: z.object({
     crimeKey: z
@@ -21,17 +16,25 @@ export const syncUserSchema = z.object({
       .string()
       .min(3, "Username must be at least 3 characters")
       .max(20, "Username max 20 characters")
-      .regex(/^[a-zA-Z0-9_]+$/, "Username can only have letters, numbers, underscores")
+      .regex(
+        /^[a-zA-Z0-9_]+$/,
+        "Username can only have letters, numbers, underscores"
+      )
       .optional(),
   }),
 });
 
+// Single source of truth — route handler no longer does manual checks
 export const checkUsernameSchema = z.object({
   params: z.object({
     username: z
       .string()
-      .min(1)
-      .max(30),
+      .min(3, "Username must be at least 3 characters")
+      .max(20, "Username max 20 characters")
+      .regex(
+        /^[a-zA-Z0-9_]+$/,
+        "Username can only contain letters, numbers, underscores"
+      ),
   }),
 });
 

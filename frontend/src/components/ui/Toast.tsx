@@ -11,32 +11,27 @@ export interface ToastData {
   duration?: number;
 }
 
-// ============================================================
-// Global Toast Manager (singleton pattern)
-// ============================================================
-
 type ToastListener = (toasts: ToastData[]) => void;
 
 class ToastManager {
   private toasts: ToastData[] = [];
   private listeners: Set<ToastListener> = new Set();
 
-  subscribe(listener: ToastListener) {
+  subscribe(listener: ToastListener): () => void {
     this.listeners.add(listener);
     listener(this.toasts);
-    return () => this.listeners.delete(listener);
+    return () => { this.listeners.delete(listener); };
   }
 
   private notify() {
     this.listeners.forEach((l) => l([...this.toasts]));
   }
 
-  show(type: ToastType, message: string, duration = 4000) {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  show(type: ToastType, message: string, duration = 4000): string {
+    const id    = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const toast: ToastData = { id, type, message, duration };
     this.toasts.push(toast);
     this.notify();
-
     if (duration > 0) {
       setTimeout(() => this.dismiss(id), duration);
     }
@@ -51,28 +46,25 @@ class ToastManager {
 
 const manager = new ToastManager();
 
-// ============================================================
-// Public API - use these anywhere in the app
-// ============================================================
-
 export const toast = {
-  success: (message: string, duration?: number) => manager.show("success", message, duration),
-  error: (message: string, duration?: number) => manager.show("error", message, duration),
-  warning: (message: string, duration?: number) => manager.show("warning", message, duration),
-  info: (message: string, duration?: number) => manager.show("info", message, duration),
+  success: (message: string, duration?: number) =>
+    manager.show("success", message, duration),
+  error: (message: string, duration?: number) =>
+    manager.show("error", message, duration),
+  warning: (message: string, duration?: number) =>
+    manager.show("warning", message, duration),
+  info: (message: string, duration?: number) =>
+    manager.show("info", message, duration),
   dismiss: (id: string) => manager.dismiss(id),
 };
-
-// ============================================================
-// Toast Container Component (mount once in App.tsx)
-// ============================================================
 
 export function ToastContainer() {
   const [toasts, setToasts] = useState<ToastData[]>([]);
 
   useEffect(() => {
+    // subscribe returns () => void — correct EffectCallback cleanup
     const unsubscribe = manager.subscribe(setToasts);
-    return () => { unsubscribe(); };
+    return unsubscribe;
   }, []);
 
   const handleDismiss = useCallback((id: string) => {
@@ -82,16 +74,48 @@ export function ToastContainer() {
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="toast-container">
-      {toasts.map((t) => (
-        <ToastItem key={t.id} toast={t} onDismiss={handleDismiss} />
-      ))}
-    </div>,
+    <>
+      {/* Polite region — success/info/warning */}
+      <div
+        className="toast-container"
+        role="status"
+        aria-live="polite"
+        aria-atomic="false"
+        aria-label="Notifications"
+      >
+        {toasts
+          .filter((t) => t.type !== "error")
+          .map((t) => (
+            <ToastItem key={t.id} toast={t} onDismiss={handleDismiss} />
+          ))}
+      </div>
+
+      {/* Assertive region — errors only */}
+      <div
+        className="toast-container toast-container-errors"
+        role="alert"
+        aria-live="assertive"
+        aria-atomic="true"
+        aria-label="Error notifications"
+      >
+        {toasts
+          .filter((t) => t.type === "error")
+          .map((t) => (
+            <ToastItem key={t.id} toast={t} onDismiss={handleDismiss} />
+          ))}
+      </div>
+    </>,
     document.body
   );
 }
 
-function ToastItem({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: string) => void }) {
+function ToastItem({
+  toast,
+  onDismiss,
+}: {
+  toast: ToastData;
+  onDismiss: (id: string) => void;
+}) {
   const [isLeaving, setIsLeaving] = useState(false);
 
   const handleClose = () => {
@@ -101,16 +125,35 @@ function ToastItem({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: str
 
   const icons: Record<ToastType, string> = {
     success: "✅",
-    error: "❌",
+    error:   "❌",
     warning: "⚠️",
-    info: "ℹ️",
+    info:    "ℹ️",
+  };
+
+  const labels: Record<ToastType, string> = {
+    success: "Success",
+    error:   "Error",
+    warning: "Warning",
+    info:    "Information",
   };
 
   return (
-    <div className={`toast toast-${toast.type} ${isLeaving ? "toast-leaving" : ""}`}>
-      <span className="toast-icon">{icons[toast.type]}</span>
-      <span className="toast-message">{toast.message}</span>
-      <button className="toast-close" onClick={handleClose} aria-label="Dismiss">×</button>
+    <div
+      className={`toast toast-${toast.type} ${isLeaving ? "toast-leaving" : ""}`}
+      role="none"
+    >
+      <span className="toast-icon" aria-hidden="true">{icons[toast.type]}</span>
+      <span className="toast-message">
+        <span className="visually-hidden">{labels[toast.type]}: </span>
+        {toast.message}
+      </span>
+      <button
+        className="toast-close"
+        onClick={handleClose}
+        aria-label={`Dismiss ${labels[toast.type].toLowerCase()} notification`}
+      >
+        ×
+      </button>
     </div>
   );
 }

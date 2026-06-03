@@ -19,3 +19,7 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+firebase-service-account.json
+*.sqlite
+*.sqlite-journal
+logs/

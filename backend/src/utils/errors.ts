@@ -1,9 +1,3 @@
-// ============================================================
-// CUSTOM ERROR CLASSES
-// Throw these instead of using res.status() in controllers
-// Centralized error handler catches them all
-// ============================================================
-
 export class AppError extends Error {
   public readonly statusCode: number;
   public readonly code: string;
@@ -19,9 +13,9 @@ export class AppError extends Error {
 }
 
 export class ValidationError extends AppError {
-  public readonly details?: any;
-  
-  constructor(message: string, details?: any) {
+  public readonly details?: unknown;
+
+  constructor(message: string, details?: unknown) {
     super(message, 400, "VALIDATION_ERROR");
     this.details = details;
   }
@@ -60,7 +54,7 @@ export class RateLimitError extends AppError {
 export class JailError extends AppError {
   public readonly secondsRemaining: number;
   public readonly jailType: "normal" | "federal";
-  
+
   constructor(secondsRemaining: number, jailType: "normal" | "federal") {
     const prefix = jailType === "federal" ? "federal " : "";
     super(`You are currently in ${prefix}jail.`, 423, "IN_JAIL");

@@ -1,11 +1,11 @@
 import { getAuth } from "firebase/auth";
 import type { User } from "../types";
+import { ApiError } from "../utils/apiError";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 // ============================================================
 // TRANSFORM
-// Converts raw DB snake_case user to camelCase for React
 // ============================================================
 
 interface RawUser {
@@ -47,21 +47,37 @@ function transformUser(raw: RawUser): User {
 }
 
 // ============================================================
-// CHALLENGE TOKEN FETCHER
+// CHALLENGE TOKEN — with simple in-memory cache
 // ============================================================
 
+let cachedToken: { token: string; expiresAt: number } | null = null;
+
 async function getChallengeToken(firebaseToken: string): Promise<string> {
+  // Reuse token if still valid (TTL is 30s, use for 20s max)
+  if (cachedToken && Date.now() < cachedToken.expiresAt) {
+    return cachedToken.token;
+  }
+
   const response = await fetch(`${API_BASE_URL}/challenge`, {
-    headers: {
-      Authorization: `Bearer ${firebaseToken}`,
-    },
+    headers: { Authorization: `Bearer ${firebaseToken}` },
   });
 
   if (!response.ok) {
-    throw new Error("Failed to get security token");
+    const data = await response.json().catch(() => ({}));
+    throw new ApiError(
+      data.message || "Failed to get security token",
+      response.status,
+      data.code || "CHALLENGE_ERROR"
+    );
   }
 
   const data = await response.json();
+
+  cachedToken = {
+    token:     data.token,
+    expiresAt: Date.now() + 20_000, // 20s cache (token TTL is 30s)
+  };
+
   return data.token;
 }
 
@@ -73,21 +89,23 @@ export async function apiCall(endpoint: string, options: RequestInit = {}) {
   const auth = getAuth();
   const user = auth.currentUser;
 
-  if (!user) throw new Error("Not authenticated");
+  if (!user) throw new ApiError("Not authenticated", 401, "UNAUTHORIZED");
 
   const firebaseToken = await user.getIdToken();
 
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${firebaseToken}`,
+    "Content-Type":  "application/json",
+    Authorization:   `Bearer ${firebaseToken}`,
     ...(options.headers as Record<string, string>),
   };
 
-  if (
-    options.method === "POST" ||
-    options.method === "PUT" ||
-    options.method === "DELETE"
-  ) {
+  const needsChallenge = ["POST", "PUT", "DELETE"].includes(
+    options.method?.toUpperCase() || ""
+  );
+
+  if (needsChallenge) {
+    // Invalidate cache — each challenge is one-time use
+    cachedToken = null;
     const challengeToken = await getChallengeToken(firebaseToken);
     headers["x-uac-challenge"] = challengeToken;
   }
@@ -99,7 +117,12 @@ export async function apiCall(endpoint: string, options: RequestInit = {}) {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || "API request failed");
+    throw new ApiError(
+      errorData.message || "API request failed",
+      response.status,
+      errorData.code   || "UNKNOWN_ERROR",
+      errorData.details
+    );
   }
 
   return response.json();
@@ -122,7 +145,11 @@ export async function publicCall(endpoint: string, options: RequestInit = {}) {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || "API request failed");
+    throw new ApiError(
+      errorData.message || "API request failed",
+      response.status,
+      errorData.code   || "UNKNOWN_ERROR"
+    );
   }
 
   return response.json();

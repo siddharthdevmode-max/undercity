@@ -7,41 +7,42 @@ const router = Router();
 
 // ============================================================
 // GET /api/stats/live
-// Public endpoint — no auth required
-// Rate limited: 30 req/min per IP
+// Single query for all stats — no sequential round trips
 // ============================================================
 router.get(
   "/live",
   statsLimiter,
-  asyncHandler(async (req, res) => {
-    const onlineNow = await pool.query(`
-      SELECT COUNT(*)::int AS count FROM users
-      WHERE last_crime_at >= NOW() - INTERVAL '5 minutes'
+  asyncHandler(async (_req, res) => {
+    const result = await pool.query(`
+      SELECT
+        (
+          SELECT COUNT(*)::int FROM users
+          WHERE last_crime_at >= NOW() - INTERVAL '5 minutes'
+        ) AS online_now,
+        (
+          SELECT COUNT(*)::int FROM users
+          WHERE last_crime_at >= NOW() - INTERVAL '3 hours'
+        ) AS last_3_hours,
+        (
+          SELECT COUNT(*)::int FROM users
+          WHERE last_crime_at >= NOW() - INTERVAL '24 hours'
+        ) AS last_24_hours,
+        (
+          SELECT COALESCE(SUM(attempts), 0)::int
+          FROM user_crime_progress
+          WHERE updated_at >= NOW() - INTERVAL '24 hours'
+        ) AS crimes_24h
     `);
 
-    const last3Hours = await pool.query(`
-      SELECT COUNT(*)::int AS count FROM users
-      WHERE last_crime_at >= NOW() - INTERVAL '3 hours'
-    `);
-
-    const last24Hours = await pool.query(`
-      SELECT COUNT(*)::int AS count FROM users
-      WHERE last_crime_at >= NOW() - INTERVAL '24 hours'
-    `);
-
-    const crimes24h = await pool.query(`
-      SELECT COALESCE(SUM(attempts), 0)::int AS total
-      FROM user_crime_progress
-      WHERE updated_at >= NOW() - INTERVAL '24 hours'
-    `);
+    const row = result.rows[0];
 
     res.json({
-      onlineNow: onlineNow.rows[0].count,
-      last3Hours: last3Hours.rows[0].count,
-      last24Hours: last24Hours.rows[0].count,
-      attacks24h: 0, // placeholder
-      crimes24h: crimes24h.rows[0].total,
-      casino24h: 0, // placeholder
+      onlineNow:   row.online_now,
+      last3Hours:  row.last_3_hours,
+      last24Hours: row.last_24_hours,
+      attacks24h:  0,
+      crimes24h:   row.crimes_24h,
+      casino24h:   0,
     });
   })
 );

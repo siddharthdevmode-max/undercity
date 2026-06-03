@@ -25,3 +25,6 @@ Thumbs.db
 node_modules
 backups/
 backend/backups/
+backend/logs/
+*.sqlite
+*.sqlite-journal

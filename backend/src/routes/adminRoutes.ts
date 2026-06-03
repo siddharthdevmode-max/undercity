@@ -1,25 +1,15 @@
-import { Router, Request, Response, NextFunction } from "express";
+import { Router } from "express";
 import { pool } from "../config/database";
 import { verifyFirebaseToken } from "../middleware/firebaseAuth";
 import { getPoolStats } from "../utils/dbHelpers";
 import { asyncHandler } from "../utils/asyncHandler";
 import { validate } from "../middleware/validate";
 import { adminUidParamSchema } from "../utils/schemas";
-import { ForbiddenError } from "../utils/errors";
 import { adminLimiter } from "../middleware/rateLimiter";
+import { requireAdmin } from "../middleware/requireAdmin";
 import { logger } from "../utils/logger";
 
 const router = Router();
-
-const ADMIN_UIDS = (process.env.ADMIN_UIDS || "").split(",").filter(Boolean);
-
-const requireAdmin = (req: Request, _res: Response, next: NextFunction) => {
-  const uid = req.firebaseUser?.uid;
-  if (!uid || !ADMIN_UIDS.includes(uid)) {
-    throw new ForbiddenError();
-  }
-  next();
-};
 
 // ============================================================
 // GET /api/admin/cheaters
@@ -103,7 +93,8 @@ router.get(
         (SELECT COUNT(*) FROM users WHERE is_shadow_banned = TRUE) AS shadow_banned,
         (SELECT COUNT(*) FROM users WHERE trust_score < 70) AS suspicious,
         (SELECT COUNT(*) FROM uac_violations) AS total_violations,
-        (SELECT COUNT(*) FROM uac_violations WHERE created_at > NOW() - INTERVAL '24 hours') AS violations_24h
+        (SELECT COUNT(*) FROM uac_violations
+         WHERE created_at > NOW() - INTERVAL '24 hours') AS violations_24h
     `);
     res.json(stats.rows[0]);
   })
@@ -119,8 +110,10 @@ router.get(
   adminLimiter,
   asyncHandler(async (_req, res) => {
     const result = await pool.query(`
-      SELECT fingerprint_hash, COUNT(DISTINCT firebase_uid) AS account_count,
-             array_agg(DISTINCT firebase_uid) AS uids, MAX(last_seen) AS last_active
+      SELECT fingerprint_hash,
+             COUNT(DISTINCT firebase_uid) AS account_count,
+             array_agg(DISTINCT firebase_uid) AS uids,
+             MAX(last_seen) AS last_active
       FROM device_fingerprints
       GROUP BY fingerprint_hash
       HAVING COUNT(DISTINCT firebase_uid) > 1
@@ -146,10 +139,12 @@ router.get(
     `);
 
     const tableStats = await pool.query(`
-      SELECT
-        schemaname, relname AS table_name,
-        n_live_tup AS row_count,
-        pg_size_pretty(pg_total_relation_size(schemaname||'.'||relname)) AS total_size
+      SELECT schemaname,
+             relname AS table_name,
+             n_live_tup AS row_count,
+             pg_size_pretty(
+               pg_total_relation_size(schemaname||'.'||relname)
+             ) AS total_size
       FROM pg_stat_user_tables
       ORDER BY n_live_tup DESC
     `);
@@ -163,9 +158,9 @@ router.get(
       .catch(() => ({ rows: [] }));
 
     res.json({
-      pool: poolStats,
-      database_size: dbSize.rows[0]?.db_size,
-      tables: tableStats.rows,
+      pool:                poolStats,
+      database_size:       dbSize.rows[0]?.db_size,
+      tables:              tableStats.rows,
       recent_slow_queries: slowQueries.rows,
     });
   })

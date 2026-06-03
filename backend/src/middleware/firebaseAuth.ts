@@ -20,14 +20,19 @@ export const verifyFirebaseToken = async (
   }
 
   try {
-    const decoded = await authAdmin.verifyIdToken(token);
-    (req as any).firebaseUser = decoded;
+    const decoded    = await authAdmin.verifyIdToken(token);
+    req.firebaseUser = {
+      uid:   decoded.uid,
+      email: decoded.email,
+      name:  decoded.name,
+    };
     next();
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const error = err as { message?: string; code?: string };
     logger.warn("🔐 Firebase token verification failed", {
-      error: err.message,
-      code: err.code,
-      path: req.path,
+      error: error.message,
+      code:  error.code,
+      path:  req.path,
     });
     return res.status(401).json({ message: "Invalid token" });
   }

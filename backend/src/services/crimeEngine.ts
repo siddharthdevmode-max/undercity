@@ -366,3 +366,24 @@ export function resolveCrimeOutcome(
     message,
   };
 }
+
+// ============================================================
+// RNG NOTE
+// Math.random() is intentionally used here — not crypto seeded.
+// Crime outcomes don't need cryptographic randomness.
+// Server-side RNG prevents client manipulation.
+// If fairness auditing is needed in future, seed with
+// a server-controlled value per session.
+// ============================================================
+
+// Returns XP progress percentage within current level (0-100)
+export function calcLevelProgress(xp: number): number {
+  if (xp <= 0) return 0;
+  const currentLevel = calcCrimeLevel(xp);
+  if (currentLevel >= 100) return 100;
+  const currentLevelXp = Math.ceil(500000 * Math.pow(currentLevel / 100, 1 / 0.45));
+  const nextLevelXp    = Math.ceil(500000 * Math.pow((currentLevel + 1) / 100, 1 / 0.45));
+  const range          = nextLevelXp - currentLevelXp;
+  const progress       = xp - currentLevelXp;
+  return Math.min(100, Math.max(0, Math.round((progress / range) * 100)));
+}

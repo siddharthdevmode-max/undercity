@@ -2,10 +2,6 @@ import crypto from "crypto";
 import { pool } from "../config/database";
 import { logger } from "../utils/logger";
 
-// ============================================================
-// DEVICE FINGERPRINTING
-// ============================================================
-
 export async function recordFingerprint(
   firebaseUid: string,
   ipAddress: string | undefined,
@@ -14,7 +10,7 @@ export async function recordFingerprint(
   try {
     if (!ipAddress || !userAgent) return;
 
-    const cleanIp = ipAddress.replace(/^::ffff:/, "");
+    const cleanIp        = ipAddress.replace(/^::ffff:/, "");
     const fingerprintHash = crypto
       .createHash("sha256")
       .update(`${cleanIp}|${userAgent}`)
@@ -31,8 +27,10 @@ export async function recordFingerprint(
          hit_count = device_fingerprints.hit_count + 1`,
       [firebaseUid, fingerprintHash, cleanIp, userAgent]
     );
-  } catch (error: any) {
-    logger.error("Fingerprint record error", { error: error.message });
+  } catch (error: unknown) {
+    logger.error("Fingerprint record error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -46,7 +44,7 @@ export async function checkMultiAccount(
       return { otherAccountsCount: 0, otherUids: [] };
     }
 
-    const cleanIp = ipAddress.replace(/^::ffff:/, "");
+    const cleanIp        = ipAddress.replace(/^::ffff:/, "");
     const fingerprintHash = crypto
       .createHash("sha256")
       .update(`${cleanIp}|${userAgent}`)
@@ -63,10 +61,12 @@ export async function checkMultiAccount(
 
     return {
       otherAccountsCount: result.rows.length,
-      otherUids: result.rows.map((r) => r.firebase_uid),
+      otherUids:          result.rows.map((r: { firebase_uid: string }) => r.firebase_uid),
     };
-  } catch (error: any) {
-    logger.error("Multi-account check error", { error: error.message });
+  } catch (error: unknown) {
+    logger.error("Multi-account check error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return { otherAccountsCount: 0, otherUids: [] };
   }
 }

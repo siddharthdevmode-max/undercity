@@ -2,30 +2,28 @@ import { PoolClient, QueryResult, QueryResultRow } from "pg";
 import { pool } from "../config/database";
 import { logger } from "./logger";
 
-// ============================================================
-// TYPE-SAFE DATABASE HELPERS
-// Now with persistent slow query logging
-// ============================================================
-
 const SLOW_QUERY_THRESHOLD_MS = 100;
 
-async function logSlowQueryToDB(query: string, durationMs: number, rows: number) {
-  // Fire & forget - don't await, don't break the app if it fails
+async function logSlowQueryToDB(
+  query: string,
+  durationMs: number,
+  rows: number
+): Promise<void> {
   pool.query(
     `INSERT INTO slow_queries (query_text, duration_ms, rows_returned) VALUES ($1, $2, $3)`,
     [query.substring(0, 500), durationMs, rows]
   ).catch(() => {
-    // Silent fail - table may not exist yet during migrations
+    // Silent fail — table may not exist yet during migrations
   });
 }
 
-export async function query<T extends QueryResultRow = any>(
+export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
-  params?: any[]
+  params?: unknown[]
 ): Promise<T[]> {
   const start = Date.now();
   try {
-    const result: QueryResult<T> = await pool.query<T>(text, params);
+    const result: QueryResult<T> = await pool.query<T>(text, params as unknown[]);
     const duration = Date.now() - start;
 
     if (duration > SLOW_QUERY_THRESHOLD_MS) {
@@ -34,22 +32,23 @@ export async function query<T extends QueryResultRow = any>(
         rows: result.rowCount,
         sql: text.substring(0, 100),
       });
-      logSlowQueryToDB(text, duration, result.rowCount || 0);
+      logSlowQueryToDB(text, duration, result.rowCount ?? 0);
     }
 
     return result.rows;
-  } catch (error: any) {
-    logger.error("Query failed", { error: error.message, sql: text.substring(0, 100) });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error("Query failed", { error: message, sql: text.substring(0, 100) });
     throw error;
   }
 }
 
-export async function queryOne<T extends QueryResultRow = any>(
+export async function queryOne<T extends QueryResultRow = QueryResultRow>(
   text: string,
-  params?: any[]
+  params?: unknown[]
 ): Promise<T | null> {
   const rows = await query<T>(text, params);
-  return rows[0] || null;
+  return rows[0] ?? null;
 }
 
 export async function transaction<T>(
@@ -71,8 +70,8 @@ export async function transaction<T>(
 
 export function getPoolStats() {
   return {
-    total: pool.totalCount,
-    idle: pool.idleCount,
+    total:   pool.totalCount,
+    idle:    pool.idleCount,
     waiting: pool.waitingCount,
   };
 }

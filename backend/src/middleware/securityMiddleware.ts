@@ -1,56 +1,49 @@
 import helmet from "helmet";
 import compression from "compression";
 import morgan from "morgan";
-import { Express } from "express";
+import crypto from "crypto";
+import { Express, Request, Response, NextFunction } from "express";
 import { logger } from "../utils/logger";
-
-// ============================================================
-// PRODUCTION-GRADE MIDDLEWARE STACK
-// ============================================================
 
 export function setupSecurityMiddleware(app: Express) {
   const isProduction = process.env.NODE_ENV === "production";
 
-  // ─── Helmet: HTTP security headers ───
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.locals.cspNonce = crypto.randomBytes(16).toString("base64");
+    next();
+  });
+
   app.use(
     helmet({
       contentSecurityPolicy: {
-        useDefaults: true,
+        useDefaults: false,
         directives: {
-          defaultSrc: ["'self'"],
-          scriptSrc: [
-            "'self'",
-            "'unsafe-inline'", // Needed for Swagger UI
-          ],
-          styleSrc: [
-            "'self'",
-            "'unsafe-inline'", // Needed for Swagger UI
-            "https://fonts.googleapis.com",
-          ],
-          fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-          imgSrc: ["'self'", "data:", "https:"],
-          connectSrc: ["'self'"],
-          objectSrc: ["'none'"],
+          defaultSrc:     ["'self'"],
+          scriptSrc:      ["'self'", "'unsafe-inline'"],
+          styleSrc:       ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+          fontSrc:        ["'self'", "https://fonts.gstatic.com", "data:"],
+          imgSrc:         ["'self'", "data:", "https:"],
+          connectSrc:     ["'self'"],
+          objectSrc:      ["'none'"],
           frameAncestors: ["'none'"],
-          baseUri: ["'self'"],
-          formAction: ["'self'"],
+          baseUri:        ["'self'"],
+          formAction:     ["'self'"],
           upgradeInsecureRequests: isProduction ? [] : null,
         },
       },
-      crossOriginEmbedderPolicy: false, // Required for some external resources
+      crossOriginEmbedderPolicy: false,
       crossOriginResourcePolicy: { policy: "cross-origin" },
-      referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+      crossOriginOpenerPolicy:   { policy: "same-origin" },
+      referrerPolicy:            { policy: "strict-origin-when-cross-origin" },
       hsts: isProduction
-        ? {
-            maxAge: 31536000, // 1 year
-            includeSubDomains: true,
-            preload: true,
-          }
+        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
         : false,
+      noSniff:       true,
+      frameguard:    { action: "deny" },
+      hidePoweredBy: true,
     })
   );
 
-  // ─── Compression: Gzip responses ───
   app.use(
     compression({
       threshold: 1024,
@@ -61,7 +54,6 @@ export function setupSecurityMiddleware(app: Express) {
     })
   );
 
-  // ─── Morgan: HTTP request logging ───
   const morganStream = {
     write: (message: string) => logger.info(message.trim()),
   };
@@ -73,5 +65,5 @@ export function setupSecurityMiddleware(app: Express) {
     })
   );
 
-  logger.info("✅ Security middleware loaded (Helmet + CSP + Compression + Morgan)");
+  logger.info("✅ Security middleware loaded");
 }

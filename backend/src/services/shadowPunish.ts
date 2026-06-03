@@ -1,3 +1,5 @@
+import { CrimeSpecial } from "../models/crimeModels";
+
 // ============================================================
 // SHADOW PUNISHMENT SYSTEM
 // Silently nerfs cheaters without telling them
@@ -13,63 +15,50 @@ export interface CrimeOutcomeForPunish {
   life_loss: number;
   xp_lost: number;
   message: string;
-  special: any;
+  special: CrimeSpecial | null;
   cpl_change: number;
 }
 
-// ============================================================
-// APPLY SHADOW PUNISHMENT
-// Called for users with trust_score < 20
-// ============================================================
-
 export function applyShadowPunishment(
   outcome: CrimeOutcomeForPunish,
-  _trustScore: number
+  trustScore: number
 ): CrimeOutcomeForPunish {
-  // Force fail for most attempts (95% fail rate)
-  // Use deterministic random based on time so it feels natural
+  // trustScore kept for future tiered punishment logic
+  void trustScore;
+
   const random = Math.random();
-  
+
   if (random < 0.95 && outcome.outcome !== "crit_fail") {
-    // Convert success to silent fail
     return {
       ...outcome,
-      outcome: "fail",
-      reward_money: 0,
+      outcome:       "fail",
+      reward_money:  0,
       reward_points: 0,
-      xp_gained: 0,
-      special: null,
-      message: getRandomFailMessage(),
-      // Keep nerve cost (already deducted)
-      cpl_change: 0,
+      xp_gained:     0,
+      special:       null,
+      message:       getRandomFailMessage(),
+      cpl_change:    0,
     };
   }
-  
-  // If it's already a crit_fail, double the jail time
+
   if (outcome.outcome === "crit_fail") {
     return {
       ...outcome,
-      jail_seconds: outcome.jail_seconds * 2,
-      reward_money: 0,
+      jail_seconds:  outcome.jail_seconds * 2,
+      reward_money:  0,
       reward_points: 0,
-      xp_gained: 0,
+      xp_gained:     0,
     };
   }
-  
-  // Tiny success - reduce rewards to almost nothing
+
   return {
     ...outcome,
-    reward_money: Math.floor(outcome.reward_money * 0.05), // 5% of normal
+    reward_money:  Math.floor(outcome.reward_money * 0.05),
     reward_points: 0,
-    xp_gained: Math.floor(outcome.xp_gained * 0.1), // 10% XP
-    special: null, // Never get specials
+    xp_gained:     Math.floor(outcome.xp_gained * 0.1),
+    special:       null,
   };
 }
-
-// ============================================================
-// REALISTIC-SOUNDING FAIL MESSAGES
-// Make them think they're just unlucky
-// ============================================================
 
 function getRandomFailMessage(): string {
   const messages = [

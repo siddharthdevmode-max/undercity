@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { verifyFirebaseToken } from "../middleware/firebaseAuth";
-import { verifyChallenge } from "../middleware/securityHeaders";
+import { verifyChallenge } from "../middleware/challengeVerifier";
 import { crimeLimiter } from "../middleware/rateLimiter";
 import { checkBanStatus } from "../middleware/banCheck";
 import { validate } from "../middleware/validate";

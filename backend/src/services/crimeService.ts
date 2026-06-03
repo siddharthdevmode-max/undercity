@@ -22,7 +22,6 @@ import {
 } from "./crimeEngine";
 import { applyShadowPunishment } from "./shadowPunish";
 import {
-  AppError,
   NotFoundError,
   ForbiddenError,
   ValidationError,
@@ -31,15 +30,34 @@ import {
 } from "../utils/errors";
 
 // ============================================================
-// CRIME SERVICE
-// Pure logic — no Express, no res.json
-// Each function does ONE thing
-// Easy to test, easy to read
+// USER ROW TYPE
+// Matches what getUserByFirebaseUid returns
 // ============================================================
+
+export interface UserRow {
+  id: number;
+  firebase_uid: string;
+  email: string;
+  username: string;
+  level: number | string;
+  money: number | string;
+  points: number | string;
+  nerve: number | string;
+  max_nerve: number | string;
+  life: number | string;
+  max_life: number | string;
+  jail_until: string | null;
+  federal_jail_until: string | null;
+  last_crime_at: string | null;
+  is_shadow_banned: boolean;
+  is_hard_banned: boolean;
+  trust_score: number | string;
+  total_flags: number | string;
+}
 
 // ─── Pre-flight checks ───────────────────────────────────
 
-export function assertCanAttempt(user: any) {
+export function assertCanAttempt(user: UserRow) {
   if (!canAttemptCrime(user.last_crime_at)) {
     throw new RateLimitError(
       `Slow down. Cooldown ${getCooldownRemaining(user.last_crime_at)}ms`
@@ -48,23 +66,20 @@ export function assertCanAttempt(user: any) {
 
   if (isFutureDate(user.federal_jail_until)) {
     const seconds = Math.ceil(
-      (new Date(user.federal_jail_until).getTime() - Date.now()) / 1000
+      (new Date(user.federal_jail_until as string).getTime() - Date.now()) / 1000
     );
     throw new JailError(seconds, "federal");
   }
 
   if (isFutureDate(user.jail_until)) {
     const seconds = Math.ceil(
-      (new Date(user.jail_until).getTime() - Date.now()) / 1000
+      (new Date(user.jail_until as string).getTime() - Date.now()) / 1000
     );
     throw new JailError(seconds, "normal");
   }
 }
 
-export function assertCrimeRequirements(
-  user: any,
-  crime: CrimeDefinition
-) {
+export function assertCrimeRequirements(user: UserRow, crime: CrimeDefinition) {
   if (toNumber(user.level) < crime.unlock_level) {
     throw new ForbiddenError(
       `You need to be level ${crime.unlock_level} to attempt this crime.`
@@ -73,7 +88,7 @@ export function assertCrimeRequirements(
 
   if (toNumber(user.nerve) < crime.nerve_cost) {
     throw new ValidationError("Not enough nerve.", {
-      currentNerve: toNumber(user.nerve),
+      currentNerve:  toNumber(user.nerve),
       requiredNerve: crime.nerve_cost,
     });
   }
@@ -92,7 +107,7 @@ export async function loadCrime(
   if (result.rows.length === 0) {
     throw new NotFoundError("Crime");
   }
-  return parseCrime(result.rows[0]);
+  return parseCrime(result.rows[0] as Record<string, unknown>);
 }
 
 export async function loadOrCreateProgress(
@@ -111,7 +126,7 @@ export async function loadOrCreateProgress(
      WHERE user_id = $1 AND crime_id = $2 LIMIT 1`,
     [userId, crimeId]
   );
-  return parseProgress(result.rows[0]);
+  return parseProgress(result.rows[0] as Record<string, unknown>);
 }
 
 export async function pickAvailableSpecial(
@@ -127,14 +142,12 @@ export async function pickAvailableSpecial(
        AND NOT EXISTS (
          SELECT 1 FROM user_crime_specials ucs
          WHERE ucs.user_id = $3 AND ucs.crime_special_id = cs.id
-       )
-`,
+       )`,
     [crimeId, crimeLevel, userId]
   );
-  // Pick random in app code — avoids ORDER BY RANDOM() table scan
   if (result.rows.length === 0) return null;
   const idx = Math.floor(Math.random() * result.rows.length);
-  return parseSpecial(result.rows[idx]);
+  return parseSpecial(result.rows[idx] as Record<string, unknown>);
 }
 
 // ─── Persistence ─────────────────────────────────────────
@@ -172,20 +185,15 @@ export async function updateProgress(
   await client.query(
     `UPDATE user_crime_progress
      SET crime_xp = $1, crime_level = $2, hidden_cpl = $3,
-         attempts = $4, successes = $5, failures = $6, crit_failures = $7,
-         specials_found_count = $8, updated_at = CURRENT_TIMESTAMP
+         attempts = $4, successes = $5, failures = $6,
+         crit_failures = $7, specials_found_count = $8,
+         updated_at = CURRENT_TIMESTAMP
      WHERE user_id = $9 AND crime_id = $10`,
     [
-      data.crimeXp,
-      data.crimeLevel,
-      data.hiddenCpl,
-      data.attempts,
-      data.successes,
-      data.failures,
-      data.critFailures,
-      data.specialsFoundCount,
-      userId,
-      crimeId,
+      data.crimeXp, data.crimeLevel, data.hiddenCpl,
+      data.attempts, data.successes, data.failures,
+      data.critFailures, data.specialsFoundCount,
+      userId, crimeId,
     ]
   );
 }
@@ -207,18 +215,12 @@ export async function updateUserStats(
   await client.query(
     `UPDATE users
      SET money = $1, points = $2, nerve = $3, max_nerve = $4,
-         life = $5, max_life = $6, jail_until = $7, federal_jail_until = $8,
-         last_crime_at = CURRENT_TIMESTAMP
+         life = $5, max_life = $6, jail_until = $7,
+         federal_jail_until = $8, last_crime_at = CURRENT_TIMESTAMP
      WHERE id = $9`,
     [
-      data.money,
-      data.points,
-      data.nerve,
-      data.maxNerve,
-      data.life,
-      data.maxLife,
-      data.jailUntil,
-      data.federalJailUntil,
+      data.money, data.points, data.nerve, data.maxNerve,
+      data.life, data.maxLife, data.jailUntil, data.federalJailUntil,
       userId,
     ]
   );
@@ -242,7 +244,7 @@ export function calculateOutcome(
   crime: CrimeDefinition,
   progress: CrimeProgress,
   availableSpecial: CrimeSpecial | null,
-  user: any,
+  user: UserRow,
   trustInfo: { isShadowBanned: boolean; trustScore: number }
 ): OutcomeResult {
   const maxLife = calcMaxLife(toNumber(user.level));
@@ -255,7 +257,6 @@ export function calculateOutcome(
     maxLife
   );
 
-  // Shadow ban quietly nerfs the outcome
   if (trustInfo.isShadowBanned) {
     outcome = applyShadowPunishment(outcome, trustInfo.trustScore);
   }
@@ -263,51 +264,46 @@ export function calculateOutcome(
   return outcome;
 }
 
-// ─── New stat builder ────────────────────────────────────
+// ─── Stat builder ────────────────────────────────────────
 
 export function buildUpdatedStats(
-  user: any,
+  user: UserRow,
   crime: CrimeDefinition,
   progress: CrimeProgress,
   outcome: OutcomeResult,
   totalCrimeXp: number
 ) {
-  const playerLevel = toNumber(user.level);
-  const maxLife = calcMaxLife(playerLevel);
+  const playerLevel    = toNumber(user.level);
+  const maxLife        = calcMaxLife(playerLevel);
   const updatedMaxNerve = calcMaxNerve(totalCrimeXp);
 
   const updatedNerve = Math.max(0, toNumber(user.nerve) - crime.nerve_cost);
-  const finalNerve = Math.min(updatedNerve, updatedMaxNerve);
+  const finalNerve   = Math.min(updatedNerve, updatedMaxNerve);
 
-  const updatedMoney = Math.max(
-    0,
+  const updatedMoney  = Math.max(0,
     toNumber(user.money) - outcome.money_loss + outcome.reward_money
   );
-  const updatedPoints = Math.max(
-    0,
+  const updatedPoints = Math.max(0,
     toNumber(user.points) + outcome.reward_points
   );
-  const updatedLife = Math.max(1, toNumber(user.life) - outcome.life_loss);
+  const updatedLife   = Math.max(1, toNumber(user.life) - outcome.life_loss);
 
-  const updatedCrimeXp = Math.max(
-    0,
+  const updatedCrimeXp    = Math.max(0,
     progress.crime_xp + outcome.xp_gained - outcome.xp_lost
   );
   const updatedCrimeLevel = calcCrimeLevel(updatedCrimeXp);
-  const updatedHiddenCpl = Math.max(0, progress.hidden_cpl + outcome.cpl_change);
+  const updatedHiddenCpl  = Math.max(0, progress.hidden_cpl + outcome.cpl_change);
 
-  const attempts = progress.attempts + 1;
-  const successes =
-    progress.successes +
+  const attempts     = progress.attempts + 1;
+  const successes    = progress.successes +
     (outcome.outcome === "success" || outcome.outcome === "special" ? 1 : 0);
-  const failures = progress.failures + (outcome.outcome === "fail" ? 1 : 0);
-  const critFailures =
-    progress.crit_failures + (outcome.outcome === "crit_fail" ? 1 : 0);
+  const failures     = progress.failures  + (outcome.outcome === "fail"      ? 1 : 0);
+  const critFailures = progress.crit_failures + (outcome.outcome === "crit_fail" ? 1 : 0);
 
-  let jailUntil: Date | null = user.jail_until ? new Date(user.jail_until) : null;
-  let federalJailUntil: Date | null = user.federal_jail_until
-    ? new Date(user.federal_jail_until)
-    : null;
+  let jailUntil: Date | null =
+    user.jail_until ? new Date(user.jail_until) : null;
+  let federalJailUntil: Date | null =
+    user.federal_jail_until ? new Date(user.federal_jail_until) : null;
 
   if (outcome.outcome === "crit_fail" && outcome.jail_seconds > 0) {
     const until = new Date(Date.now() + outcome.jail_seconds * 1000);
@@ -333,6 +329,3 @@ export function buildUpdatedStats(
     critFailures,
   };
 }
-
-// Re-export AppError for controller
-export { AppError };

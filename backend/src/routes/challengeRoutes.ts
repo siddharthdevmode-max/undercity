@@ -15,7 +15,7 @@ router.get(
   checkBanStatus,
   challengeLimiter,
   asyncHandler(async (req: Request, res: Response) => {
-    const uid = (req as any).firebaseUser?.uid;
+    const uid = req.firebaseUser?.uid;
     if (!uid) throw new UnauthorizedError();
 
     const token = crypto.randomBytes(32).toString("hex");
