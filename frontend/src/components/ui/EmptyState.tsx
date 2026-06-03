@@ -83,25 +83,35 @@ const CONFIGS: Record<string, { icon: string; tagline: string; eta?: string }> =
     tagline: "Move between cities. New territory, new opportunities, new enemies.",
     eta: "Season 3",
   },
+  Missions: {
+    icon: "📋",
+    tagline: "Take contracts, run operations, build your reputation with the syndicates.",
+    eta: "Season 2",
+  },
   Casino: {
     icon: "🎰",
     tagline: "Gamble your earnings. High risk, high reward. The house always watches.",
     eta: "Season 2",
   },
-  "Black Market": {
-    icon: "🕶️",
-    tagline: "Buy and sell contraband. No questions asked. Bring cash.",
+  "Item Market": {
+    icon: "🛒",
+    tagline: "Buy and sell weapons, armor, and supplies. Every item has a price.",
     eta: "Season 2",
   },
-  Faction: {
+  Gang: {
     icon: "⚔️",
-    tagline: "Join a crew. Build loyalty. War with rivals. Control the streets.",
+    tagline: "Join a crew. Build loyalty. Control territory. The streets are yours.",
     eta: "Season 2",
   },
-  "Faction Link": {
+  "Linked Gangs": {
     icon: "🔗",
-    tagline: "Connect with your faction members. Share intel, coordinate operations.",
-    eta: "Season 2",
+    tagline: "Form alliances, share resources, coordinate with allied gangs.",
+    eta: "Season 3",
+  },
+  "Gang Wars": {
+    icon: "💥",
+    tagline: "Wage war against rival gangs. Territory, respect, and blood.",
+    eta: "Season 3",
   },
   Forum: {
     icon: "💬",

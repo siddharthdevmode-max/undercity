@@ -10,62 +10,29 @@ interface Props {
   children: React.ReactNode;
 }
 
-const NAV_SECTIONS = [
-  {
-    label: "CORE",
-    items: [
-      { path: '/home',       label: '🏠 Home'         },
-      { path: '/crimes',     label: '🔫 Crimes'       },
-      { path: '/inventory',  label: '🎒 Inventory'    },
-    ],
-  },
-  {
-    label: "CITY",
-    items: [
-      { path: '/city',       label: '🏙️ City'         },
-      { path: '/gym',        label: '💪 Gym'           },
-      { path: '/hospital',   label: '🏥 Hospital'     },
-      { path: '/travel',     label: '✈️ Travel'        },
-    ],
-  },
-  {
-    label: "WORK",
-    items: [
-      { path: '/job',        label: '💼 Job'           },
-      { path: '/company',    label: '🏭 Company'      },
-      { path: '/properties', label: '🏢 Properties'   },
-    ],
-  },
-  {
-    label: "ECONOMY",
-    items: [
-      { path: '/casino',       label: '🎰 Casino'       },
-      { path: '/black-market', label: '🕶️ Black Market' },
-    ],
-  },
-  {
-    label: "SOCIAL",
-    items: [
-      { path: '/faction',      label: '⚔️ Faction'      },
-      { path: '/faction-link', label: '🔗 Faction Link' },
-      { path: '/forum',        label: '💬 Forum'        },
-    ],
-  },
-  {
-    label: "INFO",
-    items: [
-      { path: '/events',     label: '📅 Events'       },
-      { path: '/newspaper',  label: '📰 Newspaper'    },
-      { path: '/calendar',   label: '🗓️ Calendar'     },
-    ],
-  },
-  {
-    label: "STATUS",
-    items: [
-      { path: '/jail',         label: '🔒 Jail'         },
-      { path: '/federal-jail', label: '🏛️ Federal Jail' },
-    ],
-  },
+const NAV_ITEMS = [
+  { path: '/home',         label: 'Home'          },
+  { path: '/crimes',       label: 'Crimes'        },
+  { path: '/gym',          label: 'Gym'            },
+  { path: '/inventory',    label: 'Inventory'      },
+  { path: '/city',         label: 'City'           },
+  { path: '/job',          label: 'Job'            },
+  { path: '/company',      label: 'Company'        },
+  { path: '/properties',   label: 'Properties'     },
+  { path: '/travel',       label: 'Travel'         },
+  { path: '/missions',     label: 'Missions'       },
+  { path: '/casino',       label: 'Casino'         },
+  { path: '/item-market',  label: 'Item Market'    },
+  { path: '/hospital',     label: 'Hospital'       },
+  { path: '/jail',         label: 'Jail'           },
+  { path: '/federal-jail', label: 'Federal Jail'   },
+  { path: '/gang',         label: 'Gang'           },
+  { path: '/linked-gangs', label: 'Linked Gangs'   },
+  { path: '/gang-wars',    label: 'Gang Wars'      },
+  { path: '/forum',        label: 'Forum'          },
+  { path: '/events',       label: 'Events'         },
+  { path: '/newspaper',    label: 'Newspaper'      },
+  { path: '/calendar',     label: 'Calendar'       },
 ];
 
 export default function Shell({ children }: Props) {
@@ -83,6 +50,7 @@ export default function Shell({ children }: Props) {
     nerve:    authUser?.nerve    ?? 0,
     maxNerve: authUser?.maxNerve ?? 30,
     level:    authUser?.level    ?? 1,
+    points:   authUser?.points   ?? 0,
   });
 
   const prevAuthUser = useRef(authUser);
@@ -96,6 +64,7 @@ export default function Shell({ children }: Props) {
         nerve:    authUser.nerve,
         maxNerve: authUser.maxNerve,
         level:    authUser.level,
+        points:   authUser.points,
       });
     }
   }, [authUser]);
@@ -109,6 +78,7 @@ export default function Shell({ children }: Props) {
         nerve:    update.nerve    ?? prev.nerve,
         maxNerve: update.maxNerve ?? prev.maxNerve,
         level:    update.level    ?? prev.level,
+        points:   update.points   ?? prev.points,
       }));
     });
   }, []);
@@ -143,6 +113,14 @@ export default function Shell({ children }: Props) {
     );
   }
 
+  // Jail timer
+  const jailRemaining = authUser?.jailUntil
+    ? Math.max(0, Math.ceil((new Date(authUser.jailUntil).getTime() - Date.now()) / 1000))
+    : 0;
+  const fedJailRemaining = authUser?.federalJailUntil
+    ? Math.max(0, Math.ceil((new Date(authUser.federalJailUntil).getTime() - Date.now()) / 1000))
+    : 0;
+
   return (
     <div className="game-shell">
 
@@ -167,7 +145,6 @@ export default function Shell({ children }: Props) {
         </div>
 
         <div className="user-info">
-          <span className="username">{authUser?.username}</span>
           <button onClick={handleLogout} className="logout-btn" aria-label="Log out">
             Logout
           </button>
@@ -189,42 +166,80 @@ export default function Shell({ children }: Props) {
           className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}
           aria-label="Navigation"
         >
-          {/* Player Card */}
-          <div className="player-card">
-            <div className="player-name">{authUser?.username}</div>
-            <div className="player-level">Level {stats.level}</div>
-            <div className="stat-bar">
-              <div className="stat-bar-header">
-                <label htmlFor="life-progress">Life</label>
-                <span>{stats.life}/{stats.maxLife}</span>
-              </div>
-              <progress id="life-progress" value={stats.life} max={stats.maxLife} />
+          {/* ── Player Info Block ── */}
+          <div className="sb-player-block">
+            <div className="sb-player-name">{authUser?.username}</div>
+            <div className="sb-player-level">Level {stats.level}</div>
+          </div>
+
+          {/* ── Stats Block ── */}
+          <div className="sb-stats-block">
+            <div className="sb-stat-row">
+              <span className="sb-stat-label">Money</span>
+              <span className="sb-stat-value">${stats.money.toLocaleString()}</span>
             </div>
-            <div className="stat-bar">
-              <div className="stat-bar-header">
-                <label htmlFor="nerve-progress">Nerve</label>
-                <span>{stats.nerve}/{stats.maxNerve}</span>
-              </div>
-              <progress id="nerve-progress" value={stats.nerve} max={stats.maxNerve} />
+            <div className="sb-stat-row">
+              <span className="sb-stat-label">Points</span>
+              <span className="sb-stat-value">{stats.points.toLocaleString()}</span>
+            </div>
+            <div className="sb-stat-row">
+              <span className="sb-stat-label">Energy</span>
+              <span className="sb-stat-value sb-stat-dim">0 / 0</span>
+            </div>
+            <div className="sb-stat-row">
+              <span className="sb-stat-label">Nerve</span>
+              <span className="sb-stat-value">{stats.nerve} / {stats.maxNerve}</span>
+            </div>
+            <div className="sb-stat-row">
+              <span className="sb-stat-label">Health</span>
+              <span className="sb-stat-value">{stats.life} / {stats.maxLife}</span>
+            </div>
+            <div className="sb-stat-row">
+              <span className="sb-stat-label">Chain</span>
+              <span className="sb-stat-value sb-stat-dim">0</span>
             </div>
           </div>
 
-          {/* Sectioned Nav */}
-          <nav className="sidebar-nav" aria-label="Main navigation">
-            {NAV_SECTIONS.map((section) => (
-              <div key={section.label} className="nav-section">
-                <div className="nav-section-label">{section.label}</div>
-                {section.items.map((item) => (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
-                    aria-current={location.pathname === item.path ? 'page' : undefined}
-                  >
-                    {item.label}
-                  </Link>
-                ))}
+          {/* ── Timers Block ── */}
+          <div className="sb-timers-block">
+            <div className="sb-timers-label">COOLDOWNS</div>
+            <div className="sb-timer-row">
+              <span className="sb-timer-name">Drug</span>
+              <span className="sb-timer-value">Ready</span>
+            </div>
+            <div className="sb-timer-row">
+              <span className="sb-timer-name">Alcohol</span>
+              <span className="sb-timer-value">Ready</span>
+            </div>
+            <div className="sb-timer-row">
+              <span className="sb-timer-name">Chain</span>
+              <span className="sb-timer-value">Ready</span>
+            </div>
+            {jailRemaining > 0 && (
+              <div className="sb-timer-row sb-timer-danger">
+                <span className="sb-timer-name">Jail</span>
+                <span className="sb-timer-value">{formatTimer(jailRemaining)}</span>
               </div>
+            )}
+            {fedJailRemaining > 0 && (
+              <div className="sb-timer-row sb-timer-danger">
+                <span className="sb-timer-name">Fed Jail</span>
+                <span className="sb-timer-value">{formatTimer(fedJailRemaining)}</span>
+              </div>
+            )}
+          </div>
+
+          {/* ── Navigation ── */}
+          <nav className="sidebar-nav" aria-label="Main navigation">
+            {NAV_ITEMS.map((item) => (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
+                aria-current={location.pathname === item.path ? 'page' : undefined}
+              >
+                {item.label}
+              </Link>
             ))}
           </nav>
         </aside>
@@ -237,4 +252,15 @@ export default function Shell({ children }: Props) {
       </div>
     </div>
   );
+}
+
+function formatTimer(seconds: number): string {
+  if (seconds <= 0) return "Ready";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m > 60) {
+    const h = Math.floor(m / 60);
+    return `${h}h ${m % 60}m`;
+  }
+  return `${m}m ${s}s`;
 }
