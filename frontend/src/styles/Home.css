@@ -729,3 +729,24 @@
     grid-template-columns: repeat(3, 1fr);
   }
 }
+
+/* ════════════════════════════════════════════════════════════
+   SIDEBAR — SECTIONED NAV
+   ════════════════════════════════════════════════════════════ */
+
+.nav-section {
+  margin-bottom: var(--space-sm);
+}
+
+.nav-section-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  padding: var(--space-sm) var(--space-md) var(--space-xs) var(--space-md);
+}
+
+.nav-item {
+  font-size: var(--text-sm);
+}

@@ -10,13 +10,63 @@ interface Props {
   children: React.ReactNode;
 }
 
-// ============================================================
-// SHELL
-// Layout wrapper with sidebar + header
-// Mobile: hamburger menu opens slide-out drawer
-// Desktop: sidebar always visible
-// Stats synced via userEvents bus (no prop drilling)
-// ============================================================
+const NAV_SECTIONS = [
+  {
+    label: "CORE",
+    items: [
+      { path: '/home',       label: '🏠 Home'         },
+      { path: '/crimes',     label: '🔫 Crimes'       },
+      { path: '/inventory',  label: '🎒 Inventory'    },
+    ],
+  },
+  {
+    label: "CITY",
+    items: [
+      { path: '/city',       label: '🏙️ City'         },
+      { path: '/gym',        label: '💪 Gym'           },
+      { path: '/hospital',   label: '🏥 Hospital'     },
+      { path: '/travel',     label: '✈️ Travel'        },
+    ],
+  },
+  {
+    label: "WORK",
+    items: [
+      { path: '/job',        label: '💼 Job'           },
+      { path: '/company',    label: '🏭 Company'      },
+      { path: '/properties', label: '🏢 Properties'   },
+    ],
+  },
+  {
+    label: "ECONOMY",
+    items: [
+      { path: '/casino',       label: '🎰 Casino'       },
+      { path: '/black-market', label: '🕶️ Black Market' },
+    ],
+  },
+  {
+    label: "SOCIAL",
+    items: [
+      { path: '/faction',      label: '⚔️ Faction'      },
+      { path: '/faction-link', label: '🔗 Faction Link' },
+      { path: '/forum',        label: '💬 Forum'        },
+    ],
+  },
+  {
+    label: "INFO",
+    items: [
+      { path: '/events',     label: '📅 Events'       },
+      { path: '/newspaper',  label: '📰 Newspaper'    },
+      { path: '/calendar',   label: '🗓️ Calendar'     },
+    ],
+  },
+  {
+    label: "STATUS",
+    items: [
+      { path: '/jail',         label: '🔒 Jail'         },
+      { path: '/federal-jail', label: '🏛️ Federal Jail' },
+    ],
+  },
+];
 
 export default function Shell({ children }: Props) {
   const { user: authUser, loading } = useAuth();
@@ -26,7 +76,6 @@ export default function Shell({ children }: Props) {
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Derive initial stats from authUser — no useEffect needed
   const [stats, setStats] = useState({
     money:    authUser?.money    ?? 0,
     life:     authUser?.life     ?? 0,
@@ -36,8 +85,6 @@ export default function Shell({ children }: Props) {
     level:    authUser?.level    ?? 1,
   });
 
-  // Sync stats when authUser changes — use ref to avoid
-  // calling setState synchronously in effect body
   const prevAuthUser = useRef(authUser);
   useEffect(() => {
     if (authUser && authUser !== prevAuthUser.current) {
@@ -53,7 +100,6 @@ export default function Shell({ children }: Props) {
     }
   }, [authUser]);
 
-  // Subscribe to live stat updates from crime attempts
   useEffect(() => {
     return userEvents.subscribe((update) => {
       setStats((prev) => ({
@@ -67,8 +113,6 @@ export default function Shell({ children }: Props) {
     });
   }, []);
 
-  // Close sidebar when route changes — use ref to avoid
-  // calling setState synchronously in effect body
   const prevPath = useRef(location.pathname);
   useEffect(() => {
     if (prevPath.current !== location.pathname) {
@@ -77,7 +121,6 @@ export default function Shell({ children }: Props) {
     }
   }, [location.pathname]);
 
-  // Lock body scroll when sidebar open on mobile
   useEffect(() => {
     document.body.style.overflow = sidebarOpen ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
@@ -100,16 +143,6 @@ export default function Shell({ children }: Props) {
     );
   }
 
-  const navItems = [
-    { path: '/home',       label: '🏠 Home'       },
-    { path: '/city',       label: '🏙️ City'       },
-    { path: '/crimes',     label: '🔫 Crimes'     },
-    { path: '/job',        label: '💼 Job'         },
-    { path: '/gym',        label: '💪 Gym'         },
-    { path: '/properties', label: '🏢 Properties' },
-    { path: '/missions',   label: '📋 Missions'   },
-  ];
-
   return (
     <div className="game-shell">
 
@@ -128,15 +161,9 @@ export default function Shell({ children }: Props) {
         <div className="logo">UNDERCITY</div>
 
         <div className="header-stats" role="group" aria-label="Player stats">
-          <span className="header-stat" aria-label={`Money: ${stats.money} dollars`}>
-            💰 ${stats.money.toLocaleString()}
-          </span>
-          <span className="header-stat" aria-label={`Life: ${stats.life} out of ${stats.maxLife}`}>
-            ❤️ {stats.life}/{stats.maxLife}
-          </span>
-          <span className="header-stat" aria-label={`Nerve: ${stats.nerve} out of ${stats.maxNerve}`}>
-            🧠 {stats.nerve}/{stats.maxNerve}
-          </span>
+          <span className="header-stat">💰 ${stats.money.toLocaleString()}</span>
+          <span className="header-stat">❤️ {stats.life}/{stats.maxLife}</span>
+          <span className="header-stat">⚡ {stats.nerve}/{stats.maxNerve}</span>
         </div>
 
         <div className="user-info">
@@ -149,7 +176,7 @@ export default function Shell({ children }: Props) {
 
       <div className="game-content">
 
-        {/* ── Sidebar Overlay (mobile only) ── */}
+        {/* ── Sidebar Overlay ── */}
         <div
           className={`sidebar-overlay ${sidebarOpen ? 'active' : ''}`}
           onClick={() => setSidebarOpen(false)}
@@ -160,49 +187,44 @@ export default function Shell({ children }: Props) {
         <aside
           id="main-sidebar"
           className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}
-          aria-label="Player information and navigation"
+          aria-label="Navigation"
         >
+          {/* Player Card */}
           <div className="player-card">
             <div className="player-name">{authUser?.username}</div>
             <div className="player-level">Level {stats.level}</div>
-
             <div className="stat-bar">
               <div className="stat-bar-header">
                 <label htmlFor="life-progress">Life</label>
                 <span>{stats.life}/{stats.maxLife}</span>
               </div>
-              <progress
-                id="life-progress"
-                value={stats.life}
-                max={stats.maxLife}
-                aria-label={`Life: ${stats.life} of ${stats.maxLife}`}
-              />
+              <progress id="life-progress" value={stats.life} max={stats.maxLife} />
             </div>
-
             <div className="stat-bar">
               <div className="stat-bar-header">
                 <label htmlFor="nerve-progress">Nerve</label>
                 <span>{stats.nerve}/{stats.maxNerve}</span>
               </div>
-              <progress
-                id="nerve-progress"
-                value={stats.nerve}
-                max={stats.maxNerve}
-                aria-label={`Nerve: ${stats.nerve} of ${stats.maxNerve}`}
-              />
+              <progress id="nerve-progress" value={stats.nerve} max={stats.maxNerve} />
             </div>
           </div>
 
+          {/* Sectioned Nav */}
           <nav className="sidebar-nav" aria-label="Main navigation">
-            {navItems.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
-                aria-current={location.pathname === item.path ? 'page' : undefined}
-              >
-                {item.label}
-              </Link>
+            {NAV_SECTIONS.map((section) => (
+              <div key={section.label} className="nav-section">
+                <div className="nav-section-label">{section.label}</div>
+                {section.items.map((item) => (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
+                    aria-current={location.pathname === item.path ? 'page' : undefined}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
             ))}
           </nav>
         </aside>
