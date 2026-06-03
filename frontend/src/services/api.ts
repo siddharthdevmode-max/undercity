@@ -20,6 +20,7 @@ interface RawUser {
   jail_until: string | null;
   federal_jail_until: string | null;
   last_crime_at: string | null;
+  onboarding_completed: boolean;
   created_at: string;
 }
 
@@ -39,6 +40,7 @@ function transformUser(raw: RawUser): User {
     jailUntil: raw.jail_until,
     federalJailUntil: raw.federal_jail_until,
     lastCrimeAt: raw.last_crime_at,
+    onboardingCompleted: raw.onboarding_completed ?? false,
     createdAt: raw.created_at,
   };
 }
@@ -149,6 +151,10 @@ export const authAPI = {
       body: JSON.stringify({ username }),
     });
     return transformUser(raw.user ?? raw);
+  },
+
+  completeOnboarding: async (): Promise<void> => {
+    await apiCall("/auth/onboarding-complete", { method: "POST" });
   },
 
   me: async (): Promise<User> => {

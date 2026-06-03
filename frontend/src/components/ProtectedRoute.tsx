@@ -1,18 +1,13 @@
 import { useAuth } from '../hooks/useAuth';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 
 interface Props {
   children: React.ReactNode;
 }
 
-// ============================================================
-// PROTECTED ROUTE
-// Reads from AuthContext — no own Firebase listener
-// One listener for the whole app in AuthProvider
-// ============================================================
-
 export default function ProtectedRoute({ children }: Props) {
   const { user, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -24,6 +19,11 @@ export default function ProtectedRoute({ children }: Props) {
 
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  // Redirect to onboarding if not completed (but don't loop if already there)
+  if (!user.onboardingCompleted && location.pathname !== '/onboarding') {
+    return <Navigate to="/onboarding" replace />;
   }
 
   return <>{children}</>;

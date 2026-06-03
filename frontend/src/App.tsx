@@ -28,6 +28,7 @@ import Forum from './pages/Forum';
 import Events from './pages/Events';
 import Newspaper from './pages/Newspaper';
 import Calendar from './pages/Calendar';
+import Onboarding from './pages/Onboarding';
 import { ToastContainer } from './components/ui/Toast';
 import { PageTransition } from './components/ui/PageTransition';
 import './App.css';
@@ -67,6 +68,11 @@ function App() {
             <Route path="/events"       element={<ProtectedRoute><Events /></ProtectedRoute>} />
             <Route path="/newspaper"    element={<ProtectedRoute><Newspaper /></ProtectedRoute>} />
             <Route path="/calendar"     element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
+
+                        {/* Onboarding */}
+            <Route path="/onboarding" element={
+              <ProtectedRoute><Onboarding /></ProtectedRoute>
+            } />
 
             {/* Admin */}
             <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />

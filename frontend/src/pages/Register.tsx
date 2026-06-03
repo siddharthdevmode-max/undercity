@@ -53,7 +53,7 @@ export default function Register() {
   const emailValid                            = email.length > 0 && isValidEmail(email);
   const emailInvalid                          = email.length > 0 && !isValidEmail(email);
 
-  useEffect(() => { if (user) navigate('/home'); }, [user, navigate]);
+  useEffect(() => { if (user) navigate('/onboarding'); }, [user, navigate]);
   useEffect(() => { usernameRef.current?.focus(); }, []);
 
   useEffect(() => {
