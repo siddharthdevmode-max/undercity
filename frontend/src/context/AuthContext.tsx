@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // 404 means Firebase user exists but DB record doesn't yet.
       // This happens during registration — Register.tsx will call sync()
       // and populate the user directly. Don't clear user / don't set error.
-      if (err instanceof ApiError && err.status === 404) {
+      if (err instanceof ApiError && err.statusCode === 404) {
         return;
       }
       setError('Failed to load player data');
