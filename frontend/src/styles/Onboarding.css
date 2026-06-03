@@ -1,12 +1,61 @@
 .onboarding-page {
+  position: relative;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
   color: var(--text-primary);
+  overflow: hidden;
+}
+
+/* ============================================ */
+/* Full-bleed cinematic background per step     */
+/* ============================================ */
+.ob-bg {
+  position: fixed;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: 0;
+  animation: obBgFade 0.8s ease-out;
+  will-change: opacity, transform;
+}
+
+@keyframes obBgFade {
+  from {
+    opacity: 0;
+    transform: scale(1.05);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Dark gradient overlay for text readability */
+.ob-bg-overlay {
+  position: fixed;
+  inset: 0;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.55) 0%,
+      rgba(0, 0, 0, 0.75) 50%,
+      rgba(0, 0, 0, 0.88) 100%
+    ),
+    radial-gradient(
+      ellipse at center,
+      rgba(220, 31, 46, 0.08) 0%,
+      transparent 70%
+    );
+  z-index: 1;
+  pointer-events: none;
 }
 
 .onboarding-container {
+  position: relative;
+  z-index: 2;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -18,36 +67,74 @@
   width: 100%;
 }
 
-/* Progress bar */
+/* ============================================ */
+/* Progress bar                                 */
+/* ============================================ */
 .ob-progress {
   width: 100%;
   max-width: 400px;
   display: flex;
   gap: 6px;
-  margin-bottom: 48px;
+  margin-bottom: 32px;
 }
 
 .ob-progress-dot {
   flex: 1;
   height: 4px;
-  background: var(--border);
+  background: rgba(255, 255, 255, 0.15);
   border-radius: 2px;
   transition: background 0.3s ease;
 }
 
 .ob-progress-dot.active {
   background: var(--accent);
+  box-shadow: 0 0 12px rgba(220, 31, 46, 0.6);
 }
 
 .ob-progress-dot.done {
   background: var(--accent);
-  opacity: 0.5;
+  opacity: 0.55;
 }
 
-/* Content */
+/* ============================================ */
+/* Glass-morphism card                          */
+/* ============================================ */
+.ob-card {
+  width: 100%;
+  max-width: 640px;
+  background: rgba(15, 15, 18, 0.72);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 40px 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(220, 31, 46, 0.06) inset;
+  animation: obCardSlide 0.5s ease-out 0.1s both;
+}
+
+@keyframes obCardSlide {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================ */
+/* Content                                      */
+/* ============================================ */
 .ob-icon {
-  font-size: 64px;
-  margin-bottom: 24px;
+  font-size: 56px;
+  margin-bottom: 16px;
+  filter: drop-shadow(0 4px 12px rgba(220, 31, 46, 0.4));
 }
 
 .ob-step-label {
@@ -57,47 +144,66 @@
   color: var(--accent);
   text-transform: uppercase;
   margin-bottom: 12px;
+  text-shadow: 0 0 12px rgba(220, 31, 46, 0.5);
 }
 
 .ob-title {
-  font-size: 40px;
+  font-size: 38px;
   font-weight: 900;
   letter-spacing: 2px;
-  color: var(--text-primary);
+  color: #fff;
   margin: 0 0 16px 0;
   text-align: center;
   line-height: 1.1;
+  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.8);
 }
 
 .ob-subtitle {
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.7;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.78);
   text-align: center;
   max-width: 520px;
-  margin: 0 0 32px 0;
+  margin: 0 0 28px 0;
 }
 
-/* Scrollable content for long pages */
+/* ============================================ */
+/* Scrollable content for long pages            */
+/* ============================================ */
 .ob-scroll-content {
   width: 100%;
-  max-height: 400px;
+  max-height: 340px;
   overflow-y: auto;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 24px;
-  margin-bottom: 32px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 22px;
+  margin-bottom: 28px;
   font-size: 14px;
-  line-height: 1.8;
-  color: var(--text-secondary);
+  line-height: 1.75;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* Custom scrollbar */
+.ob-scroll-content::-webkit-scrollbar {
+  width: 6px;
+}
+.ob-scroll-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ob-scroll-content::-webkit-scrollbar-thumb {
+  background: rgba(220, 31, 46, 0.4);
+  border-radius: 3px;
+}
+.ob-scroll-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(220, 31, 46, 0.6);
 }
 
 .ob-scroll-content h4 {
-  color: var(--text-primary);
-  font-size: 15px;
+  color: #fff;
+  font-size: 14px;
   font-weight: 700;
-  margin: 20px 0 8px 0;
+  margin: 18px 0 8px 0;
   letter-spacing: 1px;
 }
 
@@ -114,34 +220,42 @@
   margin-bottom: 6px;
 }
 
-/* Referral input */
+/* ============================================ */
+/* Referral input                               */
+/* ============================================ */
 .ob-referral-input {
   width: 100%;
   max-width: 360px;
   padding: 14px 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 6px;
-  color: var(--text-primary);
+  color: #fff;
   font-size: 14px;
   text-align: center;
   margin-bottom: 12px;
-  transition: border-color 0.25s ease;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.ob-referral-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
 }
 
 .ob-referral-input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 14px rgba(220, 31, 46, 0.25);
+  box-shadow: 0 0 20px rgba(220, 31, 46, 0.35);
 }
 
 .ob-referral-note {
   font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 32px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 28px;
 }
 
-/* Continue button */
+/* ============================================ */
+/* Continue button                              */
+/* ============================================ */
 .ob-continue-btn {
   display: inline-flex;
   align-items: center;
@@ -155,13 +269,14 @@
   letter-spacing: 2px;
   border: none;
   cursor: pointer;
-  transition: background 0.2s, transform 0.2s;
-  box-shadow: 0 8px 24px rgba(220, 31, 46, 0.3);
+  transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 8px 28px rgba(220, 31, 46, 0.4);
 }
 
 .ob-continue-btn:hover {
   background: var(--accent-hover);
   transform: translateY(-2px);
+  box-shadow: 0 12px 36px rgba(220, 31, 46, 0.55);
 }
 
 .ob-continue-btn .arrow {
@@ -175,14 +290,17 @@
 .ob-continue-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  transform: none;
 }
 
-/* Welcome specific */
+/* ============================================ */
+/* Welcome specific                             */
+/* ============================================ */
 .ob-welcome-features {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 32px;
+  gap: 10px;
+  margin-bottom: 28px;
   width: 100%;
   max-width: 480px;
 }
@@ -192,12 +310,18 @@
   align-items: center;
   gap: 10px;
   padding: 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.85);
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.ob-feature-item:hover {
+  border-color: rgba(220, 31, 46, 0.4);
+  background: rgba(0, 0, 0, 0.55);
 }
 
 .ob-feature-icon {
@@ -205,8 +329,34 @@
   flex-shrink: 0;
 }
 
+/* ============================================ */
+/* Mobile                                       */
+/* ============================================ */
 @media (max-width: 640px) {
-  .ob-title { font-size: 28px; }
-  .ob-welcome-features { grid-template-columns: 1fr; }
-  .ob-scroll-content { max-height: 300px; padding: 16px; }
+  .ob-card {
+    padding: 28px 22px;
+  }
+  .ob-title {
+    font-size: 26px;
+  }
+  .ob-welcome-features {
+    grid-template-columns: 1fr;
+  }
+  .ob-scroll-content {
+    max-height: 280px;
+    padding: 16px;
+  }
+}
+
+/* ============================================ */
+/* Respect reduced motion                       */
+/* ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  .ob-bg,
+  .ob-card {
+    animation: none;
+  }
+  .ob-continue-btn:hover {
+    transform: none;
+  }
 }

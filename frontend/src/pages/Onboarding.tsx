@@ -8,6 +8,14 @@ import "../styles/Onboarding.css";
 
 const TOTAL_STEPS = 5;
 
+const STEP_BACKGROUNDS = [
+  "/step1-welcome.jpg",
+  "/step2-terms.jpg",
+  "/step3-privacy.jpg",
+  "/step4-rules.jpg",
+  "/step5-referral.jpg",
+];
+
 export default function Onboarding() {
   const [step, setStep] = useState(1);
   const [referralCode, setReferralCode] = useState("");
@@ -37,6 +45,15 @@ export default function Onboarding() {
   return (
     <div className="onboarding-page">
       <Header />
+
+      {/* Full-bleed background image per step */}
+      <div
+        key={step}
+        className="ob-bg"
+        style={{ backgroundImage: `url(${STEP_BACKGROUNDS[step - 1]})` }}
+      />
+      <div className="ob-bg-overlay" />
+
       <div className="onboarding-container">
         {/* Progress */}
         <div className="ob-progress">
@@ -50,18 +67,20 @@ export default function Onboarding() {
           ))}
         </div>
 
-        {step === 1 && <StepWelcome onContinue={next} />}
-        {step === 2 && <StepTerms onContinue={next} />}
-        {step === 3 && <StepPrivacy onContinue={next} />}
-        {step === 4 && <StepRules onContinue={next} />}
-        {step === 5 && (
-          <StepReferral
-            code={referralCode}
-            setCode={setReferralCode}
-            onFinish={finish}
-            loading={completing}
-          />
-        )}
+        <div key={`card-${step}`} className="ob-card">
+          {step === 1 && <StepWelcome onContinue={next} />}
+          {step === 2 && <StepTerms onContinue={next} />}
+          {step === 3 && <StepPrivacy onContinue={next} />}
+          {step === 4 && <StepRules onContinue={next} />}
+          {step === 5 && (
+            <StepReferral
+              code={referralCode}
+              setCode={setReferralCode}
+              onFinish={finish}
+              loading={completing}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
