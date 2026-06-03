@@ -29,6 +29,7 @@ import Events from './pages/Events';
 import Newspaper from './pages/Newspaper';
 import Calendar from './pages/Calendar';
 import Onboarding from './pages/Onboarding';
+import DevOnboardingPreview from './pages/DevOnboardingPreview';
 import { ToastContainer } from './components/ui/Toast';
 import { PageTransition } from './components/ui/PageTransition';
 import './App.css';
@@ -69,10 +70,15 @@ function App() {
             <Route path="/newspaper"    element={<ProtectedRoute><Newspaper /></ProtectedRoute>} />
             <Route path="/calendar"     element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
 
-                        {/* Onboarding */}
+            {/* Onboarding */}
             <Route path="/onboarding" element={
               <ProtectedRoute><Onboarding /></ProtectedRoute>
             } />
+
+            {/* DEV-ONLY preview (auto-stripped in prod builds) */}
+            {import.meta.env.DEV && (
+              <Route path="/dev/onboarding" element={<DevOnboardingPreview />} />
+            )}
 
             {/* Admin */}
             <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />

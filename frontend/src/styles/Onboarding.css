@@ -1,68 +1,19 @@
 .onboarding-page {
-  position: relative;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
   color: var(--text-primary);
-  overflow: hidden;
-}
-
-/* ============================================ */
-/* Full-bleed cinematic background per step     */
-/* ============================================ */
-.ob-bg {
-  position: fixed;
-  inset: 0;
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  z-index: 0;
-  animation: obBgFade 0.8s ease-out;
-  will-change: opacity, transform;
-}
-
-@keyframes obBgFade {
-  from {
-    opacity: 0;
-    transform: scale(1.05);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-/* Dark gradient overlay for text readability */
-.ob-bg-overlay {
-  position: fixed;
-  inset: 0;
-  background:
-    linear-gradient(
-      180deg,
-      rgba(0, 0, 0, 0.55) 0%,
-      rgba(0, 0, 0, 0.75) 50%,
-      rgba(0, 0, 0, 0.88) 100%
-    ),
-    radial-gradient(
-      ellipse at center,
-      rgba(220, 31, 46, 0.08) 0%,
-      transparent 70%
-    );
-  z-index: 1;
-  pointer-events: none;
 }
 
 .onboarding-container {
-  position: relative;
-  z-index: 2;
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 48px 24px;
-  max-width: 720px;
+  max-width: 760px;
   margin: 0 auto;
   width: 100%;
 }
@@ -81,14 +32,14 @@
 .ob-progress-dot {
   flex: 1;
   height: 4px;
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--border);
   border-radius: 2px;
   transition: background 0.3s ease;
 }
 
 .ob-progress-dot.active {
   background: var(--accent);
-  box-shadow: 0 0 12px rgba(220, 31, 46, 0.6);
+  box-shadow: 0 0 10px rgba(220, 31, 46, 0.5);
 }
 
 .ob-progress-dot.done {
@@ -97,44 +48,77 @@
 }
 
 /* ============================================ */
-/* Glass-morphism card                          */
+/* Card (image hero + content)                  */
 /* ============================================ */
 .ob-card {
   width: 100%;
-  max-width: 640px;
-  background: rgba(15, 15, 18, 0.72);
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  max-width: 720px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 40px 36px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+  animation: obCardIn 0.5s ease-out;
+}
+
+@keyframes obCardIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================ */
+/* HERO IMAGE — top of card                     */
+/* ============================================ */
+.ob-hero {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 7;
+  overflow: hidden;
+  background: #000;
+}
+
+.ob-hero-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  animation: obImgZoom 0.8s ease-out;
+}
+
+@keyframes obImgZoom {
+  from { transform: scale(1.06); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+/* Soft fade at bottom so hero blends into card */
+.ob-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    transparent 55%,
+    var(--bg-secondary) 100%
+  );
+  pointer-events: none;
+}
+
+/* ============================================ */
+/* Card body                                    */
+/* ============================================ */
+.ob-card-body {
+  padding: 32px 36px 40px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  box-shadow:
-    0 24px 60px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(220, 31, 46, 0.06) inset;
-  animation: obCardSlide 0.5s ease-out 0.1s both;
 }
 
-@keyframes obCardSlide {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* ============================================ */
-/* Content                                      */
-/* ============================================ */
 .ob-icon {
-  font-size: 56px;
-  margin-bottom: 16px;
-  filter: drop-shadow(0 4px 12px rgba(220, 31, 46, 0.4));
+  font-size: 44px;
+  margin-bottom: 12px;
+  filter: drop-shadow(0 4px 10px rgba(220, 31, 46, 0.35));
 }
 
 .ob-step-label {
@@ -144,53 +128,46 @@
   color: var(--accent);
   text-transform: uppercase;
   margin-bottom: 12px;
-  text-shadow: 0 0 12px rgba(220, 31, 46, 0.5);
 }
 
 .ob-title {
-  font-size: 38px;
+  font-size: 34px;
   font-weight: 900;
   letter-spacing: 2px;
-  color: #fff;
-  margin: 0 0 16px 0;
+  color: var(--text-primary);
+  margin: 0 0 14px 0;
   text-align: center;
-  line-height: 1.1;
-  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.8);
+  line-height: 1.15;
 }
 
 .ob-subtitle {
   font-size: 15px;
   line-height: 1.7;
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--text-secondary);
   text-align: center;
-  max-width: 520px;
-  margin: 0 0 28px 0;
+  max-width: 540px;
+  margin: 0 0 26px 0;
 }
 
 /* ============================================ */
-/* Scrollable content for long pages            */
+/* Scrollable content                           */
 /* ============================================ */
 .ob-scroll-content {
   width: 100%;
   max-height: 340px;
   overflow-y: auto;
-  background: rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 22px;
-  margin-bottom: 28px;
+  margin-bottom: 26px;
   font-size: 14px;
   line-height: 1.75;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--text-secondary);
 }
 
-/* Custom scrollbar */
-.ob-scroll-content::-webkit-scrollbar {
-  width: 6px;
-}
-.ob-scroll-content::-webkit-scrollbar-track {
-  background: transparent;
-}
+.ob-scroll-content::-webkit-scrollbar { width: 6px; }
+.ob-scroll-content::-webkit-scrollbar-track { background: transparent; }
 .ob-scroll-content::-webkit-scrollbar-thumb {
   background: rgba(220, 31, 46, 0.4);
   border-radius: 3px;
@@ -200,25 +177,21 @@
 }
 
 .ob-scroll-content h4 {
-  color: #fff;
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 700;
   margin: 18px 0 8px 0;
   letter-spacing: 1px;
 }
 
-.ob-scroll-content h4:first-child {
-  margin-top: 0;
-}
+.ob-scroll-content h4:first-child { margin-top: 0; }
 
 .ob-scroll-content ul {
   padding-left: 20px;
   margin: 8px 0;
 }
 
-.ob-scroll-content li {
-  margin-bottom: 6px;
-}
+.ob-scroll-content li { margin-bottom: 6px; }
 
 /* ============================================ */
 /* Referral input                               */
@@ -227,30 +200,26 @@
   width: 100%;
   max-width: 360px;
   padding: 14px 16px;
-  background: rgba(0, 0, 0, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #fff;
+  color: var(--text-primary);
   font-size: 14px;
   text-align: center;
   margin-bottom: 12px;
   transition: border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
-.ob-referral-input::placeholder {
-  color: rgba(255, 255, 255, 0.4);
-}
-
 .ob-referral-input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 20px rgba(220, 31, 46, 0.35);
+  box-shadow: 0 0 18px rgba(220, 31, 46, 0.3);
 }
 
 .ob-referral-note {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-  margin-bottom: 28px;
+  color: var(--text-muted);
+  margin-bottom: 26px;
 }
 
 /* ============================================ */
@@ -270,22 +239,17 @@
   border: none;
   cursor: pointer;
   transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
-  box-shadow: 0 8px 28px rgba(220, 31, 46, 0.4);
+  box-shadow: 0 8px 26px rgba(220, 31, 46, 0.35);
 }
 
 .ob-continue-btn:hover {
   background: var(--accent-hover);
   transform: translateY(-2px);
-  box-shadow: 0 12px 36px rgba(220, 31, 46, 0.55);
+  box-shadow: 0 12px 34px rgba(220, 31, 46, 0.5);
 }
 
-.ob-continue-btn .arrow {
-  transition: transform 0.2s;
-}
-
-.ob-continue-btn:hover .arrow {
-  transform: translateX(6px);
-}
+.ob-continue-btn .arrow { transition: transform 0.2s; }
+.ob-continue-btn:hover .arrow { transform: translateX(6px); }
 
 .ob-continue-btn:disabled {
   opacity: 0.6;
@@ -300,7 +264,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  margin-bottom: 28px;
+  margin-bottom: 26px;
   width: 100%;
   max-width: 480px;
 }
@@ -310,18 +274,18 @@
   align-items: center;
   gap: 10px;
   padding: 12px;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
-  transition: border-color 0.2s, background 0.2s;
+  color: var(--text-secondary);
+  transition: border-color 0.2s, transform 0.2s;
 }
 
 .ob-feature-item:hover {
-  border-color: rgba(220, 31, 46, 0.4);
-  background: rgba(0, 0, 0, 0.55);
+  border-color: var(--accent);
+  transform: translateY(-1px);
 }
 
 .ob-feature-icon {
@@ -333,30 +297,14 @@
 /* Mobile                                       */
 /* ============================================ */
 @media (max-width: 640px) {
-  .ob-card {
-    padding: 28px 22px;
-  }
-  .ob-title {
-    font-size: 26px;
-  }
-  .ob-welcome-features {
-    grid-template-columns: 1fr;
-  }
-  .ob-scroll-content {
-    max-height: 280px;
-    padding: 16px;
-  }
+  .ob-card-body { padding: 24px 20px 32px; }
+  .ob-title { font-size: 24px; }
+  .ob-hero { aspect-ratio: 16 / 9; }
+  .ob-welcome-features { grid-template-columns: 1fr; }
+  .ob-scroll-content { max-height: 280px; padding: 16px; }
 }
 
-/* ============================================ */
-/* Respect reduced motion                       */
-/* ============================================ */
 @media (prefers-reduced-motion: reduce) {
-  .ob-bg,
-  .ob-card {
-    animation: none;
-  }
-  .ob-continue-btn:hover {
-    transform: none;
-  }
+  .ob-card, .ob-hero-img { animation: none; }
+  .ob-continue-btn:hover { transform: none; }
 }

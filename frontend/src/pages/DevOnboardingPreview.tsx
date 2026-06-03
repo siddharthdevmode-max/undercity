@@ -1,8 +1,13 @@
+/**
+ * DEV-ONLY preview of the Onboarding flow.
+ * - No auth required
+ * - No API calls (finish() just navigates)
+ * - Auto-disabled in production builds
+ *
+ * Visit: http://localhost:5173/dev/onboarding
+ */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../hooks/useAuth";
-import { authAPI } from "../services/api";
-import { toast } from "../utils/toast";
 import Header from "../components/Header";
 import "../styles/Onboarding.css";
 
@@ -16,28 +21,18 @@ const STEP_IMAGES = [
   { src: "/step5-referral.jpg", alt: "Two silhouettes shaking hands in alley" },
 ];
 
-export default function Onboarding() {
+export default function DevOnboardingPreview() {
   const [step, setStep] = useState(1);
   const [referralCode, setReferralCode] = useState("");
-  const [completing, setCompleting] = useState(false);
   const navigate = useNavigate();
-  const { refreshUser } = useAuth();
 
   const next = () => {
     if (step < TOTAL_STEPS) setStep(step + 1);
   };
 
-  const finish = async () => {
-    setCompleting(true);
-    try {
-      await authAPI.completeOnboarding();
-      await refreshUser();
-      navigate("/home");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setCompleting(false);
-    }
+  const finish = () => {
+    alert("✅ DEV PREVIEW: Onboarding finished (no API call made)");
+    navigate("/");
   };
 
   const current = STEP_IMAGES[step - 1];
@@ -45,8 +40,18 @@ export default function Onboarding() {
   return (
     <div className="onboarding-page">
       <Header />
-      <div className="onboarding-container">
-        {/* Progress */}
+
+      {/* DEV banner */}
+      <div style={{
+        position: "fixed", top: 0, left: 0, right: 0,
+        background: "#ff9800", color: "#000", textAlign: "center",
+        padding: "6px", fontWeight: 700, fontSize: "12px",
+        letterSpacing: "2px", zIndex: 9999,
+      }}>
+        🛠️ DEV PREVIEW — NO AUTH, NO API, NO BAN RISK
+      </div>
+
+      <div className="onboarding-container" style={{ paddingTop: "72px" }}>
         <div className="ob-progress">
           {Array.from({ length: TOTAL_STEPS }, (_, i) => (
             <div
@@ -58,8 +63,25 @@ export default function Onboarding() {
           ))}
         </div>
 
+        {/* Dev quick-nav buttons */}
+        <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+          {Array.from({ length: TOTAL_STEPS }, (_, i) => (
+            <button
+              key={i}
+              onClick={() => setStep(i + 1)}
+              style={{
+                padding: "6px 12px", fontSize: "12px",
+                background: step === i + 1 ? "var(--accent)" : "rgba(255,255,255,0.08)",
+                color: "#fff", border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: "4px", cursor: "pointer", fontWeight: 700,
+              }}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+
         <div key={`card-${step}`} className="ob-card">
-          {/* HERO IMAGE inside the card */}
           <div className="ob-hero">
             <img
               key={current.src}
@@ -81,7 +103,7 @@ export default function Onboarding() {
                 code={referralCode}
                 setCode={setReferralCode}
                 onFinish={finish}
-                loading={completing}
+                loading={false}
               />
             )}
           </div>
