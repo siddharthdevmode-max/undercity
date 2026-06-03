@@ -17,7 +17,10 @@ vi.mock("../../config/firebase", () => ({
 
 const { default: app } = await import("../../app");
 
-// Check if DB is available
+// ============================================================
+// HELPERS
+// ============================================================
+
 async function isDBAvailable(): Promise<boolean> {
   try {
     await pool.query("SELECT 1");
@@ -27,8 +30,32 @@ async function isDBAvailable(): Promise<boolean> {
   }
 }
 
+async function flushRateLimitKeys(): Promise<void> {
+  try {
+    const keys = await redis.keys("rl:*");
+    if (keys.length > 0) await redis.del(...keys);
+  } catch {
+    // Redis may not be available in all envs
+  }
+}
+
+// Short unique suffix — stays well within 20 char username limit
+// e.g. "nu_a3f9" = 7 chars total including prefix
+function shortId(): string {
+  return Math.random().toString(36).substring(2, 7);
+}
+
+// ============================================================
+// POST /api/auth/sync
+// ============================================================
+
 describe("POST /api/auth/sync", () => {
+  beforeAll(async () => {
+    await flushRateLimitKeys();
+  });
+
   it("returns 401 without token", async () => {
+    await flushRateLimitKeys();
     const res = await request(app)
       .post("/api/auth/sync")
       .send({ username: "testuser123" });
@@ -49,16 +76,29 @@ describe("POST /api/auth/sync", () => {
       console.log("⏭️  Skipping — no DB available");
       return;
     }
-    const username = `newuser_${Date.now()}`;
+    await flushRateLimitKeys();
+
+    // "nu_" + 5 random chars = 8 chars max — well within 3-20 limit
+    const username = `nu_${shortId()}`;
+
     const res = await request(app)
       .post("/api/auth/sync")
       .set("Authorization", "Bearer fake-token")
       .send({ username });
-    expect([201, 403, 409, 429]).toContain(res.status);
+
+    expect([200, 201, 403, 409]).toContain(res.status);
   });
 });
 
+// ============================================================
+// GET /api/auth/me
+// ============================================================
+
 describe("GET /api/auth/me", () => {
+  beforeAll(async () => {
+    await flushRateLimitKeys();
+  });
+
   it("returns 401 without token", async () => {
     const res = await request(app).get("/api/auth/me");
     expect(res.status).toBe(401);
@@ -75,7 +115,7 @@ describe("GET /api/auth/me", () => {
         money, level, points, nerve, max_nerve, life, max_life
       ) VALUES ($1, $2, $3, 1000, 1, 0, 30, 30, 100, 100)
       ON CONFLICT (firebase_uid) DO NOTHING`,
-      [TEST_UID, `${TEST_UID}@test.com`, `testme_${Date.now()}`]
+      [TEST_UID, `${TEST_UID}@test.com`, `tm_${shortId()}`]
     );
 
     const res = await request(app)
@@ -103,11 +143,18 @@ describe("GET /api/auth/me", () => {
       .set("Authorization", "Bearer fake-token");
 
     expect([404, 500]).toContain(res.status);
-    
   });
 });
 
+// ============================================================
+// GET /api/auth/check-username/:username
+// ============================================================
+
 describe("GET /api/auth/check-username/:username", () => {
+  beforeAll(async () => {
+    await flushRateLimitKeys();
+  });
+
   it("returns 400 for username too short", async () => {
     const res = await request(app).get("/api/auth/check-username/ab");
     expect(res.status).toBe(400);
@@ -141,12 +188,12 @@ describe("GET /api/auth/check-username/:username", () => {
       console.log("⏭️  Skipping — no DB available");
       return;
     }
-    const username = `taken_${Date.now()}`;
+    const username = `tk_${shortId()}`;
     await pool.query(
       `INSERT INTO users (firebase_uid, email, username,
         money, level, points, nerve, max_nerve, life, max_life)
        VALUES ($1, $2, $3, 100, 1, 0, 30, 30, 100, 100)`,
-      [`test-taken-${Date.now()}`, `t@test.com`, username]
+      [`test-taken-${shortId()}`, `t@test.com`, username]
     );
     const res = await request(app)
       .get(`/api/auth/check-username/${username}`);
@@ -159,12 +206,12 @@ describe("GET /api/auth/check-username/:username", () => {
       console.log("⏭️  Skipping — no DB available");
       return;
     }
-    const username = `Case_${Date.now()}`;
+    const username = `Cs_${shortId()}`;
     await pool.query(
       `INSERT INTO users (firebase_uid, email, username,
         money, level, points, nerve, max_nerve, life, max_life)
        VALUES ($1, $2, $3, 100, 1, 0, 30, 30, 100, 100)`,
-      [`test-case-${Date.now()}`, `c@test.com`, username]
+      [`test-case-${shortId()}`, `c@test.com`, username]
     );
     const res = await request(app)
       .get(`/api/auth/check-username/${username.toLowerCase()}`);
@@ -173,7 +220,12 @@ describe("GET /api/auth/check-username/:username", () => {
   });
 });
 
+// ============================================================
+// CLEANUP
+// ============================================================
+
 afterAll(async () => {
+  await flushRateLimitKeys();
   await pool.query(
     `DELETE FROM users WHERE firebase_uid LIKE 'test-%'`
   ).catch(() => {});

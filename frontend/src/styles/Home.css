@@ -1,6 +1,6 @@
 /* ════════════════════════════════════════════════════════════
    GAME SHELL — Layout for sidebar + header + main content
-   Fully responsive with mobile drawer pattern
+   Single slide method: transform translateX only
    Uses CSS variables from design system for theme support
    ════════════════════════════════════════════════════════════ */
 
@@ -78,25 +78,27 @@
 }
 
 /* ════════════════════════════════════════════════════════════
-   HAMBURGER BUTTON (mobile only)
+   HAMBURGER — hidden on desktop, shown on mobile via media query
    ════════════════════════════════════════════════════════════ */
 
 .hamburger-btn {
   display: none;
-  background: transparent;
-  border: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   color: var(--text-primary);
-  font-size: var(--text-2xl);
+  font-size: var(--text-xl);
   cursor: pointer;
   padding: var(--space-sm);
   min-width: 44px;
   min-height: 44px;
   align-items: center;
   justify-content: center;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
 }
 
 /* ════════════════════════════════════════════════════════════
-   MAIN CONTENT AREA (sidebar + page)
+   CONTENT AREA
    ════════════════════════════════════════════════════════════ */
 
 .game-content {
@@ -107,6 +109,8 @@
 
 /* ════════════════════════════════════════════════════════════
    SIDEBAR
+   Desktop: always visible, relative positioning
+   Mobile: fixed, slides in from left using transform only
    ════════════════════════════════════════════════════════════ */
 
 .sidebar {
@@ -116,6 +120,7 @@
   border-right: 1px solid var(--border);
   overflow-y: auto;
   flex-shrink: 0;
+  /* transform used for slide — only active on mobile */
   transition: transform var(--transition-normal);
 }
 
@@ -141,9 +146,7 @@
   font-size: var(--text-sm);
 }
 
-.stat-bar {
-  padding: var(--space-sm) 0;
-}
+.stat-bar { padding: var(--space-sm) 0; }
 
 .stat-bar-header {
   display: flex;
@@ -152,15 +155,8 @@
   font-size: var(--text-sm);
 }
 
-.stat-bar label {
-  color: var(--text-secondary);
-  font-weight: var(--font-semibold);
-}
-
-.stat-bar span {
-  color: var(--text-primary);
-  font-size: var(--text-xs);
-}
+.stat-bar label  { color: var(--text-secondary); font-weight: var(--font-semibold); }
+.stat-bar span   { color: var(--text-primary);   font-size: var(--text-xs); }
 
 .stat-bar progress {
   width: 100%;
@@ -193,9 +189,7 @@
   font-weight: var(--font-medium);
 }
 
-.nav-item:hover {
-  background: var(--bg-hover);
-}
+.nav-item:hover  { background: var(--bg-hover); }
 
 .nav-item.active {
   background: var(--bg-elevated);
@@ -205,24 +199,24 @@
 }
 
 /* ════════════════════════════════════════════════════════════
-   SIDEBAR OVERLAY (mobile only — appears when drawer open)
+   SIDEBAR OVERLAY
+   Mobile only — darkens main content when sidebar open
    ════════════════════════════════════════════════════════════ */
 
 .sidebar-overlay {
   display: none;
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: var(--z-modal-backdrop);
-  animation: fadeIn var(--transition-fast);
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: calc(var(--z-modal) - 1);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-normal);
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.sidebar-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -234,12 +228,6 @@
   padding: var(--space-xl);
   overflow-y: auto;
   min-width: 0;
-}
-
-.main-content h1 {
-  color: var(--accent);
-  margin-bottom: var(--space-xl);
-  font-size: var(--text-3xl);
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -259,33 +247,13 @@
   border: 1px solid var(--border);
 }
 
-.card h3 {
-  color: var(--accent);
-  margin-bottom: var(--space-md);
-}
+.card h3 { color: var(--accent); margin-bottom: var(--space-md); }
 
-.card table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.card table tr {
-  border-bottom: 1px solid var(--border);
-}
-
-.card table td {
-  padding: var(--space-sm) 0;
-}
-
-.card table td:first-child {
-  color: var(--text-secondary);
-  font-weight: var(--font-semibold);
-}
-
-.card table td:last-child {
-  text-align: right;
-  color: var(--text-primary);
-}
+.card table          { width: 100%; border-collapse: collapse; }
+.card table tr       { border-bottom: 1px solid var(--border); }
+.card table td       { padding: var(--space-sm) 0; }
+.card table td:first-child  { color: var(--text-secondary); font-weight: var(--font-semibold); }
+.card table td:last-child   { text-align: right; color: var(--text-primary); }
 
 /* ════════════════════════════════════════════════════════════
    LOADING SCREEN
@@ -307,148 +275,60 @@
 }
 
 /* ════════════════════════════════════════════════════════════
-   RESPONSIVE — TABLET (under 1024px, hide sidebar by default)
+   RESPONSIVE — DESKTOP (769px+)
+   Sidebar always visible, hamburger hidden
    ════════════════════════════════════════════════════════════ */
 
-@media (max-width: 1024px) {
-  .hamburger-btn {
-    display: inline-flex;
-  }
+@media (min-width: 769px) {
+  .hamburger-btn    { display: none !important; }
+  .sidebar-overlay  { display: none !important; }
 
   .sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    height: 100vh;
-    z-index: var(--z-modal);
-    transform: translateX(-100%);
-    box-shadow: var(--shadow-xl);
+    position: relative;
+    transform: none !important;   /* Never slide on desktop */
+    width: var(--sidebar-width);
+    min-height: calc(100vh - var(--header-height));
   }
 
-  .sidebar.sidebar-open {
-    transform: translateX(0);
-  }
-
-  .sidebar-overlay.active {
-    display: block;
-  }
-
-  .main-content {
-    padding: var(--space-md);
-  }
+  .game-content { flex-direction: row; }
+  .main-content { flex: 1; min-width: 0; padding: var(--space-lg); }
 }
 
 /* ════════════════════════════════════════════════════════════
-   RESPONSIVE — MOBILE (under 640px)
+   RESPONSIVE — MOBILE (768px and below)
+   Hamburger shown, sidebar slides in from left
+   Single method: transform translateX (no left property conflict)
    ════════════════════════════════════════════════════════════ */
 
-@media (max-width: 640px) {
-  .game-header {
-    padding: var(--space-sm) var(--space-md);
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-  }
-
-  .logo {
-    font-size: var(--text-lg);
-  }
-
-  .header-stats {
-    order: 3;
-    width: 100%;
-    justify-content: space-around;
-    padding-top: var(--space-sm);
-    border-top: 1px solid var(--border);
-    gap: var(--space-sm);
-  }
-
-  .header-stat {
-    font-size: var(--text-xs);
-  }
-
-  .username {
-    display: none; /* Hide on small mobile, still in sidebar */
-  }
-
-  .sidebar {
-    width: 85%;
-    max-width: 320px;
-  }
-
-  .main-content {
-    padding: var(--space-sm);
-  }
-
-  .main-content h1 {
-    font-size: var(--text-2xl);
-  }
-
-  .dashboard {
-    grid-template-columns: 1fr;
-    gap: var(--space-md);
-  }
-}
-
-/* ════════════════════════════════════════════════════════════
-   SHELL — RESPONSIVE (Mobile First)
-   ════════════════════════════════════════════════════════════ */
-
-/* Sidebar slide-out on mobile */
 @media (max-width: 768px) {
-  .game-shell {
-    flex-direction: column;
+  .hamburger-btn {
+    display: inline-flex !important;
+  }
+
+  .sidebar-overlay {
+    display: block;
+    top: var(--header-height);
   }
 
   .game-content {
     flex-direction: column;
   }
 
+  /* Sidebar: fixed, slides from left using transform only */
   .sidebar {
     position: fixed;
     top: var(--header-height);
-    left: -100%;
+    left: 0;
     width: 280px;
+    max-width: 85vw;
     height: calc(100vh - var(--header-height));
     z-index: var(--z-modal);
-    transition: left var(--transition-normal);
-    overflow-y: auto;
+    transform: translateX(-100%);   /* Hidden off-screen */
+    box-shadow: var(--shadow-xl);
   }
 
   .sidebar.sidebar-open {
-    left: 0;
-  }
-
-  .sidebar-overlay {
-    display: block;
-    position: fixed;
-    inset: 0;
-    top: var(--header-height);
-    background: rgba(0, 0, 0, 0.6);
-    z-index: calc(var(--z-modal) - 1);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity var(--transition-normal);
-  }
-
-  .sidebar-overlay.active {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .hamburger-btn {
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    font-size: 1.25rem;
-    border-radius: var(--radius-md);
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    cursor: pointer;
-    flex-shrink: 0;
+    transform: translateX(0);       /* Slide in */
   }
 
   .main-content {
@@ -462,69 +342,32 @@
     gap: var(--space-sm);
   }
 
-  .header-stats {
-    display: none;
-  }
-
-  .user-info .username {
-    display: none;
-  }
+  .header-stats { display: none; }  /* Stats in sidebar on mobile */
+  .user-info .username { display: none; }
 }
 
-/* Desktop — sidebar always visible */
-@media (min-width: 769px) {
-  .hamburger-btn {
-    display: none !important;
-  }
+/* ════════════════════════════════════════════════════════════
+   RESPONSIVE — SMALL MOBILE (640px and below)
+   ════════════════════════════════════════════════════════════ */
 
-  .sidebar-overlay {
-    display: none !important;
-  }
+@media (max-width: 640px) {
+  .main-content { padding: var(--space-sm); }
 
-  .sidebar {
-    position: relative;
-    left: 0 !important;
-    width: var(--sidebar-width);
-    min-height: calc(100vh - var(--header-height));
-    flex-shrink: 0;
-  }
-
-  .game-content {
-    display: flex;
-    flex-direction: row;
-  }
-
-  .main-content {
-    flex: 1;
-    min-width: 0;
-    padding: var(--space-lg);
-  }
-}
-
-/* Dashboard grid responsive */
-@media (max-width: 900px) {
   .dashboard {
-    grid-template-columns: 1fr 1fr !important;
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
   }
 }
 
-@media (max-width: 600px) {
-  .dashboard {
-    grid-template-columns: 1fr !important;
-  }
+/* ════════════════════════════════════════════════════════════
+   TOUCH TARGETS — minimum 44px on all interactive elements
+   ════════════════════════════════════════════════════════════ */
 
-  .game-header .logo {
-    font-size: var(--text-md);
-  }
-}
-
-/* Touch targets minimum size */
 @media (max-width: 768px) {
   .nav-item,
   .logout-btn,
   .hamburger-btn,
   button {
     min-height: 44px;
-    min-width: 44px;
   }
 }

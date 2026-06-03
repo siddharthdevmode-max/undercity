@@ -1,24 +1,25 @@
 // ============================================================
 // TYPED API ERROR
-// Preserves HTTP status code and error code from API
+// Preserves HTTP status code and error code from API response
+// Used throughout the frontend service layer
 // ============================================================
 
 export class ApiError extends Error {
   public readonly statusCode: number;
   public readonly code: string;
-  public readonly details?: any;
+  public readonly details?: unknown;
 
   constructor(
     message: string,
     statusCode: number,
     code: string,
-    details?: any
+    details?: unknown
   ) {
     super(message);
-    this.name = "ApiError";
+    this.name       = "ApiError";
     this.statusCode = statusCode;
-    this.code = code;
-    this.details = details;
+    this.code       = code;
+    this.details    = details;
   }
 
   get isJailError()       { return this.code === "IN_JAIL"; }

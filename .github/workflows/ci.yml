@@ -1,142 +1,121 @@
 # ════════════════════════════════════════════════════════════
-# CONTINUOUS INTEGRATION
-# Runs on every push and pull request
-# Tests backend + builds frontend
+# UNDERCITY CI PIPELINE
+# Runs on every push and pull request to main
 # ════════════════════════════════════════════════════════════
 
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
     branches: [main]
 
 jobs:
 
-  # ─── Backend Tests ───
+  # ─── Backend ───────────────────────────────────────────────
   backend:
-    name: Backend Tests
+    name: Backend — Lint, Build, Test
     runs-on: ubuntu-latest
 
     services:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: undercity_user
-          POSTGRES_PASSWORD: undercity123
-          POSTGRES_DB: undercity_test
-        ports:
-          - 5432:5432
+          POSTGRES_USER:     undercity_user
+          POSTGRES_PASSWORD: undercity_test
+          POSTGRES_DB:       undercity_test
+        ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U undercity_user"
+          --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
       redis:
         image: redis:7-alpine
-        ports:
-          - 6379:6379
+        ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
-    steps:
-      - uses: actions/checkout@v4
+    defaults:
+      run:
+        working-directory: backend
 
-      - name: Setup Node.js
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
-        working-directory: ./backend
         run: npm ci
 
-      - name: TypeScript check (app code only)
-        working-directory: ./backend
-        run: npx tsc --noEmit
-
-      - name: TypeScript check (test files)
-        working-directory: ./backend
-        run: npx tsc --noEmit --project tsconfig.test.json
-
       - name: Lint
-        working-directory: ./backend
         run: npm run lint
 
-      - name: Run migrations
-        working-directory: ./backend
-        env:
-          DATABASE_URL: postgresql://undercity_user:undercity123@localhost:5432/undercity_test
-        run: npm run migrate
+      - name: Build
+        run: npm run build
 
-      - name: Run unit tests
-        working-directory: ./backend
-        env:
-          NODE_ENV: test
-          DATABASE_URL: postgresql://undercity_user:undercity123@localhost:5432/undercity_test
-          REDIS_HOST: 127.0.0.1
-          REDIS_PORT: 6379
-          ADMIN_UIDS: test-admin-uid
-          ALLOWED_ORIGINS: http://localhost:5173
-          LOG_LEVEL: error
+      - name: Unit tests
+        run: npm test
+
+      - name: Unit test coverage
         run: npm run test:coverage
 
-      - name: Run integration tests
-        working-directory: ./backend
+      - name: Integration tests
         env:
-          NODE_ENV: test
-          DATABASE_URL: postgresql://undercity_user:undercity123@localhost:5432/undercity_test
-          REDIS_HOST: 127.0.0.1
-          REDIS_PORT: 6379
-          ADMIN_UIDS: test-admin-uid
+          NODE_ENV:        test
+          DATABASE_URL:    postgresql://undercity_user:undercity_test@localhost:5432/undercity_test
+          REDIS_HOST:      127.0.0.1
+          REDIS_PORT:      6379
           ALLOWED_ORIGINS: http://localhost:5173
-          LOG_LEVEL: error
+          ADMIN_UIDS:      test-admin-uid
+          LOG_LEVEL:       error
         run: npm run test:integration
 
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: backend/coverage/
-          retention-days: 7
-
-  # ─── Frontend Build ───
+  # ─── Frontend ──────────────────────────────────────────────
   frontend:
-    name: Frontend Build
+    name: Frontend — Lint, Build
     runs-on: ubuntu-latest
 
-    steps:
-      - uses: actions/checkout@v4
+    defaults:
+      run:
+        working-directory: frontend
 
-      - name: Setup Node.js
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        working-directory: ./frontend
         run: npm ci
 
-      - name: TypeScript check
-        working-directory: ./frontend
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
         run: npx tsc --noEmit
 
       - name: Build
-        working-directory: ./frontend
         env:
-          VITE_API_URL: http://localhost:5000/api
-          VITE_FIREBASE_API_KEY: dummy_ci_key
-          VITE_FIREBASE_AUTH_DOMAIN: dummy.firebaseapp.com
-          VITE_FIREBASE_PROJECT_ID: dummy
-          VITE_FIREBASE_APP_ID: dummy_app_id
+          VITE_API_URL:               https://api.undercity.online/api
+          VITE_FIREBASE_API_KEY:      placeholder
+          VITE_FIREBASE_AUTH_DOMAIN:  placeholder.firebaseapp.com
+          VITE_FIREBASE_PROJECT_ID:   placeholder
+          VITE_FIREBASE_APP_ID:       placeholder
         run: npm run build

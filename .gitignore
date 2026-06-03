@@ -28,3 +28,4 @@ backend/backups/
 backend/logs/
 *.sqlite
 *.sqlite-journal
+backend/coverage/

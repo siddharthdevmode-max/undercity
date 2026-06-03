@@ -1,12 +1,12 @@
 import { Request, Response, NextFunction } from "express";
+import { config } from "../config";
 import { ForbiddenError } from "../utils/errors";
 
 // ============================================================
 // requireAdmin
-// Extracted middleware — works correctly with asyncHandler
+// Uses central config — not process.env directly
+// Reads at request time so hot config changes work in tests
 // ============================================================
-
-const ADMIN_UIDS = (process.env.ADMIN_UIDS || "").split(",").filter(Boolean);
 
 export const requireAdmin = (
   req: Request,
@@ -14,7 +14,7 @@ export const requireAdmin = (
   next: NextFunction
 ) => {
   const uid = req.firebaseUser?.uid;
-  if (!uid || !ADMIN_UIDS.includes(uid)) {
+  if (!uid || !config.adminUids.includes(uid)) {
     return next(new ForbiddenError());
   }
   next();

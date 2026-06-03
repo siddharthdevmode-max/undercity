@@ -1,4 +1,31 @@
 import { PoolClient } from "pg";
+import { config } from "../config";
+
+// ============================================================
+// USER ROW — explicit return type, no implicit any
+// ============================================================
+
+export interface UserRow {
+  id:                  number;
+  firebase_uid:        string;
+  email:               string;
+  username:            string;
+  level:               number | string;
+  money:               number | string;
+  points:              number | string;
+  nerve:               number | string;
+  max_nerve:           number | string;
+  life:                number | string;
+  max_life:            number | string;
+  jail_until:          string | null;
+  federal_jail_until:  string | null;
+  last_crime_at:       string | null;
+  is_shadow_banned:    boolean;
+  is_hard_banned:      boolean;
+  trust_score:         number | string;
+  total_flags:         number | string;
+  created_at:          string;
+}
 
 export function toNumber(value: unknown): number {
   if (value === null || value === undefined) return 0;
@@ -14,8 +41,8 @@ export function isFutureDate(value: unknown): boolean {
 export async function getUserByFirebaseUid(
   client: PoolClient,
   firebaseUid: string
-) {
-  const result = await client.query(
+): Promise<UserRow | null> {
+  const result = await client.query<UserRow>(
     `SELECT
        id, firebase_uid, email, username,
        level, money, points,
@@ -40,7 +67,7 @@ export function calcMaxNerve(totalCrimeXp: number): number {
   const base   = 30;
   const cap    = 130;
   const growth = cap - base;
-  const rate   = 800000;
+  const rate   = config.isDevelopment ? 800000 : 800000;
   const nerve  = base + growth * (1 - Math.exp(-totalCrimeXp / rate));
   return Math.floor(Math.min(cap, Math.max(base, nerve)));
 }
