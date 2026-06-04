@@ -19,10 +19,21 @@ export interface CrimeOutcomeForPunish {
   cpl_change: number;
 }
 
+/**
+ * Applies shadow punishment to a crime outcome.
+ *
+ * @param outcome    The original (clean) outcome
+ * @param trustScore Current trust score of the user
+ * @param isImmune   If true (dev/admin), returns the outcome untouched
+ */
 export function applyShadowPunishment(
   outcome: CrimeOutcomeForPunish,
-  trustScore: number
+  trustScore: number,
+  isImmune: boolean = false
 ): CrimeOutcomeForPunish {
+  // 🛡️ Devs/admins: NEVER get nerfed
+  if (isImmune) return outcome;
+
   // trustScore kept for future tiered punishment logic
   void trustScore;
 

@@ -29,6 +29,10 @@ export interface UserRow {
   created_at:          string;
 }
 
+// ============================================================
+// SCALAR HELPERS
+// ============================================================
+
 export function toNumber(value: unknown): number {
   if (value === null || value === undefined) return 0;
   return Number(value);
@@ -39,6 +43,17 @@ export function isFutureDate(value: unknown): boolean {
   const date = value instanceof Date ? value : new Date(String(value));
   return date.getTime() > Date.now();
 }
+
+function toDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  const d = new Date(String(value));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// ============================================================
+// DB QUERY
+// ============================================================
 
 export async function getUserByFirebaseUid(
   client: PoolClient,
@@ -62,12 +77,47 @@ export async function getUserByFirebaseUid(
   return result.rows[0] ?? null;
 }
 
+// ============================================================
+// LEVEL / NERVE / COOLDOWN CALCULATORS
+// ============================================================
+
+export function calcMaxLife(playerLevel: number): number {
+  return 100 + (playerLevel - 1) * 25;
+}
+
+export function calcMaxNerve(totalCrimeXp: number): number {
+  const base   = 30;
+  const cap    = 130;
+  const growth = cap - base;
+  const rate   = config.isDevelopment ? 800000 : 800000;
+  const nerve  = base + growth * (1 - Math.exp(-totalCrimeXp / rate));
+  return Math.floor(Math.min(cap, Math.max(base, nerve)));
+}
+
+export function canAttemptCrime(lastCrimeAt: unknown): boolean {
+  const date = toDate(lastCrimeAt);
+  if (!date) return true;
+  return Date.now() - date.getTime() >= 1000;
+}
+
+export function getCooldownRemaining(lastCrimeAt: unknown): number {
+  const date = toDate(lastCrimeAt);
+  if (!date) return 0;
+  const remaining = 1000 - (Date.now() - date.getTime());
+  return remaining > 0 ? Math.ceil(remaining) : 0;
+}
+
+// ============================================================
+// ROLE HELPERS
+// ============================================================
+
 /**
- * Developer immunity check.
- * Devs bypass: UAC violations, shadow punishments, fingerprint flagging,
- * behavior anomaly detection, trust score penalties, hard bans.
- * Use in: behaviorEngine, fingerprintEngine, shadowPunish, trustEngine.
+ * Quick local check (no DB hit) — use when you already have a UserRow.
+ * For firebaseUid-only checks, use isImmuneFromUAC() from immunityCheck.ts
+ * (which is cached + handles all anti-cheat short-circuits).
  */
-export function isImmuneToAntiCheat(user: Pick<UserRow, "is_developer" | "is_admin">): boolean {
+export function isImmuneToAntiCheat(
+  user: Pick<UserRow, "is_developer" | "is_admin">
+): boolean {
   return user.is_developer === true || user.is_admin === true;
 }

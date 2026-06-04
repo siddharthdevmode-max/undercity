@@ -32,10 +32,15 @@ describe("fingerprintEngine — recordFingerprint", () => {
 
   it("inserts fingerprint record into DB", async () => {
     await recordFingerprint("test-uid", "192.168.1.1", "Mozilla/5.0");
+    // No visitorId → exactly 1 INSERT (legacy hash only)
     expect(mockQuery).toHaveBeenCalledOnce();
     const sql = mockQuery.mock.calls[0][0] as string;
     expect(sql).toContain("INSERT INTO device_fingerprints");
     expect(sql).toContain("ON CONFLICT");
+    const params = mockQuery.mock.calls[0][1] as unknown[];
+    expect(params[0]).toBe("test-uid");
+    expect(params[2]).toBe("192.168.1.1");
+    expect(params[3]).toBe("Mozilla/5.0");
   });
 
   it("strips ::ffff: IPv6 prefix from IP address", async () => {
@@ -121,9 +126,15 @@ describe("fingerprintEngine — checkMultiAccount", () => {
     mockQuery.mockResolvedValue({ rows: [] });
     await checkMultiAccount("uid-1", "10.0.0.1", "Chrome/100");
     await checkMultiAccount("uid-2", "10.0.0.1", "Chrome/100");
-    const hash1 = (mockQuery.mock.calls[0][1] as string[])[0];
-    const hash2 = (mockQuery.mock.calls[1][1] as string[])[0];
-    expect(hash1).toStrictEqual(hash2);
+    // pool.query(SQL, [hashes, firebaseUid])
+    //   params[0] = hashes ARRAY
+    //   params[1] = firebaseUid string
+    const params1 = mockQuery.mock.calls[0][1] as [string[], string];
+    const params2 = mockQuery.mock.calls[1][1] as [string[], string];
+    const hashesForCall1 = params1[0];
+    const hashesForCall2 = params2[0];
+    // Same IP + UA → same legacy hash
+    expect(hashesForCall1[0]).toBe(hashesForCall2[0]);
   });
 
   it("generates different hash for different IP", async () => {

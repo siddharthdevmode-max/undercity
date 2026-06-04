@@ -1,6 +1,7 @@
 import { PoolClient } from "pg";
 import { pool } from "../config/database";
 import { logger } from "../utils/logger";
+import { isImmuneFromUAC } from "./immunityCheck";
 
 // ============================================================
 // VIOLATION TYPES & SEVERITY
@@ -37,6 +38,17 @@ export async function flagUser(params: {
   ipAddress?: string;
   userAgent?: string;
 }): Promise<{ newTrustScore: number; tier: string; isBanned: boolean }> {
+  // ────────────────────────────────────────────────────────────
+  // 🛡️ DEV/ADMIN IMMUNITY — bail before any DB writes
+  // ────────────────────────────────────────────────────────────
+  if (await isImmuneFromUAC(params.firebaseUid)) {
+    logger.info("🛡️ UAC flag SKIPPED (immune user)", {
+      uid: params.firebaseUid.substring(0, 8),
+      type: params.violationType,
+    });
+    return { newTrustScore: 100, tier: "CLEAN", isBanned: false };
+  }
+
   const client: PoolClient = await pool.connect();
 
   try {
@@ -115,6 +127,16 @@ export async function getTrustInfo(firebaseUid: string): Promise<{
   isShadowBanned: boolean;
   isHardBanned: boolean;
 }> {
+  // Devs/admins always show CLEAN
+  if (await isImmuneFromUAC(firebaseUid)) {
+    return {
+      trustScore: 100,
+      tier: "CLEAN",
+      isShadowBanned: false,
+      isHardBanned: false,
+    };
+  }
+
   const result = await pool.query(
     `SELECT trust_score, is_shadow_banned, is_hard_banned
      FROM users WHERE firebase_uid = $1 LIMIT 1`,

@@ -6,6 +6,8 @@ import {
   calcMaxLife,
   canAttemptCrime,
   getCooldownRemaining,
+
+  isImmuneToAntiCheat,
 } from "../models/userModels";
 import {
   parseCrime,
@@ -257,8 +259,10 @@ export function calculateOutcome(
     maxLife
   );
 
-  if (trustInfo.isShadowBanned) {
-    outcome = applyShadowPunishment(outcome, trustInfo.trustScore);
+  // 🛡️ Devs/admins bypass shadow punishment entirely (sync check, no DB hit)
+  const _immune = isImmuneToAntiCheat(user);
+  if (trustInfo.isShadowBanned && !_immune) {
+    outcome = applyShadowPunishment(outcome, trustInfo.trustScore, _immune);
   }
 
   return outcome;

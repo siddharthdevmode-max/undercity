@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { pool } from "../config/database";
 import { logger } from "../utils/logger";
+import { isImmuneFromUAC } from "./immunityCheck";
 
 // ============================================================
 // UAC 2.0 — UPGRADED FINGERPRINT ENGINE
@@ -14,6 +15,9 @@ export async function recordFingerprint(
   visitorId?: string | undefined
 ): Promise<void> {
   try {
+    // 🛡️ Devs/admins: don't record fingerprints at all
+    if (await isImmuneFromUAC(firebaseUid)) return;
+
     if (!ipAddress || !userAgent) return;
 
     const cleanIp = ipAddress.replace(/^::ffff:/, "");
@@ -63,6 +67,11 @@ export async function checkMultiAccount(
   visitorId?: string | undefined
 ): Promise<{ otherAccountsCount: number; otherUids: string[] }> {
   try {
+    // 🛡️ Devs/admins: always report 0 matches
+    if (await isImmuneFromUAC(firebaseUid)) {
+      return { otherAccountsCount: 0, otherUids: [] };
+    }
+
     if (!ipAddress || !userAgent) {
       return { otherAccountsCount: 0, otherUids: [] };
     }

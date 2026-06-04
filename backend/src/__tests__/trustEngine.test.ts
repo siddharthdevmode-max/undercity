@@ -20,6 +20,11 @@ vi.mock("../config/database", () => ({
   },
 }));
 
+vi.mock("../services/immunityCheck", () => ({
+  isImmuneFromUAC: vi.fn().mockResolvedValue(false),
+}));
+
+
 import { getTrustTier, flagUser, getTrustInfo } from "../services/trustEngine";
 
 // ============================================================

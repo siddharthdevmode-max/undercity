@@ -1,5 +1,6 @@
 import redis from "../config/redis";
 import { flagUser } from "./trustEngine";
+import { isImmuneFromUAC } from "./immunityCheck";
 import { logger } from "../utils/logger";
 
 // ============================================================
@@ -312,6 +313,7 @@ export async function analyzeBehavior(
   ipAddress?: string,
   userAgent?: string
 ): Promise<void> {
+  if (await isImmuneFromUAC(firebaseUid)) return;
   const analysis = await recordAndAnalyze(firebaseUid);
   if (!analysis) return;
 
@@ -349,6 +351,7 @@ export async function analyzePostCrime(
   ipAddress?: string,
   userAgent?: string
 ): Promise<void> {
+  if (await isImmuneFromUAC(firebaseUid)) return;
   await Promise.allSettled([
     trackEarningsVelocity(firebaseUid, moneyEarned, ipAddress, userAgent),
     trackActiveHours(firebaseUid, ipAddress, userAgent),
