@@ -21,6 +21,8 @@ interface RawUser {
   federal_jail_until: string | null;
   last_crime_at: string | null;
   onboarding_completed: boolean;
+  is_admin?: boolean;
+  is_developer?: boolean;
   created_at: string;
 }
 
@@ -41,6 +43,8 @@ function transformUser(raw: RawUser): User {
     federalJailUntil: raw.federal_jail_until,
     lastCrimeAt: raw.last_crime_at,
     onboardingCompleted: raw.onboarding_completed ?? false,
+    isAdmin:     raw.is_admin     ?? false,
+    isDeveloper: raw.is_developer ?? false,
     createdAt: raw.created_at,
   };
 }

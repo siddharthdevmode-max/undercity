@@ -318,3 +318,73 @@
     padding: 0.625rem 0.5rem;
   }
 }
+
+/* ════════════════════════════════════════════════════ */
+/* 403 FORBIDDEN PAGE                                    */
+/* ════════════════════════════════════════════════════ */
+
+.forbidden-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  padding: 40px 20px;
+}
+
+.forbidden-card {
+  max-width: 520px;
+  width: 100%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 48px 36px;
+  text-align: center;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+}
+
+.forbidden-code {
+  font-size: 88px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  background: linear-gradient(135deg, #dc1f2e 0%, #ff4757 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  line-height: 1;
+  margin-bottom: 8px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  text-shadow: 0 0 30px rgba(220, 31, 46, 0.4);
+}
+
+.forbidden-title {
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: var(--text-primary);
+  margin: 0 0 16px 0;
+}
+
+.forbidden-message {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  margin: 0 0 28px 0;
+}
+
+.forbidden-link {
+  display: inline-block;
+  padding: 12px 28px;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 1.5px;
+  border-radius: 6px;
+  transition: background 0.2s, transform 0.2s;
+}
+
+.forbidden-link:hover {
+  background: var(--accent-hover);
+  transform: translateY(-2px);
+}

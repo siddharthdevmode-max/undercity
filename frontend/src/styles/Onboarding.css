@@ -308,3 +308,93 @@
   .ob-card, .ob-hero-img { animation: none; }
   .ob-continue-btn:hover { transform: none; }
 }
+
+/* ════════════════════════════════════════════════════ */
+/* BACK BUTTON (top of card body, left-aligned)         */
+/* ════════════════════════════════════════════════════ */
+
+.ob-back-btn {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, transform 0.2s, background 0.2s;
+  margin-bottom: 20px;
+  min-height: 36px; /* keep close to 44px touch target on mobile via padding */
+}
+
+.ob-back-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+  background: rgba(220, 31, 46, 0.06);
+  transform: translateX(-3px);
+}
+
+.ob-back-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ob-back-arrow {
+  display: inline-block;
+  transition: transform 0.2s;
+}
+
+.ob-back-btn:hover .ob-back-arrow {
+  transform: translateX(-3px);
+}
+
+/* ════════════════════════════════════════════════════ */
+/* STEP CROSS-FADE — premium feel on step change        */
+/* ════════════════════════════════════════════════════ */
+
+/* The .ob-card already has obCardIn animation.       */
+/* Make it gentler so it doesn't fight the image zoom. */
+@keyframes obCardIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Image fade — smoother than zoom-only */
+@keyframes obImgZoom {
+  from { transform: scale(1.04); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+.ob-hero-img {
+  animation: obImgZoom 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ob-card {
+  animation: obCardIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (max-width: 640px) {
+  .ob-back-btn {
+    padding: 10px 18px;
+    font-size: 12px;
+    min-height: 44px; /* full touch target on mobile */
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-back-btn,
+  .ob-back-arrow {
+    transition: none;
+  }
+  .ob-back-btn:hover {
+    transform: none;
+  }
+  .ob-back-btn:hover .ob-back-arrow {
+    transform: none;
+  }
+}

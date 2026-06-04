@@ -18,7 +18,7 @@ const USER_FIELDS = `
   id, firebase_uid, email, username, level, money, points,
   nerve, max_nerve, life, max_life,
   jail_until, federal_jail_until, last_crime_at,
-  onboarding_completed, created_at
+  onboarding_completed, is_admin, is_developer, created_at
 `;
 
 // ============================================================

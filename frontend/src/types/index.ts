@@ -19,6 +19,10 @@ export interface User {
 
   onboardingCompleted: boolean;
 
+  // Roles (UAC immunity + admin panel access)
+  isAdmin: boolean;
+  isDeveloper: boolean;
+
   createdAt: string;
 }
 

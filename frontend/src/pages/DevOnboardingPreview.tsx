@@ -30,6 +30,10 @@ export default function DevOnboardingPreview() {
     if (step < TOTAL_STEPS) setStep(step + 1);
   };
 
+  const prev = () => {
+    if (step > 1) setStep(step - 1);
+  };
+
   const finish = () => {
     alert("✅ DEV PREVIEW: Onboarding finished (no API call made)");
     navigate("/");
@@ -94,6 +98,16 @@ export default function DevOnboardingPreview() {
           </div>
 
           <div className="ob-card-body">
+            {step > 1 && (
+              <button
+                type="button"
+                className="ob-back-btn"
+                onClick={prev}
+                aria-label="Go back to previous step"
+              >
+                <span className="ob-back-arrow">←</span> BACK
+              </button>
+            )}
             {step === 1 && <StepWelcome onContinue={next} />}
             {step === 2 && <StepTerms onContinue={next} />}
             {step === 3 && <StepPrivacy onContinue={next} />}

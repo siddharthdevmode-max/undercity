@@ -53,6 +53,18 @@ export default function Shell({ children }: Props) {
     points:   authUser?.points   ?? 0,
   });
 
+  // ─────────────────────────────────────────────────
+  // Ticking clock for jail timers (avoids impure
+  // Date.now() in render — purity rule compliant)
+  // ─────────────────────────────────────────────────
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const inJail = authUser?.jailUntil || authUser?.federalJailUntil;
+    if (!inJail) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [authUser?.jailUntil, authUser?.federalJailUntil]);
+
   const prevAuthUser = useRef(authUser);
   useEffect(() => {
     if (authUser && authUser !== prevAuthUser.current) {
@@ -113,13 +125,17 @@ export default function Shell({ children }: Props) {
     );
   }
 
-  // Jail timer
+  // Jail timers — use ticking `now` (pure)
   const jailRemaining = authUser?.jailUntil
-    ? Math.max(0, Math.ceil((new Date(authUser.jailUntil).getTime() - Date.now()) / 1000))
+    ? Math.max(0, Math.ceil((new Date(authUser.jailUntil).getTime() - now) / 1000))
     : 0;
   const fedJailRemaining = authUser?.federalJailUntil
-    ? Math.max(0, Math.ceil((new Date(authUser.federalJailUntil).getTime() - Date.now()) / 1000))
+    ? Math.max(0, Math.ceil((new Date(authUser.federalJailUntil).getTime() - now) / 1000))
     : 0;
+
+  // Role flags
+  const isDeveloper = authUser?.isDeveloper === true;
+  const isAdmin     = authUser?.isAdmin === true;
 
   return (
     <div className="game-shell">
@@ -168,7 +184,19 @@ export default function Shell({ children }: Props) {
         >
           {/* ── Player Info Block ── */}
           <div className="sb-player-block">
-            <div className="sb-player-name">{authUser?.username}</div>
+            <div className="sb-player-name-row">
+              <span className="sb-player-name">{authUser?.username}</span>
+              {isDeveloper && (
+                <span className="role-badge role-dev" title="Developer — immune to UAC">
+                  DEV
+                </span>
+              )}
+              {isAdmin && !isDeveloper && (
+                <span className="role-badge role-admin" title="Administrator">
+                  ADMIN
+                </span>
+              )}
+            </div>
             <div className="sb-player-level">Level {stats.level}</div>
           </div>
 

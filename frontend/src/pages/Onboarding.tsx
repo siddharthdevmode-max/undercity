@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { authAPI } from "../services/api";
@@ -7,6 +7,7 @@ import Header from "../components/Header";
 import "../styles/Onboarding.css";
 
 const TOTAL_STEPS = 5;
+const OB_STORAGE_KEY = "undercity_onboarding_step";
 
 const STEP_IMAGES = [
   { src: "/step1-welcome.jpg",  alt: "Cyberpunk city street at night" },
@@ -17,20 +18,35 @@ const STEP_IMAGES = [
 ];
 
 export default function Onboarding() {
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState<number>(() => {
+    if (typeof window === "undefined") return 1;
+    const stored = sessionStorage.getItem(OB_STORAGE_KEY);
+    const parsed = stored ? parseInt(stored, 10) : 1;
+    return Number.isFinite(parsed) && parsed >= 1 && parsed <= TOTAL_STEPS ? parsed : 1;
+  });
   const [referralCode, setReferralCode] = useState("");
   const [completing, setCompleting] = useState(false);
   const navigate = useNavigate();
   const { refreshUser } = useAuth();
 
+  // Persist step across accidental refreshes
+  useEffect(() => {
+    try { sessionStorage.setItem(OB_STORAGE_KEY, String(step)); } catch { /* private mode etc. */ }
+  }, [step]);
+
   const next = () => {
     if (step < TOTAL_STEPS) setStep(step + 1);
+  };
+
+  const prev = () => {
+    if (step > 1) setStep(step - 1);
   };
 
   const finish = async () => {
     setCompleting(true);
     try {
       await authAPI.completeOnboarding();
+      try { sessionStorage.removeItem(OB_STORAGE_KEY); } catch { /* ignore */ }
       await refreshUser();
       navigate("/home");
     } catch (err) {
@@ -72,6 +88,16 @@ export default function Onboarding() {
           </div>
 
           <div className="ob-card-body">
+            {step > 1 && (
+              <button
+                type="button"
+                className="ob-back-btn"
+                onClick={prev}
+                aria-label="Go back to previous step"
+              >
+                <span className="ob-back-arrow">←</span> BACK
+              </button>
+            )}
             {step === 1 && <StepWelcome onContinue={next} />}
             {step === 2 && <StepTerms onContinue={next} />}
             {step === 3 && <StepPrivacy onContinue={next} />}
