@@ -99,6 +99,11 @@ vi.mock("../services/trustEngine", () => ({
   }),
 }));
 
+vi.mock("../services/immunityCheck", () => ({
+  isImmuneFromUAC: vi.fn().mockResolvedValue(false),
+}));
+
+
 import {
   recordAndAnalyze,
   analyzeBehavior,

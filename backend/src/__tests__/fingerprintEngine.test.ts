@@ -19,6 +19,11 @@ vi.mock("../utils/logger", () => ({
   },
 }));
 
+vi.mock("../services/immunityCheck", () => ({
+  isImmuneFromUAC: vi.fn().mockResolvedValue(false),
+}));
+
+
 import {
   recordFingerprint,
   checkMultiAccount,
@@ -126,15 +131,11 @@ describe("fingerprintEngine — checkMultiAccount", () => {
     mockQuery.mockResolvedValue({ rows: [] });
     await checkMultiAccount("uid-1", "10.0.0.1", "Chrome/100");
     await checkMultiAccount("uid-2", "10.0.0.1", "Chrome/100");
-    // pool.query(SQL, [hashes, firebaseUid])
-    //   params[0] = hashes ARRAY
-    //   params[1] = firebaseUid string
-    const params1 = mockQuery.mock.calls[0][1] as [string[], string];
-    const params2 = mockQuery.mock.calls[1][1] as [string[], string];
-    const hashesForCall1 = params1[0];
-    const hashesForCall2 = params2[0];
-    // Same IP + UA → same legacy hash
-    expect(hashesForCall1[0]).toBe(hashesForCall2[0]);
+    // pool.query(SQL, [hashes, firebaseUid]) — params[0] = hashes array
+    const hashes1 = (mockQuery.mock.calls[0][1] as [string[], string])[0];
+    const hashes2 = (mockQuery.mock.calls[1][1] as [string[], string])[0];
+    // Same IP + UA → identical legacy hash
+    expect(hashes1[0]).toBe(hashes2[0]);
   });
 
   it("generates different hash for different IP", async () => {
