@@ -1,18 +1,36 @@
 import { Router } from "express";
 import { pool } from "../config/database";
+import redis from "../config/redis";
 import { statsLimiter } from "../middleware/rateLimiter";
 import { asyncHandler } from "../utils/asyncHandler";
 
 const router = Router();
+const CACHE_KEY = "stats:live";
+const CACHE_TTL = 30; // seconds
 
 // ============================================================
 // GET /api/stats/live
-// Single query for all stats — no sequential round trips
+// Single query for all stats — cached 30s in Redis
 // ============================================================
 router.get(
   "/live",
   statsLimiter,
   asyncHandler(async (_req, res) => {
+
+    // ── Try cache first ──
+    try {
+      const cached = await redis.get(CACHE_KEY);
+      if (cached) {
+        return res.json({
+          ...JSON.parse(cached),
+          _cached: true,
+        });
+      }
+    } catch {
+      // Redis down — fall through to DB
+    }
+
+    // ── DB query ──
     const result = await pool.query(`
       SELECT
         (
@@ -36,14 +54,23 @@ router.get(
 
     const row = result.rows[0];
 
-    res.json({
+    const data = {
       onlineNow:   row.online_now,
       last3Hours:  row.last_3_hours,
       last24Hours: row.last_24_hours,
       attacks24h:  0,
       crimes24h:   row.crimes_24h,
       casino24h:   0,
-    });
+    };
+
+    // ── Cache result ──
+    try {
+      await redis.set(CACHE_KEY, JSON.stringify(data), "EX", CACHE_TTL);
+    } catch {
+      // ignore cache write failures
+    }
+
+    res.json(data);
   })
 );
 

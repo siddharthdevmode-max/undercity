@@ -1,42 +1,38 @@
 import { useAuth } from '../hooks/useAuth';
 import Shell from '../components/Shell';
 import { Link } from 'react-router-dom';
+import Icon from '../components/ui/Icon';
 import '../styles/Home.css';
 
 export default function Home() {
   const { user } = useAuth();
 
   const isInJail = user?.jailUntil
-    ? new Date(user.jailUntil) > new Date()
-    : false;
-
+    ? new Date(user.jailUntil) > new Date() : false;
   const isInFederalJail = user?.federalJailUntil
-    ? new Date(user.federalJailUntil) > new Date()
-    : false;
+    ? new Date(user.federalJailUntil) > new Date() : false;
 
   const lifePercent  = Math.round(((user?.life  ?? 0) / (user?.maxLife  ?? 100)) * 100);
   const nervePercent = Math.round(((user?.nerve ?? 0) / (user?.maxNerve ?? 30))  * 100);
 
-  const statusLabel = isInFederalJail
-    ? { text: '🏛️ FEDERAL LOCKUP', cls: 'status-federal' }
-    : isInJail
-    ? { text: '🔒 IN JAIL',         cls: 'status-jail'    }
-    : { text: '✅ FREE',             cls: 'status-free'    };
+  type StatusCls = 'status-federal' | 'status-jail' | 'status-free';
+  const statusLabel: { text: string; cls: StatusCls; icon: string } =
+    isInFederalJail ? { text: 'FEDERAL LOCKUP', cls: 'status-federal', icon: 'federal-jail' }
+    : isInJail      ? { text: 'IN JAIL',         cls: 'status-jail',    icon: 'jail'         }
+    :                 { text: 'FREE',             cls: 'status-free',    icon: 'check'        };
 
   const actions = [
-    { path: '/crimes',     icon: '🔫', label: 'CRIMES',     sub: 'Earn & level up',      live: true  },
-    { path: '/gym',        icon: '💪', label: 'GYM',        sub: 'Train your stats',      live: false },
-    { path: '/city',       icon: '🏙️', label: 'CITY',       sub: 'Explore & hustle',      live: false },
-    { path: '/job',        icon: '💼', label: 'JOB',        sub: 'Earn steady income',    live: false },
-    { path: '/properties', icon: '🏢', label: 'PROPERTIES', sub: 'Own the city',          live: false },
-    { path: '/missions',   icon: '📋', label: 'MISSIONS',   sub: 'Take contracts',        live: false },
+    { path: '/crimes',     icon: 'crime',      label: 'CRIMES',     sub: 'Earn & level up',    live: true  },
+    { path: '/gym',        icon: 'gym',        label: 'GYM',        sub: 'Train your stats',    live: false },
+    { path: '/city',       icon: 'city',       label: 'CITY',       sub: 'Explore & hustle',    live: false },
+    { path: '/job',        icon: 'job',        label: 'JOB',        sub: 'Earn steady income',  live: false },
+    { path: '/properties', icon: 'properties', label: 'PROPERTIES', sub: 'Own the city',        live: false },
+    { path: '/missions',   icon: 'missions',   label: 'MISSIONS',   sub: 'Take contracts',      live: false },
   ];
 
   return (
     <Shell>
-      {/* ══════════════════════════════════════════
-          WELCOME HERO PANEL
-      ══════════════════════════════════════════ */}
+      {/* ── Welcome Hero ── */}
       <div className="hq-hero">
         <div className="hq-hero-left">
           <span className="hq-eyebrow">CRIMINAL HQ</span>
@@ -45,68 +41,66 @@ export default function Home() {
             <span className="hq-name">{user?.username?.toUpperCase()}</span>
           </h1>
           <span className={`hq-status-chip ${statusLabel.cls}`}>
+            <Icon name={statusLabel.icon} size={13} />
             {statusLabel.text}
           </span>
         </div>
         <div className="hq-hero-right">
           <Link to="/crimes" className="hq-primary-cta">
-            🔫 COMMIT CRIME <span className="arrow">→</span>
+            <Icon name="crime" size={18} />
+            COMMIT CRIME <span className="arrow">→</span>
           </Link>
         </div>
       </div>
 
-      {/* ══════════════════════════════════════════
-          RESOURCE STRIP
-      ══════════════════════════════════════════ */}
+      {/* ── Resource Strip ── */}
       <div className="hq-resource-strip">
         <div className="resource-card">
-          <span className="resource-label">💰 MONEY</span>
+          <span className="resource-label">
+            <Icon name="money" size={13} className="icon-accent" /> MONEY
+          </span>
           <span className="resource-value">${(user?.money ?? 0).toLocaleString()}</span>
         </div>
         <div className="resource-card">
-          <span className="resource-label">⭐ POINTS</span>
+          <span className="resource-label">
+            <Icon name="points" size={13} className="icon-accent" /> POINTS
+          </span>
           <span className="resource-value">{(user?.points ?? 0).toLocaleString()}</span>
         </div>
         <div className="resource-card">
-          <span className="resource-label">🎖️ LEVEL</span>
+          <span className="resource-label">
+            <Icon name="level" size={13} className="icon-accent" /> LEVEL
+          </span>
           <span className="resource-value">{user?.level ?? 1}</span>
         </div>
         <div className="resource-card resource-bar-card">
           <div className="resource-bar-header">
-            <span className="resource-label">❤️ LIFE</span>
-            <span className="resource-fraction">
-              {user?.life ?? 0} / {user?.maxLife ?? 100}
+            <span className="resource-label">
+              <Icon name="life" size={13} className="icon-error" /> LIFE
             </span>
+            <span className="resource-fraction">{user?.life ?? 0} / {user?.maxLife ?? 100}</span>
           </div>
           <div className="resource-bar-track">
-            <div
-              className="resource-bar-fill fill-life"
-              style={{ width: `${lifePercent}%` }}
-            />
+            <div className="resource-bar-fill fill-life" style={{ width: `${lifePercent}%` }} />
           </div>
         </div>
         <div className="resource-card resource-bar-card">
           <div className="resource-bar-header">
-            <span className="resource-label">⚡ NERVE</span>
-            <span className="resource-fraction">
-              {user?.nerve ?? 0} / {user?.maxNerve ?? 30}
+            <span className="resource-label">
+              <Icon name="nerve" size={13} className="icon-accent" /> NERVE
             </span>
+            <span className="resource-fraction">{user?.nerve ?? 0} / {user?.maxNerve ?? 30}</span>
           </div>
           <div className="resource-bar-track">
-            <div
-              className="resource-bar-fill fill-nerve"
-              style={{ width: `${nervePercent}%` }}
-            />
+            <div className="resource-bar-fill fill-nerve" style={{ width: `${nervePercent}%` }} />
           </div>
         </div>
       </div>
 
-      {/* ══════════════════════════════════════════
-          MAIN GRID
-      ══════════════════════════════════════════ */}
+      {/* ── Main Grid ── */}
       <div className="hq-main-grid">
 
-        {/* ── Empire Status ── */}
+        {/* Empire Status */}
         <div className="hq-panel">
           <div className="hq-panel-header">
             <span className="hq-panel-accent" />
@@ -150,9 +144,10 @@ export default function Home() {
               </div>
             )}
           </div>
-
           <div className="hq-intel">
-            <span className="hq-intel-label">◆ STREET INTEL</span>
+            <span className="hq-intel-label">
+              <Icon name="news-crime" size={12} className="icon-accent" /> STREET INTEL
+            </span>
             <p className="hq-intel-body">
               {isInFederalJail
                 ? 'The feds have you locked down. Sit tight — your crew is waiting.'
@@ -163,7 +158,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* ── Operations Grid ── */}
+        {/* Operations */}
         <div className="hq-panel">
           <div className="hq-panel-header">
             <span className="hq-panel-accent" />
@@ -176,7 +171,9 @@ export default function Home() {
                 to={a.path}
                 className={`hq-action-card ${!a.live ? 'hq-action-locked' : ''}`}
               >
-                <span className="hq-action-icon">{a.icon}</span>
+                <span className="hq-action-icon">
+                  <Icon name={a.icon} size={28} />
+                </span>
                 <span className="hq-action-label">{a.label}</span>
                 <span className="hq-action-sub">{a.sub}</span>
                 {!a.live && <span className="hq-action-soon">SOON</span>}

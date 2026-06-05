@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { authAPI } from "../services/api";
 import { toast } from "../utils/toast";
 import Header from "../components/Header";
+import Icon from "../components/ui/Icon";
 import "../styles/Onboarding.css";
 
 const TOTAL_STEPS = 5;
@@ -128,12 +129,12 @@ function StepWelcome({ onContinue }: { onContinue: () => void }) {
         — and the streets never forget.
       </p>
       <div className="ob-welcome-features">
-        <div className="ob-feature-item"><span className="ob-feature-icon">🔫</span> Commit crimes for cash</div>
-        <div className="ob-feature-item"><span className="ob-feature-icon">💪</span> Train at the gym</div>
-        <div className="ob-feature-item"><span className="ob-feature-icon">⚔️</span> Join a gang</div>
-        <div className="ob-feature-item"><span className="ob-feature-icon">🏢</span> Build your empire</div>
-        <div className="ob-feature-item"><span className="ob-feature-icon">🎰</span> Gamble at the casino</div>
-        <div className="ob-feature-item"><span className="ob-feature-icon">💥</span> Wage gang wars</div>
+        <div className="ob-feature-item"><span className="ob-feature-icon"><Icon name="crime"     size={20} /></span> Commit crimes for cash</div>
+        <div className="ob-feature-item"><span className="ob-feature-icon"><Icon name="gym"       size={20} /></span> Train at the gym</div>
+        <div className="ob-feature-item"><span className="ob-feature-icon"><Icon name="gang"      size={20} /></span> Join a gang</div>
+        <div className="ob-feature-item"><span className="ob-feature-icon"><Icon name="properties" size={20} /></span> Build your empire</div>
+        <div className="ob-feature-item"><span className="ob-feature-icon"><Icon name="casino"    size={20} /></span> Gamble at the casino</div>
+        <div className="ob-feature-item"><span className="ob-feature-icon"><Icon name="gang-wars" size={20} /></span> Wage gang wars</div>
       </div>
       <button className="ob-continue-btn" onClick={onContinue}>
         CONTINUE <span className="arrow">→</span>

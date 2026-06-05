@@ -41,22 +41,21 @@ const transports: winston.transport[] = [
   new winston.transports.Console(),
 ];
 
-// Production: also write to rotating daily log files
 if (config.isProduction) {
   transports.push(
     new DailyRotateFile({
-      filename:    "logs/error-%DATE%.log",
-      datePattern: "YYYY-MM-DD",
-      level:       "error",
-      maxSize:     "20m",
-      maxFiles:    "14d",         // Keep 14 days of error logs
+      filename:      "logs/error-%DATE%.log",
+      datePattern:   "YYYY-MM-DD",
+      level:         "error",
+      maxSize:       "20m",
+      maxFiles:      "14d",
       zippedArchive: true,
     }),
     new DailyRotateFile({
-      filename:    "logs/combined-%DATE%.log",
-      datePattern: "YYYY-MM-DD",
-      maxSize:     "20m",
-      maxFiles:    "7d",          // Keep 7 days of combined logs
+      filename:      "logs/combined-%DATE%.log",
+      datePattern:   "YYYY-MM-DD",
+      maxSize:       "20m",
+      maxFiles:      "7d",
       zippedArchive: true,
     })
   );
@@ -65,25 +64,57 @@ if (config.isProduction) {
 // ─── Logger instance ──────────────────────────────────────
 
 export const logger = winston.createLogger({
-  level:      config.logLevel,
-  format:     config.isProduction ? prodFormat : devFormatFull,
+  level:       config.logLevel,
+  format:      config.isProduction ? prodFormat : devFormatFull,
   transports,
-  silent:     false,
-  // Don't exit on handled exceptions
+  silent:      false,
   exitOnError: false,
 });
 
-// Test mode — suppress everything below error
 if (config.isTest) {
   logger.level = "error";
 }
 
 // ============================================================
+// ERROR RATE TRACKER
+// Counts errors per minute — triggers alert if threshold hit
+// Only active in production
+// ============================================================
+
+let errorCount       = 0;
+let errorWindowStart = Date.now();
+
+const ERROR_RATE_THRESHOLD = 50;   // errors per window
+const ERROR_RATE_WINDOW_MS = 60_000; // 1 minute
+
+function trackErrorRate(): void {
+  if (!config.isProduction) return;
+
+  errorCount++;
+  const now = Date.now();
+
+  if (now - errorWindowStart > ERROR_RATE_WINDOW_MS) {
+    if (errorCount > ERROR_RATE_THRESHOLD) {
+      // Lazy import to avoid circular dependency
+      import("./alerts").then(({ Alerts }) => {
+        Alerts.highErrorRate(errorCount, 1);
+      }).catch(() => {});
+    }
+    errorCount       = 0;
+    errorWindowStart = now;
+  }
+}
+
+// ─── Override error() to track rate ──────────────────────
+const originalError = logger.error.bind(logger);
+logger.error = ((...args: Parameters<typeof originalError>) => {
+  trackErrorRate();
+  return originalError(...args);
+}) as typeof logger.error;
+
+// ============================================================
 // REQUEST-SCOPED LOGGER
 // Attaches requestId to every log line automatically
-// Usage:
-//   const log = getRequestLogger(req);
-//   log.info("Crime attempted", { crime: "theft" });
 // ============================================================
 
 export function getRequestLogger(

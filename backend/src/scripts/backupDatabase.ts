@@ -1,65 +1,132 @@
-/// <reference types="node" />
-import "dotenv/config";
 import { exec } from "child_process";
 import { promisify } from "util";
-import fs from "fs";
 import path from "path";
+import fs from "fs";
+import { logger } from "../utils/logger";
+import { Alerts } from "../utils/alerts";
 
 const execAsync = promisify(exec);
 
 // ============================================================
 // DATABASE BACKUP SCRIPT
-// Creates timestamped pg_dump backups
-// Keeps last 7 days, deletes older
-// Run via cron: 0 3 * * * (3am daily)
+// 1. pg_dump to local file
+// 2. Upload to R2/S3 if configured
+// 3. Clean up old local backups (keep 7)
+// 4. Alert on success/failure
 // ============================================================
 
-async function backup() {
-  const BACKUP_DIR = path.resolve(__dirname, "../../backups");
-  const DATABASE_URL = process.env.DATABASE_URL;
+const BACKUP_DIR      = path.join(process.cwd(), "backups");
+const KEEP_LOCAL      = 7;
+const R2_BUCKET       = process.env.R2_BUCKET_NAME;
+const R2_ENDPOINT     = process.env.R2_ENDPOINT;
+const R2_ACCESS_KEY   = process.env.R2_ACCESS_KEY_ID;
+const R2_SECRET_KEY   = process.env.R2_SECRET_ACCESS_KEY;
 
-  if (!DATABASE_URL) {
-    console.error("❌ DATABASE_URL not set");
-    process.exit(1);
+async function uploadToR2(localFile: string, filename: string): Promise<boolean> {
+  if (!R2_BUCKET || !R2_ENDPOINT || !R2_ACCESS_KEY || !R2_SECRET_KEY) {
+    logger.warn("⚠️  R2 credentials not configured — skipping remote backup");
+    return false;
   }
 
-  // Ensure backup directory exists
+  try {
+    // Using AWS CLI with R2 endpoint
+    const cmd = [
+      `AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY}"`,
+      `AWS_SECRET_ACCESS_KEY="${R2_SECRET_KEY}"`,
+      `aws s3 cp "${localFile}"`,
+      `s3://${R2_BUCKET}/backups/${filename}`,
+      `--endpoint-url "${R2_ENDPOINT}"`,
+      `--storage-class STANDARD`,
+    ].join(" ");
+
+    await execAsync(cmd);
+    logger.info("☁️  Backup uploaded to R2", { filename });
+    return true;
+  } catch (error: unknown) {
+    logger.error("❌ R2 upload failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
+async function cleanOldBackups(): Promise<void> {
+  if (!fs.existsSync(BACKUP_DIR)) return;
+
+  const files = fs.readdirSync(BACKUP_DIR)
+    .filter((f) => f.endsWith(".sql"))
+    .map((f) => ({
+      name: f,
+      path: path.join(BACKUP_DIR, f),
+      time: fs.statSync(path.join(BACKUP_DIR, f)).mtime.getTime(),
+    }))
+    .sort((a, b) => b.time - a.time);
+
+  const toDelete = files.slice(KEEP_LOCAL);
+  for (const file of toDelete) {
+    fs.unlinkSync(file.path);
+    logger.info("🗑️  Old backup deleted", { file: file.name });
+  }
+}
+
+async function backup(): Promise<void> {
+  const startTime = Date.now();
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const filename  = `undercity-${timestamp}.sql`;
+  const localPath = path.join(BACKUP_DIR, filename);
+
   if (!fs.existsSync(BACKUP_DIR)) {
     fs.mkdirSync(BACKUP_DIR, { recursive: true });
   }
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupFile = path.join(BACKUP_DIR, `undercity-${timestamp}.sql`);
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    throw new Error("DATABASE_URL environment variable is not set");
+  }
 
-  console.log(`📦 Starting backup → ${backupFile}`);
+  logger.info("💾 Starting database backup...", { filename });
 
   try {
-    await execAsync(`pg_dump "${DATABASE_URL}" > "${backupFile}"`);
-    const stats = fs.statSync(backupFile);
-    const sizeMb = (stats.size / 1024 / 1024).toFixed(2);
-    console.log(`✅ Backup complete: ${sizeMb} MB`);
+    // Run pg_dump
+    await execAsync(`pg_dump "${dbUrl}" > "${localPath}"`);
 
-    // Cleanup old backups (keep last 7 days)
-    const files = fs.readdirSync(BACKUP_DIR)
-      .filter((f) => f.startsWith("undercity-") && f.endsWith(".sql"))
-      .map((f) => ({
-        name: f,
-        path: path.join(BACKUP_DIR, f),
-        time: fs.statSync(path.join(BACKUP_DIR, f)).mtime.getTime(),
-      }))
-      .sort((a, b) => b.time - a.time);
+    const stats    = fs.statSync(localPath);
+    const sizeMb   = Math.round(stats.size / 1024 / 1024 * 100) / 100;
+    const duration = Date.now() - startTime;
 
-    const toDelete = files.slice(7);
-    for (const f of toDelete) {
-      fs.unlinkSync(f.path);
-      console.log(`🗑️  Deleted old backup: ${f.name}`);
+    logger.info("✅ Local backup complete", {
+      filename,
+      sizeMb,
+      durationMs: duration,
+    });
+
+    // Upload to R2
+    const uploaded = await uploadToR2(localPath, filename);
+
+    // Clean old local files
+    await cleanOldBackups();
+
+    // Alert success
+    Alerts.serverStarted(0, "backup-complete");
+    logger.info("✅ Backup pipeline complete", {
+      filename,
+      sizeMb,
+      uploadedToR2: uploaded,
+      durationMs:   Date.now() - startTime,
+    });
+
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logger.error("❌ Backup failed", { error: msg });
+    Alerts.honeypotTriggered("BACKUP_FAILED", filename, msg);
+
+    // Clean up failed backup file
+    if (fs.existsSync(localPath)) {
+      fs.unlinkSync(localPath);
     }
 
-    console.log(`✅ Total backups retained: ${Math.min(files.length, 7)}`);
-  } catch (error: any) {
-    console.error(`❌ Backup failed: ${error.message}`);
     process.exit(1);
   }
 }
 
-backup();
+void backup();

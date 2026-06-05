@@ -1,0 +1,225 @@
+/* ============================================================
+   AGE GATE
+   ============================================================ */
+
+.ag-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  text-align: center;
+  gap: var(--space-lg);
+}
+
+/* ── Brand ── */
+.ag-brand-name {
+  font-size: var(--text-3xl);
+  font-weight: 900;
+  letter-spacing: 4px;
+  color: var(--accent);
+}
+
+.ag-brand-sub {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  letter-spacing: 2px;
+  margin-top: 4px;
+}
+
+/* ── Card ── */
+.ag-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-2xl);
+  max-width: 420px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  text-align: left;
+}
+
+.ag-card-icon {
+  font-size: 2.5rem;
+  text-align: center;
+}
+
+.ag-card-title {
+  font-size: var(--text-xl);
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 0;
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+.ag-card-body {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+  text-align: center;
+}
+
+.ag-card-body strong {
+  color: var(--text-primary);
+}
+
+/* ── Warnings ── */
+.ag-warnings {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  font-size: var(--text-sm);
+}
+
+.ag-warnings-label {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-sm);
+}
+
+.ag-warning-item {
+  color: var(--text-secondary);
+  padding: 2px 0;
+  font-size: var(--text-xs);
+}
+
+/* ── Checkbox ── */
+.ag-check-label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.ag-checkbox {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  cursor: pointer;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
+.ag-check-label a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.ag-check-label a:hover {
+  text-decoration: underline;
+}
+
+.ag-check-label strong {
+  color: var(--text-primary);
+}
+
+/* ── Error ── */
+.ag-error {
+  font-size: var(--text-sm);
+  color: var(--error);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(231,76,60,0.08);
+  border-left: 3px solid var(--error);
+  border-radius: var(--radius-sm);
+  margin: 0;
+}
+
+/* ── Actions ── */
+.ag-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.ag-btn {
+  padding: 0.8rem var(--space-md);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 44px;
+  transition: all var(--transition-fast);
+  border: none;
+}
+
+.ag-btn-primary {
+  flex: 2;
+  background: var(--accent);
+  color: #fff;
+}
+
+.ag-btn-primary:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.ag-btn-ghost {
+  flex: 1;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border) !important;
+}
+
+.ag-btn-ghost:hover {
+  border-color: var(--text-secondary) !important;
+  color: var(--text-primary);
+}
+
+/* ── Declined state ── */
+.ag-declined {
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  text-align: center;
+}
+
+.ag-declined-icon  { font-size: 3rem; }
+
+.ag-declined-title {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.ag-declined-body {
+  color: var(--text-secondary);
+  line-height: 1.6;
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+.ag-declined-contact {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.ag-declined-contact a {
+  color: var(--accent);
+}
+
+/* ── Footnote ── */
+.ag-footnote {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+@media (max-width: 480px) {
+  .ag-card { padding: var(--space-lg); }
+  .ag-card-title { font-size: var(--text-lg); }
+}

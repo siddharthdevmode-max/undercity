@@ -403,3 +403,24 @@
   font-weight: 900;
   opacity: 0.6;
 }
+
+/* ── Closing quote mark ── */
+.ag-gratitude::after {
+  content: '"';
+  position: absolute;
+  bottom: -20px;
+  right: 12px;
+  font-size: 48px;
+  color: var(--accent);
+  font-family: Georgia, serif;
+  line-height: 1;
+  font-weight: 900;
+  opacity: 0.6;
+}
+
+.ag-gratitude {
+  /* Needs relative positioning for ::after */
+  position: relative;
+  padding-bottom: 8px;
+  margin-bottom: 32px;
+}

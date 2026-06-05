@@ -36,8 +36,24 @@ export const config = {
   // ─── Cloudflare Turnstile ───
   turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY || "",
 
+  // ─── Sentry ───
+  sentryDsn:     process.env.SENTRY_DSN     || undefined,
+  sentryRelease: process.env.SENTRY_RELEASE || "undercity-backend@dev",
+
+  // ─── Alerts ───
+  discordAlertWebhook: process.env.DISCORD_ALERT_WEBHOOK || undefined,
+  slackAlertWebhook:   process.env.SLACK_ALERT_WEBHOOK   || undefined,
+
+  // ─── Security ───
+  blockedCountries: (process.env.BLOCKED_COUNTRIES || "")
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean),
+
+  cspReportUri: process.env.CSP_REPORT_URI || undefined,
+
   // ─── Derived helpers ───
   get isProduction() { return this.nodeEnv === "production"; },
   get isDevelopment() { return this.nodeEnv === "development"; },
-  get isTest()       { return this.nodeEnv === "test"; },
+  get isTest()        { return this.nodeEnv === "test"; },
 } as const;

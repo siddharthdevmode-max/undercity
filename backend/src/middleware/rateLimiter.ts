@@ -1,13 +1,11 @@
 import rateLimit from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
-import type { Request } from "express";
+import type { Request, Response, NextFunction } from "express";
 import redis from "../config/redis";
 import { logger } from "../utils/logger";
 
 // ============================================================
 // REDIS-BACKED RATE LIMITER STORE
-// Persists across restarts, works across multiple instances
-// Falls back gracefully if Redis is unavailable
 // ============================================================
 
 function makeRedisStore(prefix: string) {
@@ -37,6 +35,116 @@ const keyByIp = (req: Request): string =>
 
 const skipHealthCheck = (req: Request): boolean =>
   req.path.startsWith("/api/health");
+
+// ============================================================
+// GLOBAL FALLBACK RATE LIMITER
+// Catches anything not covered by specific limiters
+// 200 req/min per IP — generous but stops true abuse
+// ============================================================
+export const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
+  message: { message: "Too many requests. Please slow down." },
+  keyGenerator: keyByIp,
+  store: makeRedisStore("global"),
+  skip: skipHealthCheck,
+  handler: (req: Request, res: Response) => {
+    logger.warn("🚦 Global rate limit hit", {
+      ip:   req.ip,
+      path: req.path,
+    });
+    res.status(429).json({ message: "Too many requests. Please slow down." });
+  },
+});
+
+// ============================================================
+// IP BLACKLIST MIDDLEWARE
+// Blocks IPs stored in Redis blacklist
+// To blacklist an IP: redis.set(`blacklist:ip:1.2.3.4`, "1")
+// To unblacklist:     redis.del(`blacklist:ip:1.2.3.4`)
+// ============================================================
+export const ipBlacklist = async (
+  req:  Request,
+  res:  Response,
+  next: NextFunction
+): Promise<void> => {
+  const ip = req.ip ?? "";
+  if (!ip) { next(); return; }
+
+  const cleanIp = ip.replace(/^::ffff:/, "");
+
+  try {
+    const blocked = await redis.get(`blacklist:ip:${cleanIp}`);
+    if (blocked) {
+      logger.warn("🚫 Blacklisted IP blocked", {
+        ip:   cleanIp,
+        path: req.path,
+      });
+      res.status(403).json({ message: "Access denied." });
+      return;
+    }
+    next();
+  } catch {
+    // Redis down — fail open
+    next();
+  }
+};
+
+// ============================================================
+// BRUTE FORCE PROTECTION
+// Tracks failed auth attempts per IP
+// After 10 failures in 15min → lockout for 1 hour
+// ============================================================
+export const bruteForceProtection = async (
+  req:  Request,
+  res:  Response,
+  next: NextFunction
+): Promise<void> => {
+  const ip      = (req.ip ?? "unknown").replace(/^::ffff:/, "");
+  const key     = `brute:${ip}`;
+  const WINDOW  = 15 * 60;   // 15 minutes tracking window
+  const LOCKOUT = 60 * 60;   // 1 hour lockout
+  const MAX     = 10;        // max failures before lockout
+
+  try {
+    const lockoutKey = `brute:lock:${ip}`;
+    const locked     = await redis.get(lockoutKey);
+
+    if (locked) {
+      logger.warn("🔒 Brute force lockout active", { ip });
+      res.status(429).json({
+        message: "Too many failed attempts. Try again later.",
+      });
+      return;
+    }
+
+    // Intercept response to track failures/successes
+    const originalJson = res.json.bind(res);
+    res.json = function (body: unknown) {
+      if (res.statusCode === 401 || res.statusCode === 403) {
+        redis.incr(key).then((count) => {
+          redis.expire(key, WINDOW);
+          if (count >= MAX) {
+            redis.set(lockoutKey, "1", "EX", LOCKOUT);
+            logger.warn("🔒 Brute force lockout triggered", { ip, count });
+          }
+        }).catch(() => {});
+      } else if (res.statusCode === 200 || res.statusCode === 201) {
+        // Success — reset failure counter
+        redis.del(key).catch(() => {});
+      }
+      return originalJson(body);
+    };
+
+    next();
+  } catch {
+    // Redis down — fail open
+    next();
+  }
+};
 
 // ============================================================
 // CRIME RATE LIMITER — 30/min per UID

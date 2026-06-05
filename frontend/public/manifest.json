@@ -1,0 +1,52 @@
+{
+  "name": "Undercity",
+  "short_name": "Undercity",
+  "description": "Text-based crime MMO. Build your empire.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0a0a0f",
+  "theme_color": "#00ff88",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/hero.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Undercity Home"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Commit Crime",
+      "url": "/crimes",
+      "description": "Go straight to crimes"
+    },
+    {
+      "name": "Home Base",
+      "url": "/home",
+      "description": "Your criminal HQ"
+    }
+  ]
+}

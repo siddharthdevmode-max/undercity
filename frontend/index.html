@@ -1,31 +1,68 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/logo.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
 
-    <!-- Primary Meta -->
+    <!-- ── Primary Meta ── -->
     <title>Undercity — Text-Based Crime MMO</title>
-    <meta name="description" content="Rise. Rule. Reign. A text-based crime MMO where every choice matters. Train, hustle, steal, fight. Build your empire in a city that never sleeps." />
-    <meta name="keywords" content="undercity, crime mmo, text-based game, browser game, online rpg, torn, mafia game" />
-    <meta name="author" content="Challenger_69" />
+    <meta name="description" content="Build your criminal empire in Undercity. Commit crimes, train stats, join gangs, and dominate the underground in this browser-based crime MMO." />
+    <meta name="keywords" content="crime mmo, browser game, text game, torn city alternative, criminal empire, gang game" />
+    <meta name="author" content="Undercity" />
+    <meta name="robots" content="index, follow" />
 
-    <!-- Open Graph (for Discord, Twitter, Facebook shares) -->
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content="Undercity — Text-Based Crime MMO" />
-    <meta property="og:description" content="Rise. Rule. Reign. Build your criminal empire in a city that never sleeps." />
-    <meta property="og:image" content="https://undercity.pages.dev/hero.png" />
-    <meta property="og:url" content="https://undercity.pages.dev" />
+    <!-- ── PWA ── -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#00ff88" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Undercity" />
 
-    <!-- Twitter Card -->
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Undercity — Text-Based Crime MMO" />
-    <meta name="twitter:description" content="Rise. Rule. Reign. Build your criminal empire." />
-    <meta name="twitter:image" content="https://undercity.pages.dev/hero.png" />
+    <!-- ── Open Graph ── -->
+    <meta property="og:type"        content="website" />
+    <meta property="og:url"         content="https://undercity.app/" />
+    <meta property="og:title"       content="Undercity — Text-Based Crime MMO" />
+    <meta property="og:description" content="Build your criminal empire. Commit crimes, train stats, join gangs, and dominate the underground." />
+    <meta property="og:image"       content="https://undercity.app/hero.png" />
+    <meta property="og:image:width"  content="1280" />
+    <meta property="og:image:height" content="720" />
+    <meta property="og:site_name"   content="Undercity" />
+    <meta property="og:locale"      content="en_US" />
 
-    <!-- Theme color for mobile browser bar -->
-    <meta name="theme-color" content="#0a0a0a" />
+    <!-- ── Twitter Card ── -->
+    <meta name="twitter:card"        content="summary_large_image" />
+    <meta name="twitter:title"       content="Undercity — Text-Based Crime MMO" />
+    <meta name="twitter:description" content="Build your criminal empire. Commit crimes, train stats, join gangs." />
+    <meta name="twitter:image"       content="https://undercity.app/hero.png" />
+
+    <!-- ── Structured Data ── -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "VideoGame",
+      "name": "Undercity",
+      "description": "Text-based crime MMO browser game",
+      "url": "https://undercity.app",
+      "genre": ["Role-playing game", "Strategy"],
+      "gamePlatform": "Web Browser",
+      "applicationCategory": "Game",
+      "operatingSystem": "Any",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    }
+    </script>
+
+    <!-- ── Icons ── -->
+    <link rel="icon"             href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+    <!-- ── Preconnect ── -->
+    <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin />
   </head>
   <body>
     <div id="root"></div>

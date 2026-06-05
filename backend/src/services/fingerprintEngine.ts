@@ -2,38 +2,39 @@ import crypto from "crypto";
 import { pool } from "../config/database";
 import { logger } from "../utils/logger";
 import { isImmuneFromUAC } from "./immunityCheck";
+import { checkVpnProxy } from "./vpnDetection";
 
 // ============================================================
-// UAC 2.0 — UPGRADED FINGERPRINT ENGINE
-// Now uses: IP + UserAgent + FingerprintJS visitorId
+// UAC 2.0 — FINGERPRINT ENGINE
+// Pillar 1: Device + Network Intelligence
+// - Full SHA256 hashes (no truncation)
+// - Dual hash: legacy (IP+UA) + enhanced (IP+UA+visitorId)
+// - Multi-account detection
+// - VPN/Proxy/Tor detection (fire-and-forget)
 // ============================================================
+
+function makeHash(input: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(input)
+    .digest("hex"); // full 64-char hash — no truncation
+}
 
 export async function recordFingerprint(
   firebaseUid: string,
-  ipAddress: string | undefined,
-  userAgent: string | undefined,
-  visitorId?: string | undefined
+  ipAddress:   string | undefined,
+  userAgent:   string | undefined,
+  visitorId?:  string | undefined
 ): Promise<void> {
   try {
-    // 🛡️ Devs/admins: don't record fingerprints at all
     if (await isImmuneFromUAC(firebaseUid)) return;
-
     if (!ipAddress || !userAgent) return;
 
     const cleanIp = ipAddress.replace(/^::ffff:/, "");
 
-    const legacyHash = crypto
-      .createHash("sha256")
-      .update(`${cleanIp}|${userAgent}`)
-      .digest("hex")
-      .substring(0, 32);
-
+    const legacyHash   = makeHash(`${cleanIp}|${userAgent}`);
     const enhancedHash = visitorId
-      ? crypto
-          .createHash("sha256")
-          .update(`${cleanIp}|${userAgent}|${visitorId}`)
-          .digest("hex")
-          .substring(0, 32)
+      ? makeHash(`${cleanIp}|${userAgent}|${visitorId}`)
       : null;
 
     const hashes = [legacyHash];
@@ -53,6 +54,14 @@ export async function recordFingerprint(
         [firebaseUid, hash, cleanIp, userAgent]
       );
     }
+
+    // 🔒 VPN/Proxy/Tor check — fire and forget
+    checkVpnProxy(firebaseUid, cleanIp, userAgent).catch((err) => {
+      logger.debug("VPN check fire-and-forget error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
   } catch (error: unknown) {
     logger.error("Fingerprint record error", {
       error: error instanceof Error ? error.message : String(error),
@@ -62,12 +71,11 @@ export async function recordFingerprint(
 
 export async function checkMultiAccount(
   firebaseUid: string,
-  ipAddress: string | undefined,
-  userAgent: string | undefined,
-  visitorId?: string | undefined
+  ipAddress:   string | undefined,
+  userAgent:   string | undefined,
+  visitorId?:  string | undefined
 ): Promise<{ otherAccountsCount: number; otherUids: string[] }> {
   try {
-    // 🛡️ Devs/admins: always report 0 matches
     if (await isImmuneFromUAC(firebaseUid)) {
       return { otherAccountsCount: 0, otherUids: [] };
     }
@@ -77,25 +85,10 @@ export async function checkMultiAccount(
     }
 
     const cleanIp = ipAddress.replace(/^::ffff:/, "");
-
-    const hashes: string[] = [];
-
-    hashes.push(
-      crypto
-        .createHash("sha256")
-        .update(`${cleanIp}|${userAgent}`)
-        .digest("hex")
-        .substring(0, 32)
-    );
+    const hashes: string[] = [makeHash(`${cleanIp}|${userAgent}`)];
 
     if (visitorId) {
-      hashes.push(
-        crypto
-          .createHash("sha256")
-          .update(`${cleanIp}|${userAgent}|${visitorId}`)
-          .digest("hex")
-          .substring(0, 32)
-      );
+      hashes.push(makeHash(`${cleanIp}|${userAgent}|${visitorId}`));
     }
 
     const result = await pool.query(

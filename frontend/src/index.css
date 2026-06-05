@@ -1,5 +1,6 @@
 /* Import design system tokens first */
 @import './styles/design-system.css';
+@import './styles/Icon.css';
 
 * {
   box-sizing: border-box;

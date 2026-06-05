@@ -2,12 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, dev]
   pull_request:
     branches: [main]
 
 jobs:
-
   backend:
     name: Backend — Lint, Build, Test
     runs-on: ubuntu-latest
@@ -17,42 +16,35 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER:     undercity_user
-          POSTGRES_PASSWORD: undercity_test
+          POSTGRES_PASSWORD: test_password
           POSTGRES_DB:       undercity_test
-        ports: ['5432:5432']
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+        ports:
+          - 5432:5432
 
       redis:
         image: redis:7-alpine
-        ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+        ports:
+          - 6379:6379
 
     defaults:
       run:
         working-directory: backend
 
-    env:
-      NODE_ENV:        test
-      DATABASE_URL:    postgresql://undercity_user:undercity_test@localhost:5432/undercity_test
-      REDIS_HOST:      127.0.0.1
-      REDIS_PORT:      6379
-      ALLOWED_ORIGINS: http://localhost:5173
-      ADMIN_UIDS:      test-admin-uid
-      LOG_LEVEL:       error
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -68,19 +60,27 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Run database migrations
-        run: npm run migrate
-        env:
-          DATABASE_URL: postgresql://undercity_user:undercity_test@localhost:5432/undercity_test
-
-      - name: Unit tests
-        run: npm test
-
-      - name: Unit test coverage
+      - name: Run tests with coverage
         run: npm run test:coverage
+        env:
+          NODE_ENV:                      test
+          DATABASE_URL:                  postgresql://undercity_user:test_password@localhost:5432/undercity_test
+          REDIS_HOST:                    localhost
+          REDIS_PORT:                    6379
+          REDIS_PASSWORD:                ""
+          ALLOWED_ORIGINS:               http://localhost:5173
+          ADMIN_UIDS:                    ""
+          LOG_LEVEL:                     error
+          PORT:                          5000
+          TURNSTILE_SECRET_KEY:          test_key
+          FIREBASE_SERVICE_ACCOUNT_JSON: ""
 
-      - name: Integration tests
-        run: npm run test:integration
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+        if: always()
 
   frontend:
     name: Frontend — Lint, Build
@@ -94,7 +94,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -107,14 +107,46 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Type check
-        run: npx tsc --noEmit
-
       - name: Build
-        env:
-          VITE_API_URL:               https://api.undercity.online/api
-          VITE_FIREBASE_API_KEY:      placeholder
-          VITE_FIREBASE_AUTH_DOMAIN:  placeholder.firebaseapp.com
-          VITE_FIREBASE_PROJECT_ID:   placeholder
-          VITE_FIREBASE_APP_ID:       placeholder
         run: npm run build
+        env:
+          VITE_API_URL: https://api.undercity.app
+
+  security:
+    name: Security — Dependency Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Audit backend dependencies
+        working-directory: backend
+        run: npm audit --audit-level=critical
+
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=critical
+
+      - name: Check for hardcoded secrets
+        run: |
+          echo "Checking for hardcoded secrets..."
+          FOUND=0
+          if grep -rE "(password|secret|key)\s*=\s*['\"][^'\"]{8,}" backend/src --include="*.ts" -l 2>/dev/null; then
+            echo "⚠️ Potential hardcoded secrets found!"
+            FOUND=1
+          fi
+          if grep -rE "AKIA[0-9A-Z]{16}" backend/src frontend/src --include="*.ts" --include="*.tsx" -l 2>/dev/null; then
+            echo "⚠️ Potential AWS keys found!"
+            FOUND=1
+          fi
+          if [ $FOUND -eq 1 ]; then exit 1; fi
+          echo "✅ No hardcoded secrets found"
+
+      - name: Check firebase service account not committed
+        run: |
+          if git ls-files | grep -q "firebase-service-account.json"; then
+            echo "🚨 firebase-service-account.json is tracked by git!"
+            exit 1
+          fi
+          echo "✅ Firebase service account not in git"

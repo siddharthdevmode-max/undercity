@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import Shell from "../components/Shell";
+import Icon from "../components/ui/Icon";
 import { crimesAPI } from "../services/crimes";
 import type { Crime, UserStats, CrimeAttemptResponse } from "../services/crimes";
 import { toast } from "../utils/toast";
@@ -17,11 +18,7 @@ const TIER_COLORS: Record<number, { glow: string; accent: string }> = {
 };
 
 const TIER_LABELS: Record<number, string> = {
-  1: "STREET",
-  2: "HUSTLE",
-  3: "RACKET",
-  4: "CARTEL",
-  5: "SYNDICATE",
+  1: "STREET", 2: "HUSTLE", 3: "RACKET", 4: "CARTEL", 5: "SYNDICATE",
 };
 
 function formatTime(seconds: number): string {
@@ -38,13 +35,15 @@ function formatMoney(amount: number): string {
   return `$${amount.toLocaleString()}`;
 }
 
-function getOutcomeStyle(outcome: string) {
+type OutcomeStyle = { color: string; icon: string; label: string };
+
+function getOutcomeStyle(outcome: string): OutcomeStyle {
   switch (outcome) {
-    case "special":   return { color: "#f39c12", icon: "🌟", label: "SPECIAL DISCOVERY" };
-    case "success":   return { color: "#2ecc71", icon: "✅", label: "SUCCESS" };
-    case "fail":      return { color: "#95a5a6", icon: "❌", label: "FAILED" };
-    case "crit_fail": return { color: "#e74c3c", icon: "💀", label: "CRITICAL FAILURE" };
-    default:          return { color: "#95a5a6", icon: "❓", label: "UNKNOWN" };
+    case "special":   return { color: "#f39c12", icon: "special",   label: "SPECIAL DISCOVERY"  };
+    case "success":   return { color: "#2ecc71", icon: "success",   label: "SUCCESS"            };
+    case "fail":      return { color: "#95a5a6", icon: "fail",      label: "FAILED"             };
+    case "crit_fail": return { color: "#e74c3c", icon: "crit-fail", label: "CRITICAL FAILURE"   };
+    default:          return { color: "#95a5a6", icon: "warning",   label: "UNKNOWN"            };
   }
 }
 
@@ -60,8 +59,8 @@ function getCrimeLevelLabel(level: number): string {
 
 async function fetchCrimes(
   onSuccess: (crimes: Crime[], user: UserStats) => void,
-  onError: (msg: string) => void,
-  onDone: () => void
+  onError:   (msg: string) => void,
+  onDone:    () => void
 ) {
   try {
     const data = await crimesAPI.getCrimes();
@@ -106,13 +105,13 @@ export default function Crimes() {
 
   useEffect(() => {
     if (!user) return;
-    const updateTimers = () => {
+    const update = () => {
       setJailTimer(getJailRemaining(user.jailUntil));
       setFederalJailTimer(getJailRemaining(user.federalJailUntil));
     };
-    updateTimers();
-    const interval = setInterval(updateTimers, 1000);
-    return () => clearInterval(interval);
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
   }, [user]);
 
   const handleAttempt = async (crimeKey: string) => {
@@ -121,13 +120,11 @@ export default function Crimes() {
     try {
       const result = await crimesAPI.attemptCrime(crimeKey);
       setOutcome(result);
-
       if (result.outcome === "special") {
-        toast.success(`🌟 ${result.special?.title ?? "Special discovered!"}`, 5000);
+        toast.success(`${result.special?.title ?? "Special discovered!"}`, 5000);
       } else if (result.outcome === "crit_fail") {
-        toast.error(`💀 ${result.message}`, 5000);
+        toast.error(result.message, 5000);
       }
-
       setUser((prev) => {
         if (!prev) return prev;
         return {
@@ -148,7 +145,6 @@ export default function Crimes() {
             new Date(result.user.federalJailUntil).getTime() > Date.now(),
         };
       });
-
       userEvents.emit({
         money:    result.user.money,
         nerve:    result.user.nerve,
@@ -157,7 +153,6 @@ export default function Crimes() {
         maxLife:  result.user.maxLife,
         points:   result.user.points,
       });
-
       setCrimes((prev) =>
         prev.map((c) =>
           c.key === crimeKey
@@ -179,7 +174,9 @@ export default function Crimes() {
       <Shell>
         <div className="crimes-container">
           <div className="crimes-header">
-            <h1 className="crimes-title">🔫 Crimes</h1>
+            <h1 className="crimes-title">
+              <Icon name="crime" size={28} className="icon-accent" /> Crimes
+            </h1>
           </div>
           <CrimesGridSkeleton count={10} />
         </div>
@@ -202,13 +199,10 @@ export default function Crimes() {
   const sortedCrimes = [...crimes].sort((a, b) =>
     a.tier !== b.tier ? a.tier - b.tier : a.id - b.id
   );
-
   const tiers = [...new Set(sortedCrimes.filter(c => c.unlocked).map(c => c.tier))].sort();
-
   const filteredCrimes = activeTab === "all"
     ? sortedCrimes
     : sortedCrimes.filter(c => c.tier === activeTab);
-
   const outcomeStyle = outcome ? getOutcomeStyle(outcome.outcome) : null;
 
   return (
@@ -218,20 +212,25 @@ export default function Crimes() {
         {/* Header */}
         <div className="crimes-header">
           <div className="crimes-header-left">
-            <h1 className="crimes-title">🔫 Crimes</h1>
+            <h1 className="crimes-title">
+              <Icon name="crime" size={26} className="icon-accent" /> Crimes
+            </h1>
             {user && (
               <div className="crimes-stats-bar" role="group" aria-label="Player stats">
                 <div className="crimes-stat crimes-stat-nerve">
+                  <Icon name="nerve" size={13} className="icon-accent" />
                   <span className="crimes-stat-label">Nerve</span>
                   <span className="crimes-stat-value">{user.nerve}/{user.maxNerve}</span>
                 </div>
                 <div className="crimes-stat-divider" />
                 <div className="crimes-stat crimes-stat-life">
+                  <Icon name="life" size={13} className="icon-error" />
                   <span className="crimes-stat-label">Life</span>
                   <span className="crimes-stat-value">{user.life}/{user.maxLife}</span>
                 </div>
                 <div className="crimes-stat-divider" />
                 <div className="crimes-stat crimes-stat-money">
+                  <Icon name="money" size={13} className="icon-accent" />
                   <span className="crimes-stat-label">Cash</span>
                   <span className="crimes-stat-value">{formatMoney(user.money)}</span>
                 </div>
@@ -244,10 +243,12 @@ export default function Crimes() {
         {isInJail && (
           <div className="crimes-jail-banner" role="alert">
             <div className="crimes-jail-title">
-              {federalJailTimer > 0 ? "🏛️ FEDERAL JAIL" : "🔒 IN JAIL"}
+              <Icon name={federalJailTimer > 0 ? "federal-jail" : "jail"} size={16} />
+              {federalJailTimer > 0 ? "FEDERAL JAIL" : "IN JAIL"}
             </div>
             <div className="crimes-jail-time">
-              Released in: <strong>{formatTime(federalJailTimer > 0 ? federalJailTimer : jailTimer)}</strong>
+              Released in:{' '}
+              <strong>{formatTime(federalJailTimer > 0 ? federalJailTimer : jailTimer)}</strong>
             </div>
           </div>
         )}
@@ -279,14 +280,10 @@ export default function Crimes() {
           {filteredCrimes.map((crime) => {
             const tierColor  = TIER_COLORS[crime.tier];
             const canAttempt =
-              crime.unlocked &&
-              !isInJail &&
-              user !== null &&
-              user.nerve >= crime.nerveCost &&
-              !attempting;
-
+              crime.unlocked && !isInJail && user !== null &&
+              user.nerve >= crime.nerveCost && !attempting;
             const isAttempting = attempting === crime.key;
-            const lowNerve = user !== null && user.nerve < crime.nerveCost;
+            const lowNerve     = user !== null && user.nerve < crime.nerveCost;
 
             if (!crime.unlocked) {
               return (
@@ -296,7 +293,9 @@ export default function Crimes() {
                   aria-label={`Locked crime, unlocks at level ${crime.unlockLevel}`}
                 >
                   <div className="crime-locked-content">
-                    <span className="crime-locked-icon">🔒</span>
+                    <span className="crime-locked-icon">
+                      <Icon name="lock" size={28} className="icon-muted" />
+                    </span>
                     <p className="crime-card-locked-name">???</p>
                     <p className="crime-card-locked-sub">LEVEL {crime.unlockLevel}</p>
                   </div>
@@ -316,20 +315,18 @@ export default function Crimes() {
                 {crime.isFederal && (
                   <div className="crime-federal-tag" aria-label="Federal crime">FED</div>
                 )}
-
                 <div className="crime-card-top">
                   <div className="crime-tier-dot" style={{ background: tierColor.accent }} />
                   <p className="crime-card-name">{crime.name}</p>
                   <div className="crime-card-meta">
                     <span className="crime-nerve-badge">
-                      ⚡ {crime.nerveCost}
+                      <Icon name="nerve" size={11} /> {crime.nerveCost}
                     </span>
                     <span className="crime-reward-badge">
                       {formatMoney(crime.minReward)}–{formatMoney(crime.maxReward)}
                     </span>
                   </div>
                 </div>
-
                 <div className="crime-card-bottom">
                   <div className="crime-level-row">
                     <span className="crime-level-text" style={{ color: tierColor.accent }}>
@@ -348,10 +345,7 @@ export default function Crimes() {
                   >
                     <div
                       className="crime-progress-fill"
-                      style={{
-                        width:      `${Math.min(100, crime.progress.crimeLevel)}%`,
-                        background: tierColor.accent,
-                      }}
+                      style={{ width: `${Math.min(100, crime.progress.crimeLevel)}%`, background: tierColor.accent }}
                     />
                   </div>
                   <button
@@ -363,10 +357,8 @@ export default function Crimes() {
                   >
                     {isAttempting
                       ? <span className="crime-btn-spinner" />
-                      : lowNerve
-                      ? "LOW NERVE"
-                      : isInJail
-                      ? "JAILED"
+                      : lowNerve ? "LOW NERVE"
+                      : isInJail ? "JAILED"
                       : "COMMIT"}
                   </button>
                 </div>
@@ -386,14 +378,24 @@ export default function Crimes() {
           className="outcome-card"
         >
           <div style={{ borderTop: `3px solid ${outcomeStyle.color}`, paddingTop: "1rem" }}>
-            <div className="outcome-icon">{outcomeStyle.icon}</div>
+            <div className="outcome-icon">
+              <Icon
+                name={outcomeStyle.icon}
+                size={48}
+                className={
+                  outcome.outcome === "special"   ? "icon-special" :
+                  outcome.outcome === "success"   ? "icon-success" :
+                  outcome.outcome === "crit_fail" ? "icon-error"   : "icon-muted"
+                }
+              />
+            </div>
             <div className="outcome-message">{outcome.message}</div>
 
             {outcome.special && (
               <div className="outcome-special-box">
                 <div className="outcome-special-title">{outcome.special.title}</div>
                 {outcome.special.wasNewlyDiscovered && (
-                  <div className="outcome-special-new">✨ NEW DISCOVERY</div>
+                  <div className="outcome-special-new">NEW DISCOVERY</div>
                 )}
               </div>
             )}

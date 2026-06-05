@@ -13,12 +13,12 @@ import { config } from "../config";
 // - Nonce replaces unsafe-inline in production
 // - COEP enabled for cross-origin isolation
 // - HSTS in production only
+// - Permissions-Policy header
+// - CSP Report URI
 // - Compression with threshold
 // - Morgan piped to Winston
 // ============================================================
 
-// Helmet's nonce callbacks receive IncomingMessage/ServerResponse
-// not Express Request/Response — use the http types here
 function getNonce(_req: IncomingMessage, res: ServerResponse): string {
   return `'nonce-${(res as unknown as Response).locals.cspNonce}'`;
 }
@@ -39,15 +39,13 @@ export function setupSecurityMiddleware(app: Express) {
         directives: {
           defaultSrc: ["'self'"],
 
-          // Production: nonce only — no unsafe-inline
-          // Development: also allow unsafe-inline for Swagger UI
           scriptSrc: config.isProduction
             ? ["'self'", getNonce]
             : ["'self'", "'unsafe-inline'", getNonce],
 
           styleSrc: [
             "'self'",
-            "'unsafe-inline'",               // Required for Swagger UI
+            "'unsafe-inline'",
             "https://fonts.googleapis.com",
           ],
 
@@ -56,19 +54,47 @@ export function setupSecurityMiddleware(app: Express) {
 
           connectSrc: [
             "'self'",
+            // Firebase Auth
             "https://identitytoolkit.googleapis.com",
             "https://securetoken.googleapis.com",
+            "https://accounts.google.com",
+            // Firebase Firestore/Storage (add if used)
+            "https://*.firebaseio.com",
+            "https://*.googleapis.com",
+            // Cloudflare Turnstile
+            "https://challenges.cloudflare.com",
+            // FingerprintJS
+            "https://fp.undercity.app",
+            // ip-api VPN check (backend only — but keep for safety)
+            ...(config.isDevelopment ? ["http://ip-api.com"] : []),
+          ],
+
+          // Cloudflare Turnstile needs to load its script
+          scriptSrcElem: [
+            "'self'",
+            "https://challenges.cloudflare.com",
+            ...(config.isDevelopment ? ["'unsafe-inline'"] : []),
+          ],
+
+          // Turnstile iframe
+          frameSrc: [
+            "https://challenges.cloudflare.com",
           ],
 
           objectSrc:      ["'none'"],
           frameAncestors: ["'none'"],
           baseUri:        ["'self'"],
           formAction:     ["'self'"],
+
+          // CSP violation reporting
+          ...(config.isProduction && process.env.CSP_REPORT_URI
+            ? { reportUri: [process.env.CSP_REPORT_URI] }
+            : {}),
+
           upgradeInsecureRequests: config.isProduction ? [] : null,
         },
       },
 
-      // COEP enabled — cross-origin isolation
       crossOriginEmbedderPolicy: { policy: "require-corp" },
       crossOriginResourcePolicy: { policy: "cross-origin" },
       crossOriginOpenerPolicy:   { policy: "same-origin" },
@@ -84,7 +110,27 @@ export function setupSecurityMiddleware(app: Express) {
     })
   );
 
-  // ─── Step 3: Compression ───
+  // ─── Step 3: Permissions-Policy (browser feature restrictions) ───
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader(
+      "Permissions-Policy",
+      [
+        "camera=()",
+        "microphone=()",
+        "geolocation=()",
+        "payment=()",
+        "usb=()",
+        "magnetometer=()",
+        "gyroscope=()",
+        "accelerometer=()",
+        "autoplay=(self)",
+        "fullscreen=(self)",
+      ].join(", ")
+    );
+    next();
+  });
+
+  // ─── Step 4: Compression ───
   app.use(
     compression({
       threshold: 1024,
@@ -95,7 +141,7 @@ export function setupSecurityMiddleware(app: Express) {
     })
   );
 
-  // ─── Step 4: HTTP request logging → Winston ───
+  // ─── Step 5: HTTP request logging → Winston ───
   const morganStream = {
     write: (message: string) => logger.http(message.trim()),
   };
@@ -115,6 +161,7 @@ export function setupSecurityMiddleware(app: Express) {
   logger.info("✅ Security middleware loaded");
   logger.info(
     `🔒 COEP: require-corp | CSP nonce: active | ` +
-    `HSTS: ${config.isProduction ? "ON" : "OFF (dev)"}`
+    `HSTS: ${config.isProduction ? "ON" : "OFF (dev)"} | ` +
+    `Permissions-Policy: ON`
   );
 }

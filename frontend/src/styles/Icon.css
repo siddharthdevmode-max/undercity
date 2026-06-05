@@ -1,0 +1,32 @@
+/* ============================================================
+   ICON SYSTEM — currentColor means icons inherit text color
+   ============================================================ */
+
+.uc-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
+  transition: color var(--transition-fast);
+}
+
+/* ── Semantic color variants ── */
+.icon-accent  { color: var(--accent); }
+.icon-muted   { color: var(--text-muted); }
+.icon-success { color: var(--success); }
+.icon-warning { color: var(--warning); }
+.icon-error   { color: var(--error); }
+.icon-primary { color: var(--text-primary); }
+.icon-secondary { color: var(--text-secondary); }
+
+/* ── Outcome variants ── */
+.icon-special  { color: #f39c12; }
+.icon-crit     { color: var(--error); }
+
+/* ── Size helpers ── */
+.icon-xs  { width: 12px; height: 12px; }
+.icon-sm  { width: 16px; height: 16px; }
+.icon-md  { width: 20px; height: 20px; }
+.icon-lg  { width: 24px; height: 24px; }
+.icon-xl  { width: 32px; height: 32px; }
+.icon-2xl { width: 48px; height: 48px; }
+.icon-3xl { width: 64px; height: 64px; }

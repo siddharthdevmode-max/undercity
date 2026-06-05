@@ -76,10 +76,13 @@ describe("fingerprintEngine — recordFingerprint", () => {
   it("stores fingerprint hash not raw IP+UA", async () => {
     await recordFingerprint("test-uid", "10.0.0.1", "Chrome/100");
     const params = mockQuery.mock.calls[0][1] as string[];
-    // params[1] is fingerprintHash — should be 32 char hex, not raw values
-    expect(params[1]).toHaveLength(32);
+    // params[1] is fingerprintHash
+    // Full SHA256 = 64 hex chars (more secure, no truncation)
+    expect(params[1]).toHaveLength(64);
     expect(params[1]).not.toContain("10.0.0.1");
     expect(params[1]).not.toContain("Chrome");
+    // Must be valid hex string
+    expect(params[1]).toMatch(/^[a-f0-9]{64}$/);
   });
 });
 
@@ -136,6 +139,9 @@ describe("fingerprintEngine — checkMultiAccount", () => {
     const hashes2 = (mockQuery.mock.calls[1][1] as [string[], string])[0];
     // Same IP + UA → identical legacy hash
     expect(hashes1[0]).toBe(hashes2[0]);
+    // Must be full 64-char SHA256
+    expect(hashes1[0]).toHaveLength(64);
+    expect(hashes1[0]).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("generates different hash for different IP", async () => {

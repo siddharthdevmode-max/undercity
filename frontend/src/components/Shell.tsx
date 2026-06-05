@@ -5,44 +5,72 @@ import { getAuth, signOut } from 'firebase/auth';
 import { useAuth } from '../hooks/useAuth';
 import { userEvents } from '../utils/userEvents';
 import { toast } from '../utils/toast';
+import Icon from './ui/Icon';
 
-interface Props {
-  children: React.ReactNode;
-}
+interface Props { children: React.ReactNode; }
 
-const NAV_ITEMS = [
-  { path: '/home',         label: 'Home'          },
-  { path: '/crimes',       label: 'Crimes'        },
-  { path: '/gym',          label: 'Gym'            },
-  { path: '/inventory',    label: 'Inventory'      },
-  { path: '/city',         label: 'City'           },
-  { path: '/job',          label: 'Job'            },
-  { path: '/company',      label: 'Company'        },
-  { path: '/properties',   label: 'Properties'     },
-  { path: '/travel',       label: 'Travel'         },
-  { path: '/missions',     label: 'Missions'       },
-  { path: '/casino',       label: 'Casino'         },
-  { path: '/item-market',  label: 'Item Market'    },
-  { path: '/hospital',     label: 'Hospital'       },
-  { path: '/jail',         label: 'Jail'           },
-  { path: '/federal-jail', label: 'Federal Jail'   },
-  { path: '/gang',         label: 'Gang'           },
-  { path: '/linked-gangs', label: 'Linked Gangs'   },
-  { path: '/gang-wars',    label: 'Gang Wars'      },
-  { path: '/forum',        label: 'Forum'          },
-  { path: '/events',       label: 'Events'         },
-  { path: '/newspaper',    label: 'Newspaper'      },
-  { path: '/calendar',     label: 'Calendar'       },
+const NAV_SECTIONS = [
+  {
+    label: 'MAIN',
+    items: [
+      { path: '/home',      label: 'Home',      icon: 'home'      },
+      { path: '/crimes',    label: 'Crimes',    icon: 'crime'     },
+      { path: '/gym',       label: 'Gym',       icon: 'gym'       },
+      { path: '/inventory', label: 'Inventory', icon: 'inventory' },
+      { path: '/city',      label: 'City',      icon: 'city'      },
+    ],
+  },
+  {
+    label: 'ECONOMY',
+    items: [
+      { path: '/job',         label: 'Job',         icon: 'job'        },
+      { path: '/company',     label: 'Company',     icon: 'company'    },
+      { path: '/properties',  label: 'Properties',  icon: 'properties' },
+      { path: '/item-market', label: 'Item Market', icon: 'market'     },
+      { path: '/casino',      label: 'Casino',      icon: 'casino'     },
+      { path: '/travel',      label: 'Travel',      icon: 'travel'     },
+    ],
+  },
+  {
+    label: 'CONTRACTS',
+    items: [
+      { path: '/missions', label: 'Missions', icon: 'missions' },
+      { path: '/events',   label: 'Events',   icon: 'events'   },
+    ],
+  },
+  {
+    label: 'UNDERWORLD',
+    items: [
+      { path: '/gang',         label: 'Gang',         icon: 'gang'         },
+      { path: '/linked-gangs', label: 'Linked Gangs', icon: 'linked-gangs' },
+      { path: '/gang-wars',    label: 'Gang Wars',    icon: 'gang-wars'    },
+    ],
+  },
+  {
+    label: 'CITY',
+    items: [
+      { path: '/hospital',     label: 'Hospital',     icon: 'hospital'      },
+      { path: '/jail',         label: 'Jail',         icon: 'jail'          },
+      { path: '/federal-jail', label: 'Federal Jail', icon: 'federal-jail'  },
+    ],
+  },
+  {
+    label: 'COMMUNITY',
+    items: [
+      { path: '/forum',     label: 'Forum',     icon: 'forum'     },
+      { path: '/newspaper', label: 'Newspaper', icon: 'newspaper' },
+      { path: '/calendar',  label: 'Calendar',  icon: 'calendar'  },
+    ],
+  },
 ];
 
 export default function Shell({ children }: Props) {
   const { user: authUser, loading } = useAuth();
-  const navigate  = useNavigate();
-  const location  = useLocation();
-  const auth      = getAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const auth     = getAuth();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
   const [stats, setStats] = useState({
     money:    authUser?.money    ?? 0,
     life:     authUser?.life     ?? 0,
@@ -53,10 +81,6 @@ export default function Shell({ children }: Props) {
     points:   authUser?.points   ?? 0,
   });
 
-  // ─────────────────────────────────────────────────
-  // Ticking clock for jail timers (avoids impure
-  // Date.now() in render — purity rule compliant)
-  // ─────────────────────────────────────────────────
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const inJail = authUser?.jailUntil || authUser?.federalJailUntil;
@@ -109,12 +133,8 @@ export default function Shell({ children }: Props) {
   }, [sidebarOpen]);
 
   const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      navigate('/login');
-    } catch {
-      toast.error('Logout failed. Please try again.');
-    }
+    try { await signOut(auth); navigate('/login'); }
+    catch { toast.error('Logout failed. Please try again.'); }
   };
 
   if (loading) {
@@ -125,7 +145,6 @@ export default function Shell({ children }: Props) {
     );
   }
 
-  // Jail timers — use ticking `now` (pure)
   const jailRemaining = authUser?.jailUntil
     ? Math.max(0, Math.ceil((new Date(authUser.jailUntil).getTime() - now) / 1000))
     : 0;
@@ -133,14 +152,15 @@ export default function Shell({ children }: Props) {
     ? Math.max(0, Math.ceil((new Date(authUser.federalJailUntil).getTime() - now) / 1000))
     : 0;
 
-  // Role flags
-  const isDeveloper = authUser?.isDeveloper === true;
-  const isAdmin     = authUser?.isAdmin === true;
+  const isDeveloper  = authUser?.isDeveloper === true;
+  const isAdmin      = authUser?.isAdmin === true;
+  const lifePercent  = Math.round((stats.life  / Math.max(stats.maxLife,  1)) * 100);
+  const nervePercent = Math.round((stats.nerve / Math.max(stats.maxNerve, 1)) * 100);
 
   return (
     <div className="game-shell">
 
-      {/* ── Top Header ── */}
+      {/* ── Header ── */}
       <header className="game-header" role="banner">
         <button
           className="hamburger-btn"
@@ -155,21 +175,30 @@ export default function Shell({ children }: Props) {
         <div className="logo">UNDERCITY</div>
 
         <div className="header-stats" role="group" aria-label="Player stats">
-          <span className="header-stat">💰 ${stats.money.toLocaleString()}</span>
-          <span className="header-stat">❤️ {stats.life}/{stats.maxLife}</span>
-          <span className="header-stat">⚡ {stats.nerve}/{stats.maxNerve}</span>
+          <span className="header-stat">
+            <Icon name="money" size={14} className="icon-accent" />
+            ${stats.money.toLocaleString()}
+          </span>
+          <span className="header-stat">
+            <Icon name="life" size={14} className="icon-error" />
+            {stats.life}/{stats.maxLife}
+          </span>
+          <span className="header-stat">
+            <Icon name="nerve" size={14} className="icon-accent" />
+            {stats.nerve}/{stats.maxNerve}
+          </span>
         </div>
 
         <div className="user-info">
           <button onClick={handleLogout} className="logout-btn" aria-label="Log out">
-            Logout
+            <Icon name="logout" size={16} />
+            <span>Logout</span>
           </button>
         </div>
       </header>
 
       <div className="game-content">
 
-        {/* ── Sidebar Overlay ── */}
         <div
           className={`sidebar-overlay ${sidebarOpen ? 'active' : ''}`}
           onClick={() => setSidebarOpen(false)}
@@ -182,113 +211,143 @@ export default function Shell({ children }: Props) {
           className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}
           aria-label="Navigation"
         >
-          {/* ── Player Info Block ── */}
+          {/* Player block */}
           <div className="sb-player-block">
             <div className="sb-player-name-row">
               <span className="sb-player-name">{authUser?.username}</span>
               {isDeveloper && (
-                <span className="role-badge role-dev" title="Developer — immune to UAC">
-                  DEV
-                </span>
+                <span className="role-badge role-dev" title="Developer">DEV</span>
               )}
               {isAdmin && !isDeveloper && (
-                <span className="role-badge role-admin" title="Administrator">
-                  ADMIN
-                </span>
+                <span className="role-badge role-admin" title="Administrator">ADMIN</span>
               )}
             </div>
             <div className="sb-player-level">Level {stats.level}</div>
           </div>
 
-          {/* ── Stats Block ── */}
+          {/* Stats block */}
           <div className="sb-stats-block">
             <div className="sb-stat-row">
-              <span className="sb-stat-label">Money</span>
+              <span className="sb-stat-label">
+                <Icon name="money" size={12} className="icon-accent" /> Money
+              </span>
               <span className="sb-stat-value">${stats.money.toLocaleString()}</span>
             </div>
             <div className="sb-stat-row">
-              <span className="sb-stat-label">Points</span>
+              <span className="sb-stat-label">
+                <Icon name="points" size={12} className="icon-accent" /> Points
+              </span>
               <span className="sb-stat-value">{stats.points.toLocaleString()}</span>
             </div>
             <div className="sb-stat-row">
-              <span className="sb-stat-label">Energy</span>
-              <span className="sb-stat-value sb-stat-dim">0 / 0</span>
+              <span className="sb-stat-label">
+                <Icon name="nerve" size={12} className="icon-accent" /> Nerve
+              </span>
+              <span className="sb-stat-value">{stats.nerve}/{stats.maxNerve}</span>
             </div>
             <div className="sb-stat-row">
-              <span className="sb-stat-label">Nerve</span>
-              <span className="sb-stat-value">{stats.nerve} / {stats.maxNerve}</span>
-            </div>
-            <div className="sb-stat-row">
-              <span className="sb-stat-label">Health</span>
-              <span className="sb-stat-value">{stats.life} / {stats.maxLife}</span>
-            </div>
-            <div className="sb-stat-row">
-              <span className="sb-stat-label">Chain</span>
-              <span className="sb-stat-value sb-stat-dim">0</span>
+              <span className="sb-stat-label">
+                <Icon name="life" size={12} className="icon-error" /> Health
+              </span>
+              <span className="sb-stat-value">{stats.life}/{stats.maxLife}</span>
             </div>
           </div>
 
-          {/* ── Timers Block ── */}
-          <div className="sb-timers-block">
-            <div className="sb-timers-label">COOLDOWNS</div>
-            <div className="sb-timer-row">
-              <span className="sb-timer-name">Drug</span>
-              <span className="sb-timer-value">Ready</span>
-            </div>
-            <div className="sb-timer-row">
-              <span className="sb-timer-name">Alcohol</span>
-              <span className="sb-timer-value">Ready</span>
-            </div>
-            <div className="sb-timer-row">
-              <span className="sb-timer-name">Chain</span>
-              <span className="sb-timer-value">Ready</span>
-            </div>
-            {jailRemaining > 0 && (
-              <div className="sb-timer-row sb-timer-danger">
-                <span className="sb-timer-name">Jail</span>
-                <span className="sb-timer-value">{formatTimer(jailRemaining)}</span>
+          {/* Mini bars */}
+          <div className="sb-bars-block">
+            <div className="sb-bar-row">
+              <div className="sb-bar-header">
+                <span className="sb-bar-label">
+                  <Icon name="life" size={11} className="icon-error" /> Life
+                </span>
+                <span className="sb-bar-pct">{lifePercent}%</span>
               </div>
-            )}
-            {fedJailRemaining > 0 && (
-              <div className="sb-timer-row sb-timer-danger">
-                <span className="sb-timer-name">Fed Jail</span>
-                <span className="sb-timer-value">{formatTimer(fedJailRemaining)}</span>
+              <div className="sb-bar-track">
+                <div className="sb-bar-fill sb-bar-life" style={{ width: `${lifePercent}%` }} />
               </div>
-            )}
+            </div>
+            <div className="sb-bar-row">
+              <div className="sb-bar-header">
+                <span className="sb-bar-label">
+                  <Icon name="nerve" size={11} className="icon-accent" /> Nerve
+                </span>
+                <span className="sb-bar-pct">{nervePercent}%</span>
+              </div>
+              <div className="sb-bar-track">
+                <div className="sb-bar-fill sb-bar-nerve" style={{ width: `${nervePercent}%` }} />
+              </div>
+            </div>
           </div>
 
-          {/* ── Navigation ── */}
+          {/* Jail timers */}
+          {(jailRemaining > 0 || fedJailRemaining > 0) && (
+            <div className="sb-timers-block">
+              <div className="sb-timers-label">ACTIVE TIMERS</div>
+              {jailRemaining > 0 && (
+                <div className="sb-timer-row sb-timer-danger">
+                  <span className="sb-timer-name">
+                    <Icon name="jail" size={12} /> Jail
+                  </span>
+                  <span className="sb-timer-value">{formatTimer(jailRemaining)}</span>
+                </div>
+              )}
+              {fedJailRemaining > 0 && (
+                <div className="sb-timer-row sb-timer-danger">
+                  <span className="sb-timer-name">
+                    <Icon name="federal-jail" size={12} /> Fed Jail
+                  </span>
+                  <span className="sb-timer-value">{formatTimer(fedJailRemaining)}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Nav */}
           <nav className="sidebar-nav" aria-label="Main navigation">
-            {NAV_ITEMS.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
-                aria-current={location.pathname === item.path ? 'page' : undefined}
-              >
-                {item.label}
-              </Link>
+            {NAV_SECTIONS.map((section) => (
+              <div key={section.label} className="nav-section">
+                <div className="nav-section-label">{section.label}</div>
+                {section.items.map((item) => (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
+                    aria-current={location.pathname === item.path ? 'page' : undefined}
+                  >
+                    <Icon name={item.icon} size={15} />
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
             ))}
           </nav>
+
+          {/* Admin */}
+          {(isAdmin || isDeveloper) && (
+            <div className="sb-admin-block">
+              <Link
+                to="/admin"
+                className={`nav-item nav-item-admin ${location.pathname === '/admin' ? 'active' : ''}`}
+              >
+                <Icon name="admin" size={15} />
+                Admin Panel
+              </Link>
+            </div>
+          )}
         </aside>
 
-        {/* ── Main Content ── */}
         <main className="main-content" id="main-content" tabIndex={-1}>
           {children}
         </main>
-
       </div>
     </div>
   );
 }
 
 function formatTimer(seconds: number): string {
-  if (seconds <= 0) return "Ready";
+  if (seconds <= 0) return 'Ready';
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
-  if (m > 60) {
-    const h = Math.floor(m / 60);
-    return `${h}h ${m % 60}m`;
-  }
+  if (m > 60) { const h = Math.floor(m / 60); return `${h}h ${m % 60}m`; }
   return `${m}m ${s}s`;
 }

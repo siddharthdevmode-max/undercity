@@ -6,8 +6,8 @@ import {
   calcMaxLife,
   canAttemptCrime,
   getCooldownRemaining,
-
   isImmuneToAntiCheat,
+  UserRow,
 } from "../models/userModels";
 import {
   parseCrime,
@@ -32,30 +32,9 @@ import {
 } from "../utils/errors";
 
 // ============================================================
-// USER ROW TYPE
-// Matches what getUserByFirebaseUid returns
+// NOTE: UserRow is now imported from userModels.ts
+// Single source of truth — no duplicate type definitions
 // ============================================================
-
-export interface UserRow {
-  id: number;
-  firebase_uid: string;
-  email: string;
-  username: string;
-  level: number | string;
-  money: number | string;
-  points: number | string;
-  nerve: number | string;
-  max_nerve: number | string;
-  life: number | string;
-  max_life: number | string;
-  jail_until: string | null;
-  federal_jail_until: string | null;
-  last_crime_at: string | null;
-  is_shadow_banned: boolean;
-  is_hard_banned: boolean;
-  trust_score: number | string;
-  total_flags: number | string;
-}
 
 // ─── Pre-flight checks ───────────────────────────────────
 
@@ -174,13 +153,13 @@ export async function updateProgress(
   userId: number,
   crimeId: number,
   data: {
-    crimeXp: number;
-    crimeLevel: number;
-    hiddenCpl: number;
-    attempts: number;
-    successes: number;
-    failures: number;
-    critFailures: number;
+    crimeXp:            number;
+    crimeLevel:         number;
+    hiddenCpl:          number;
+    attempts:           number;
+    successes:          number;
+    failures:           number;
+    critFailures:       number;
     specialsFoundCount: number;
   }
 ) {
@@ -204,13 +183,13 @@ export async function updateUserStats(
   client: PoolClient,
   userId: number,
   data: {
-    money: number;
-    points: number;
-    nerve: number;
-    maxNerve: number;
-    life: number;
-    maxLife: number;
-    jailUntil: Date | null;
+    money:            number;
+    points:           number;
+    nerve:            number;
+    maxNerve:         number;
+    life:             number;
+    maxLife:          number;
+    jailUntil:        Date | null;
     federalJailUntil: Date | null;
   }
 ) {
@@ -243,11 +222,11 @@ export async function getTotalCrimeXp(
 // ─── Outcome calculation ─────────────────────────────────
 
 export function calculateOutcome(
-  crime: CrimeDefinition,
-  progress: CrimeProgress,
+  crime:            CrimeDefinition,
+  progress:         CrimeProgress,
   availableSpecial: CrimeSpecial | null,
-  user: UserRow,
-  trustInfo: { isShadowBanned: boolean; trustScore: number }
+  user:             UserRow,
+  trustInfo:        { isShadowBanned: boolean; trustScore: number }
 ): OutcomeResult {
   const maxLife = calcMaxLife(toNumber(user.level));
 
@@ -259,10 +238,11 @@ export function calculateOutcome(
     maxLife
   );
 
-  // 🛡️ Devs/admins bypass shadow punishment entirely (sync check, no DB hit)
-  const _immune = isImmuneToAntiCheat(user);
-  if (trustInfo.isShadowBanned && !_immune) {
-    outcome = applyShadowPunishment(outcome, trustInfo.trustScore, _immune);
+  // 🛡️ Sync check — user already loaded, no extra DB hit needed
+  const immune = isImmuneToAntiCheat(user);
+
+  if (trustInfo.isShadowBanned && !immune) {
+    outcome = applyShadowPunishment(outcome, trustInfo.trustScore, immune);
   }
 
   return outcome;
@@ -271,18 +251,18 @@ export function calculateOutcome(
 // ─── Stat builder ────────────────────────────────────────
 
 export function buildUpdatedStats(
-  user: UserRow,
-  crime: CrimeDefinition,
-  progress: CrimeProgress,
-  outcome: OutcomeResult,
+  user:         UserRow,
+  crime:        CrimeDefinition,
+  progress:     CrimeProgress,
+  outcome:      OutcomeResult,
   totalCrimeXp: number
 ) {
-  const playerLevel    = toNumber(user.level);
-  const maxLife        = calcMaxLife(playerLevel);
+  const playerLevel     = toNumber(user.level);
+  const maxLife         = calcMaxLife(playerLevel);
   const updatedMaxNerve = calcMaxNerve(totalCrimeXp);
 
-  const updatedNerve = Math.max(0, toNumber(user.nerve) - crime.nerve_cost);
-  const finalNerve   = Math.min(updatedNerve, updatedMaxNerve);
+  const updatedNerve  = Math.max(0, toNumber(user.nerve) - crime.nerve_cost);
+  const finalNerve    = Math.min(updatedNerve, updatedMaxNerve);
 
   const updatedMoney  = Math.max(0,
     toNumber(user.money) - outcome.money_loss + outcome.reward_money
@@ -301,8 +281,10 @@ export function buildUpdatedStats(
   const attempts     = progress.attempts + 1;
   const successes    = progress.successes +
     (outcome.outcome === "success" || outcome.outcome === "special" ? 1 : 0);
-  const failures     = progress.failures  + (outcome.outcome === "fail"      ? 1 : 0);
-  const critFailures = progress.crit_failures + (outcome.outcome === "crit_fail" ? 1 : 0);
+  const failures     = progress.failures  +
+    (outcome.outcome === "fail"      ? 1 : 0);
+  const critFailures = progress.crit_failures +
+    (outcome.outcome === "crit_fail" ? 1 : 0);
 
   let jailUntil: Date | null =
     user.jail_until ? new Date(user.jail_until) : null;
@@ -312,21 +294,21 @@ export function buildUpdatedStats(
   if (outcome.outcome === "crit_fail" && outcome.jail_seconds > 0) {
     const until = new Date(Date.now() + outcome.jail_seconds * 1000);
     if (crime.is_federal) federalJailUntil = until;
-    else jailUntil = until;
+    else                  jailUntil        = until;
   }
 
   return {
-    money: updatedMoney,
-    points: updatedPoints,
-    nerve: finalNerve,
-    maxNerve: updatedMaxNerve,
-    life: updatedLife,
+    money:            updatedMoney,
+    points:           updatedPoints,
+    nerve:            finalNerve,
+    maxNerve:         updatedMaxNerve,
+    life:             updatedLife,
     maxLife,
     jailUntil,
     federalJailUntil,
-    crimeXp: updatedCrimeXp,
-    crimeLevel: updatedCrimeLevel,
-    hiddenCpl: updatedHiddenCpl,
+    crimeXp:          updatedCrimeXp,
+    crimeLevel:       updatedCrimeLevel,
+    hiddenCpl:        updatedHiddenCpl,
     attempts,
     successes,
     failures,

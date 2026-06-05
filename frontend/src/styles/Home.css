@@ -936,3 +936,174 @@
 @media (prefers-reduced-motion: reduce) {
   .role-badge.role-dev { animation: none; }
 }
+
+/* ════════════════════════════════════════════════════════════
+   SIDEBAR — MINI PROGRESS BARS
+   ════════════════════════════════════════════════════════════ */
+
+.sb-bars-block {
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sb-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sb-bar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sb-bar-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+}
+
+.sb-bar-pct {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.sb-bar-track {
+  height: 5px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.sb-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.4s ease;
+}
+
+.sb-bar-life  { background: linear-gradient(90deg, #dc1f2e, #ff6b6b); }
+.sb-bar-nerve { background: linear-gradient(90deg, #1e40af, #3b82f6); }
+
+/* ════════════════════════════════════════════════════════════
+   SIDEBAR — ADMIN BLOCK
+   ════════════════════════════════════════════════════════════ */
+
+.sb-admin-block {
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.nav-item-admin {
+  color: var(--warning) !important;
+  border-left-color: transparent;
+}
+
+.nav-item-admin:hover {
+  background: rgba(241, 196, 15, 0.08) !important;
+  color: var(--warning) !important;
+}
+
+.nav-item-admin.active {
+  border-left-color: var(--warning) !important;
+  background: rgba(241, 196, 15, 0.1) !important;
+}
+
+/* ════════════════════════════════════════════════════════════
+   NAV ITEMS — icon + text layout
+   ════════════════════════════════════════════════════════════ */
+
+.sidebar-nav .nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar-nav .nav-item .uc-icon {
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+}
+
+.sidebar-nav .nav-item:hover .uc-icon,
+.sidebar-nav .nav-item.active .uc-icon {
+  opacity: 1;
+}
+
+/* Header stat icons */
+.header-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Logout btn */
+.logout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Resource labels */
+.resource-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* HUD stat labels */
+.sb-stat-label,
+.sb-bar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Timer names */
+.sb-timer-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Crimes stat bar */
+.crimes-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Crimes nerve badge */
+.crime-nerve-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* Status chip */
+.hq-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Primary CTA */
+.hq-primary-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Intel label */
+.hq-intel-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

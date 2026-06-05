@@ -1,7 +1,7 @@
 # ════════════════════════════════════════════════════════════
 # UNDERCITY DEPLOY PIPELINE
-# Deploys on push to main after CI passes
-# Backend → Docker (self-hosted or Railway/Render)
+# Deploys on push to main ONLY after CI passes
+# Backend → Docker Hub
 # Frontend → Cloudflare Pages
 # ════════════════════════════════════════════════════════════
 
@@ -11,18 +11,23 @@ on:
   push:
     branches: [main]
 
-# Only one deploy at a time
+# Only one deploy at a time — never cancel in progress
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
 jobs:
 
+  # ─── Run CI first ─────────────────────────────────────────
+  ci:
+    name: Run CI checks
+    uses: ./.github/workflows/ci.yml
+
   # ─── Backend Docker Image ──────────────────────────────────
   deploy-backend:
     name: Build & Push Backend Docker Image
     runs-on: ubuntu-latest
-    needs: []   # Add CI job as dependency when ready
+    needs: [ci]
 
     steps:
       - name: Checkout
@@ -48,10 +53,24 @@ jobs:
           cache-from: type=gha
           cache-to:   type=gha,mode=max
 
+      - name: Run DB migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          cd backend
+          npm ci
+          npm run migrate
+
+      - name: Smoke test
+        run: |
+          sleep 10
+          curl -f ${{ secrets.VITE_API_URL }}/api/health || exit 1
+
   # ─── Frontend Cloudflare Pages ─────────────────────────────
   deploy-frontend:
     name: Deploy Frontend to Cloudflare Pages
     runs-on: ubuntu-latest
+    needs: [ci]
 
     defaults:
       run:
@@ -78,6 +97,7 @@ jobs:
           VITE_FIREBASE_AUTH_DOMAIN:  ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID:   ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_APP_ID:       ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_TURNSTILE_SITE_KEY:    ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
         run: npm run build
 
       - name: Deploy to Cloudflare Pages

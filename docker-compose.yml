@@ -1,36 +1,37 @@
-# ════════════════════════════════════════════════════════════
-# UNDERCITY LOCAL DEV STACK
-# Run with: docker compose up
-# Stop with: docker compose down
-# Stop + wipe data: docker compose down -v
-# ════════════════════════════════════════════════════════════
-
 services:
 
-  # ─── PostgreSQL Database ───
   postgres:
     image: postgres:16-alpine
     container_name: undercity_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: undercity_user
-      POSTGRES_PASSWORD: undercity123
-      POSTGRES_DB: undercity
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U undercity_user -d undercity"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ─── Redis Cache ───
   redis:
     image: redis:7-alpine
     container_name: undercity_redis
     restart: unless-stopped
+    command: >
+      sh -c '
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          redis-server --requirepass "$$REDIS_PASSWORD" --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1000 --appendonly yes
+        else
+          redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+        fi
+      '
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     ports:
       - "6379:6379"
     volumes:
@@ -41,7 +42,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # ─── Backend API (optional - run with `docker compose --profile full up`) ───
   backend:
     build:
       context: ./backend
@@ -55,18 +55,27 @@ services:
       redis:
         condition: service_healthy
     environment:
-      NODE_ENV: development
-      PORT: 5000
-      DATABASE_URL: postgresql://undercity_user:undercity123@postgres:5432/undercity
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
+      NODE_ENV:       ${NODE_ENV:-development}
+      PORT:           ${PORT:-5000}
+      DATABASE_URL:   postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_HOST:     redis
+      REDIS_PORT:     6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     env_file:
       - ./backend/.env
     ports:
-      - "5000:5000"
+      - "${PORT:-5000}:${PORT:-5000}"
     volumes:
       - ./backend/firebase-service-account.json:/app/firebase-service-account.json:ro
+      - backup_data:/app/backups
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
 volumes:
   postgres_data:
   redis_data:
+  backup_data:
