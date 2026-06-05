@@ -1,0 +1,159 @@
+.
+├── .dockerignore
+├── .env
+├── .env.example
+├── .env.test
+├── .gitignore
+├── .node-pg-migraterc.json
+├── .npmrc
+├── Dockerfile
+├── backups
+│   └── undercity-2026-06-01T17-19-47-738Z.sql
+├── coverage
+│   ├── base.css
+│   ├── block-navigation.js
+│   ├── config
+│   │   ├── index.html
+│   │   └── index.ts.html
+│   ├── coverage-final.json
+│   ├── favicon.png
+│   ├── index.html
+│   ├── models
+│   │   ├── index.html
+│   │   └── userModels.ts.html
+│   ├── prettify.css
+│   ├── prettify.js
+│   ├── services
+│   │   ├── behaviorEngine.ts.html
+│   │   ├── crimeEngine.ts.html
+│   │   ├── fingerprintEngine.ts.html
+│   │   ├── index.html
+│   │   ├── shadowPunish.ts.html
+│   │   └── trustEngine.ts.html
+│   ├── sort-arrow-sprite.png
+│   ├── sorter.js
+│   └── utils
+│       ├── errors.ts.html
+│       ├── index.html
+│       └── logger.ts.html
+├── eslint.config.mjs
+├── firebase-service-account.json
+├── logs
+│   └── .gitkeep
+├── migrations
+│   ├── .gitkeep
+│   ├── 1699999999000_initial-schema.js
+│   ├── 1700000000000_baseline-indexes.js
+│   ├── 1700000001000_soft-deletes.js
+│   ├── 1700000002000_slow-query-log.js
+│   ├── 1700000003000_idempotency-keys.js
+│   ├── 1700000004000_trust-recovery.js
+│   ├── 1700000005000_onboarding-completed.js
+│   ├── 1700000006000_admin-developer-roles.js
+│   ├── 1700000007000_auth-access-log.js
+│   ├── 1700000008000_money-bigint-fix.js
+│   ├── 1700000009000_admin-audit-log.js
+│   └── 1700000010000_moderator-role.js
+├── package-lock.json
+├── package.json
+├── project_structure.txt
+├── src
+│   ├── __tests__
+│   │   ├── api
+│   │   │   ├── auth.test.ts
+│   │   │   ├── crimes.test.ts
+│   │   │   └── health.test.ts
+│   │   ├── behaviorEngine.test.ts
+│   │   ├── crimeEngine.test.ts
+│   │   ├── errors.test.ts
+│   │   ├── fingerprintEngine.test.ts
+│   │   ├── logger.test.ts
+│   │   ├── shadowPunish.test.ts
+│   │   ├── trustEngine.test.ts
+│   │   └── userModels.test.ts
+│   ├── app.ts
+│   ├── config
+│   │   ├── database.ts
+│   │   ├── firebase.ts
+│   │   ├── index.ts
+│   │   ├── redis.ts
+│   │   └── sentry.ts
+│   ├── controllers
+│   │   └── crimeController.ts
+│   ├── middleware
+│   │   ├── banCheck.ts
+│   │   ├── cacheHeaders.ts
+│   │   ├── challengeVerifier.ts
+│   │   ├── errorHandler.ts
+│   │   ├── firebaseAuth.ts
+│   │   ├── idempotency.ts
+│   │   ├── internalOnly.ts
+│   │   ├── rateLimiter.ts
+│   │   ├── requestId.ts
+│   │   ├── requireAdmin.ts
+│   │   ├── sanitizeMiddleware.ts
+│   │   ├── securityMiddleware.ts
+│   │   ├── turnstileVerifier.ts
+│   │   └── validate.ts
+│   ├── models
+│   │   ├── crimeModels.ts
+│   │   └── userModels.ts
+│   ├── queues
+│   │   ├── index.ts
+│   │   ├── scheduler.ts
+│   │   └── workers.ts
+│   ├── routes
+│   │   ├── adminRoutes.ts
+│   │   ├── authRoutes.ts
+│   │   ├── challengeRoutes.ts
+│   │   ├── crimeRoutes.ts
+│   │   ├── gdprRoutes.ts
+│   │   ├── healthRoutes.ts
+│   │   ├── honeypotRoutes.ts
+│   │   ├── mfaRoutes.ts
+│   │   ├── statsRoutes.ts
+│   │   └── supportRoutes.ts
+│   ├── scripts
+│   │   ├── addLastCrimeAt.ts
+│   │   ├── backupDatabase.ts
+│   │   ├── cleanIdempotencyKeys.ts
+│   │   ├── initAntiCheat.ts
+│   │   ├── initFingerprinting.ts
+│   │   ├── runTrustRecovery.ts
+│   │   ├── seedSpecials.ts
+│   │   ├── setupCrimeSystem.ts
+│   │   └── testCritFail.ts
+│   ├── services
+│   │   ├── behaviorEngine.ts
+│   │   ├── crimeEngine.ts
+│   │   ├── crimeService.ts
+│   │   ├── fingerprintEngine.ts
+│   │   ├── immunityCheck.ts
+│   │   ├── shadowPunish.ts
+│   │   ├── trustEngine.ts
+│   │   ├── trustRecovery.ts
+│   │   └── vpnDetection.ts
+│   ├── test-utils
+│   │   ├── loadTestEnv.ts
+│   │   └── mockFirebase.ts
+│   ├── types
+│   │   └── express.d.ts
+│   └── utils
+│       ├── alerts.ts
+│       ├── apiDocs.ts
+│       ├── asyncHandler.ts
+│       ├── dbHelpers.ts
+│       ├── envValidator.ts
+│       ├── errorCodes.ts
+│       ├── errors.ts
+│       ├── gracefulShutdown.ts
+│       ├── logger.ts
+│       ├── pagination.ts
+│       ├── sanitize.ts
+│       └── schemas.ts
+├── tsconfig.json
+├── tsconfig.test.json
+├── vitest.config.ts
+└── vitest.integration.config.ts
+
+23 directories, 134 files

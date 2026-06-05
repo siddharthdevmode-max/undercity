@@ -1,0 +1,339 @@
+.
+├── .github
+│   ├── workflows
+│   │   ├── ci.yml
+│   │   └── deploy.yml
+│   └── dependabot.yml
+├── .husky
+│   ├── _
+│   │   ├── .gitignore
+│   │   ├── applypatch-msg
+│   │   ├── commit-msg
+│   │   ├── h
+│   │   ├── husky.sh
+│   │   ├── post-applypatch
+│   │   ├── post-checkout
+│   │   ├── post-commit
+│   │   ├── post-merge
+│   │   ├── post-rewrite
+│   │   ├── pre-applypatch
+│   │   ├── pre-auto-gc
+│   │   ├── pre-commit
+│   │   ├── pre-merge-commit
+│   │   ├── pre-push
+│   │   ├── pre-rebase
+│   │   └── prepare-commit-msg
+│   ├── commit-msg
+│   └── pre-commit
+├── backend
+│   ├── backups
+│   │   └── undercity-2026-06-01T17-19-47-738Z.sql
+│   ├── migrations
+│   │   ├── .gitkeep
+│   │   ├── 1699999999000_initial-schema.js
+│   │   ├── 1700000000000_baseline-indexes.js
+│   │   ├── 1700000001000_soft-deletes.js
+│   │   ├── 1700000002000_slow-query-log.js
+│   │   ├── 1700000003000_idempotency-keys.js
+│   │   ├── 1700000004000_trust-recovery.js
+│   │   ├── 1700000005000_onboarding-completed.js
+│   │   ├── 1700000006000_admin-developer-roles.js
+│   │   ├── 1700000007000_auth-access-log.js
+│   │   ├── 1700000008000_money-bigint-fix.js
+│   │   ├── 1700000009000_admin-audit-log.js
+│   │   ├── 1700000010000_moderator-role.js
+│   │   ├── 1700000011000_last-seen-at.js
+│   │   └── 1700000012000_payment-logs.js
+│   ├── src
+│   │   ├── __tests__
+│   │   │   ├── api
+│   │   │   │   ├── auth.test.ts
+│   │   │   │   ├── crimes.test.ts
+│   │   │   │   └── health.test.ts
+│   │   │   ├── behaviorEngine.test.ts
+│   │   │   ├── crimeEngine.test.ts
+│   │   │   ├── errors.test.ts
+│   │   │   ├── fingerprintEngine.test.ts
+│   │   │   ├── logger.test.ts
+│   │   │   ├── shadowPunish.test.ts
+│   │   │   ├── trustEngine.test.ts
+│   │   │   └── userModels.test.ts
+│   │   ├── config
+│   │   │   ├── database.ts
+│   │   │   ├── firebase.ts
+│   │   │   ├── index.ts
+│   │   │   ├── redis.ts
+│   │   │   ├── sentry.ts
+│   │   │   ├── socket.ts
+│   │   │   └── stripe.ts
+│   │   ├── controllers
+│   │   │   └── crimeController.ts
+│   │   ├── middleware
+│   │   │   ├── banCheck.ts
+│   │   │   ├── cacheHeaders.ts
+│   │   │   ├── challengeVerifier.ts
+│   │   │   ├── errorHandler.ts
+│   │   │   ├── firebaseAuth.ts
+│   │   │   ├── idempotency.ts
+│   │   │   ├── internalOnly.ts
+│   │   │   ├── rateLimiter.ts
+│   │   │   ├── requestId.ts
+│   │   │   ├── requireAdmin.ts
+│   │   │   ├── sanitizeMiddleware.ts
+│   │   │   ├── securityMiddleware.ts
+│   │   │   ├── turnstileVerifier.ts
+│   │   │   └── validate.ts
+│   │   ├── models
+│   │   │   ├── crimeModels.ts
+│   │   │   └── userModels.ts
+│   │   ├── queues
+│   │   │   ├── index.ts
+│   │   │   ├── scheduler.ts
+│   │   │   └── workers.ts
+│   │   ├── routes
+│   │   │   ├── adminRoutes.ts
+│   │   │   ├── authRoutes.ts
+│   │   │   ├── challengeRoutes.ts
+│   │   │   ├── crimeRoutes.ts
+│   │   │   ├── gdprRoutes.ts
+│   │   │   ├── healthRoutes.ts
+│   │   │   ├── honeypotRoutes.ts
+│   │   │   ├── mfaRoutes.ts
+│   │   │   ├── paymentRoutes.ts
+│   │   │   ├── statsRoutes.ts
+│   │   │   └── supportRoutes.ts
+│   │   ├── scripts
+│   │   │   ├── addLastCrimeAt.ts
+│   │   │   ├── backupDatabase.ts
+│   │   │   ├── cleanIdempotencyKeys.ts
+│   │   │   ├── initAntiCheat.ts
+│   │   │   ├── initFingerprinting.ts
+│   │   │   ├── runTrustRecovery.ts
+│   │   │   ├── seedSpecials.ts
+│   │   │   ├── setupCrimeSystem.ts
+│   │   │   └── testCritFail.ts
+│   │   ├── services
+│   │   │   ├── behaviorEngine.ts
+│   │   │   ├── crimeEngine.ts
+│   │   │   ├── crimeService.ts
+│   │   │   ├── emailService.ts
+│   │   │   ├── fingerprintEngine.ts
+│   │   │   ├── gameTick.ts
+│   │   │   ├── immunityCheck.ts
+│   │   │   ├── shadowPunish.ts
+│   │   │   ├── trustEngine.ts
+│   │   │   ├── trustRecovery.ts
+│   │   │   └── vpnDetection.ts
+│   │   ├── test-utils
+│   │   │   ├── loadTestEnv.ts
+│   │   │   └── mockFirebase.ts
+│   │   ├── types
+│   │   │   └── express.d.ts
+│   │   ├── utils
+│   │   │   ├── alerts.ts
+│   │   │   ├── apiDocs.ts
+│   │   │   ├── asyncHandler.ts
+│   │   │   ├── dbHelpers.ts
+│   │   │   ├── envValidator.ts
+│   │   │   ├── errorCodes.ts
+│   │   │   ├── errors.ts
+│   │   │   ├── gracefulShutdown.ts
+│   │   │   ├── logger.ts
+│   │   │   ├── pagination.ts
+│   │   │   ├── sanitize.ts
+│   │   │   └── schemas.ts
+│   │   └── app.ts
+│   ├── .dockerignore
+│   ├── .gitignore
+│   ├── .node-pg-migraterc.json
+│   ├── .npmrc
+│   ├── Dockerfile
+│   ├── eslint.config.mjs
+│   ├── firebase-service-account.json
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── project_structure.txt
+│   ├── tsconfig.json
+│   ├── tsconfig.test.json
+│   ├── vitest.config.ts
+│   └── vitest.integration.config.ts
+├── docs
+│   ├── legal
+│   │   ├── README.md
+│   │   ├── acceptable-use.md
+│   │   ├── age-verification.md
+│   │   ├── community-rules.md
+│   │   ├── compliance-roadmap.md
+│   │   ├── cookie-policy.md
+│   │   ├── data-retention.md
+│   │   ├── dmca-copyright.md
+│   │   ├── gambling-disclaimer.md
+│   │   ├── gdpr-compliance.md
+│   │   ├── global-privacy.md
+│   │   ├── global-tos.md
+│   │   ├── india-addendum.md
+│   │   ├── refund-policy.md
+│   │   └── virtual-currency.md
+│   ├── DISASTER_RECOVERY.md
+│   ├── PLAN.md
+│   └── SECURITY.md
+├── frontend
+│   ├── public
+│   │   ├── favicon.svg
+│   │   ├── icons.svg
+│   │   ├── manifest.json
+│   │   ├── robots.txt
+│   │   └── sitemap.xml
+│   ├── src
+│   │   ├── assets
+│   │   ├── components
+│   │   │   ├── ui
+│   │   │   │   ├── Button.tsx
+│   │   │   │   ├── ConfirmModal.tsx
+│   │   │   │   ├── EmptyState.tsx
+│   │   │   │   ├── Icon.tsx
+│   │   │   │   ├── Modal.tsx
+│   │   │   │   ├── PageTransition.tsx
+│   │   │   │   ├── Skeleton.tsx
+│   │   │   │   └── Toast.tsx
+│   │   │   ├── AboutGamesSection.tsx
+│   │   │   ├── AdminRoute.tsx
+│   │   │   ├── AgeGate.tsx
+│   │   │   ├── CookieBanner.tsx
+│   │   │   ├── ErrorBoundary.tsx
+│   │   │   ├── FeatureTile.tsx
+│   │   │   ├── FeaturesSection.tsx
+│   │   │   ├── Footer.tsx
+│   │   │   ├── Header.tsx
+│   │   │   ├── Hero.tsx
+│   │   │   ├── OdometerNumber.tsx
+│   │   │   ├── ProtectedRoute.tsx
+│   │   │   ├── Shell.tsx
+│   │   │   ├── SkipNav.tsx
+│   │   │   ├── StatCard.tsx
+│   │   │   ├── StatsSection.tsx
+│   │   │   └── ThemeToggle.tsx
+│   │   ├── context
+│   │   │   ├── AuthContext.tsx
+│   │   │   └── ThemeContext.tsx
+│   │   ├── hooks
+│   │   │   ├── useAuth.ts
+│   │   │   ├── useCountUp.ts
+│   │   │   ├── useFocusTrap.ts
+│   │   │   ├── useGameQueries.ts
+│   │   │   ├── useSocket.ts
+│   │   │   └── useTheme.ts
+│   │   ├── lib
+│   │   │   └── queryClient.ts
+│   │   ├── pages
+│   │   │   ├── Admin.tsx
+│   │   │   ├── Calendar.tsx
+│   │   │   ├── Casino.tsx
+│   │   │   ├── City.tsx
+│   │   │   ├── Company.tsx
+│   │   │   ├── Crimes.tsx
+│   │   │   ├── DevOnboardingPreview.tsx
+│   │   │   ├── Events.tsx
+│   │   │   ├── FederalJail.tsx
+│   │   │   ├── Forum.tsx
+│   │   │   ├── Gang.tsx
+│   │   │   ├── GangWars.tsx
+│   │   │   ├── Gym.tsx
+│   │   │   ├── Home.tsx
+│   │   │   ├── Hospital.tsx
+│   │   │   ├── Inventory.tsx
+│   │   │   ├── ItemMarket.tsx
+│   │   │   ├── Jail.tsx
+│   │   │   ├── Job.tsx
+│   │   │   ├── Landing.tsx
+│   │   │   ├── Legal.tsx
+│   │   │   ├── LinkedGangs.tsx
+│   │   │   ├── Login.tsx
+│   │   │   ├── Missions.tsx
+│   │   │   ├── Newspaper.tsx
+│   │   │   ├── NotFound.tsx
+│   │   │   ├── Onboarding.tsx
+│   │   │   ├── Properties.tsx
+│   │   │   ├── Register.tsx
+│   │   │   └── Travel.tsx
+│   │   ├── services
+│   │   │   ├── admin.ts
+│   │   │   ├── analytics.ts
+│   │   │   ├── api.ts
+│   │   │   ├── crimes.ts
+│   │   │   ├── features.ts
+│   │   │   ├── fingerprint.ts
+│   │   │   ├── news.ts
+│   │   │   ├── socket.ts
+│   │   │   └── stats.ts
+│   │   ├── styles
+│   │   │   ├── AboutGamesSection.css
+│   │   │   ├── Admin.css
+│   │   │   ├── AgeGate.css
+│   │   │   ├── Button.css
+│   │   │   ├── ConfirmModal.css
+│   │   │   ├── CookieBanner.css
+│   │   │   ├── Crimes.css
+│   │   │   ├── EmptyState.css
+│   │   │   ├── ErrorBoundary.css
+│   │   │   ├── FeaturesSection.css
+│   │   │   ├── Footer.css
+│   │   │   ├── Header.css
+│   │   │   ├── Hero.css
+│   │   │   ├── Home.css
+│   │   │   ├── Icon.css
+│   │   │   ├── Landing.css
+│   │   │   ├── NotFound.css
+│   │   │   ├── Onboarding.css
+│   │   │   ├── PageTransition.css
+│   │   │   ├── Register.css
+│   │   │   ├── Skeleton.css
+│   │   │   ├── StatsSection.css
+│   │   │   ├── ThemeToggle.css
+│   │   │   ├── Toast.css
+│   │   │   ├── design-system.css
+│   │   │   └── global-polish.css
+│   │   ├── test
+│   │   │   └── setup.ts
+│   │   ├── types
+│   │   │   └── index.ts
+│   │   ├── utils
+│   │   │   ├── __tests__
+│   │   │   │   ├── apiError.test.ts
+│   │   │   │   ├── firebaseErrors.test.ts
+│   │   │   │   └── integrityCheck.test.ts
+│   │   │   ├── apiError.ts
+│   │   │   ├── firebaseErrors.ts
+│   │   │   ├── integrityCheck.ts
+│   │   │   ├── toast.ts
+│   │   │   └── userEvents.ts
+│   │   ├── App.css
+│   │   ├── App.tsx
+│   │   ├── firebase.ts
+│   │   ├── index.css
+│   │   └── main.tsx
+│   ├── .gitignore
+│   ├── .npmrc
+│   ├── README.md
+│   ├── eslint.config.js
+│   ├── index.html
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── tsconfig.app.json
+│   ├── tsconfig.json
+│   ├── tsconfig.node.json
+│   ├── vite.config.ts
+│   └── vitest.config.ts
+├── .gitignore
+├── .lintstagedrc.json
+├── .npmrc
+├── DEPLOYMENT.md
+├── README.md
+├── commitlint.config.js
+├── docker-compose.yml
+├── nginx.conf
+├── package-lock.json
+├── package.json
+└── undercity-tree.txt
+
+40 directories, 297 files

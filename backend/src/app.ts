@@ -6,11 +6,15 @@ initSentry();
 
 import express from "express";
 import cors from "cors";
+import http from "http";
 
 import { validateEnv } from "./utils/envValidator";
 validateEnv();
 
 import { config } from "./config";
+import { initSocket } from "./config/socket";
+import { startGameTick, stopGameTick } from "./services/gameTick";
+
 import authRoutes      from "./routes/authRoutes";
 import crimeRoutes     from "./routes/crimeRoutes";
 import statsRoutes     from "./routes/statsRoutes";
@@ -20,7 +24,9 @@ import adminRoutes     from "./routes/adminRoutes";
 import healthRoutes    from "./routes/healthRoutes";
 import gdprRoutes      from "./routes/gdprRoutes";
 import mfaRoutes       from "./routes/mfaRoutes";
-import supportRoutes   from "./routes/supportRoutes";
+import supportRoutes from "./routes/supportRoutes";
+import paymentRoutes from "./routes/paymentRoutes";
+
 import { logger }                  from "./utils/logger";
 import { requestId }               from "./middleware/requestId";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
@@ -40,6 +46,14 @@ import {
 import { Alerts } from "./utils/alerts";
 
 const app = express();
+
+// ── Create HTTP server (required for Socket.io) ────────────
+const httpServer = http.createServer(app);
+
+// ── Initialize Socket.io ───────────────────────────────────
+const io = initSocket(httpServer);
+// Make io available to routes if needed
+app.set("io", io);
 
 app.set("trust proxy", 1);
 
@@ -97,15 +111,15 @@ app.use("/api/auth",    bruteForceProtection);
 app.use("/api/v1/auth", bruteForceProtection);
 
 // ─── v1 routes ───
-app.use("/api/v1/health",  healthRoutes);
-app.use("/api/v1/auth",    authRoutes);
-app.use("/api/v1/crimes",  crimeRoutes);
-app.use("/api/v1/stats",   statsRoutes);
+app.use("/api/v1/health",    healthRoutes);
+app.use("/api/v1/auth",      authRoutes);
+app.use("/api/v1/crimes",    crimeRoutes);
+app.use("/api/v1/stats",     statsRoutes);
 app.use("/api/v1/challenge", challengeRoutes);
-app.use("/api/v1/admin",   adminRoutes);
-app.use("/api/v1/gdpr",    gdprRoutes);
-app.use("/api/v1/mfa",     mfaRoutes);
-app.use("/api/v1/support", supportRoutes);
+app.use("/api/v1/admin",     adminRoutes);
+app.use("/api/v1/gdpr",      gdprRoutes);
+app.use("/api/v1/mfa",       mfaRoutes);
+app.use("/api/v1/support",   supportRoutes);
 
 // ─── Legacy routes ───
 app.use("/api/health",    healthRoutes);
@@ -126,34 +140,44 @@ Sentry.setupExpressErrorHandler(app);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-const server = app.listen(config.port, () => {
+// ── Start HTTP server (NOT app.listen — use httpServer) ────
+const server = httpServer.listen(config.port, () => {
   logger.info(`🚀 Backend running on http://localhost:${config.port}`);
   logger.info(`🌍 Environment: ${config.nodeEnv}`);
+  logger.info(`🔌 Socket.io: ACTIVE`);
   logger.info(`🛡️  UAC 2.0: ACTIVE | Helmet: ON | Compression: ON`);
   logger.info(`🚦 Rate limiter: ON | IP Blacklist: ON | Brute Force: ON`);
   logger.info(`🧹 Sanitization: ON | XSS: ON`);
   logger.info(`🔀 API: /api/v1/* + legacy /api/*`);
   logger.info(`📚 Docs: http://localhost:${config.port}/api/docs`);
   logger.info(`💊 Health: http://localhost:${config.port}/api/health/detailed`);
-  logger.info(`🔐 MFA: /api/v1/mfa/status`);
-  logger.info(`🎫 Support: /api/v1/support/ticket`);
 
-  // ── Scheduled jobs — production only ──
+  // ── Production only jobs ──
   if (config.isProduction) {
+    // Scheduled BullMQ jobs
     import("./queues/scheduler")
       .then(({ setupScheduledJobs }) => setupScheduledJobs())
       .then(() => logger.info("⏰ Scheduled jobs: ACTIVE"))
       .catch((err: unknown) => {
-        logger.error("⏰ Scheduled jobs FAILED to start", {
+        logger.error("⏰ Scheduled jobs FAILED", {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+
+    // Game tick engine
+    startGameTick();
+    logger.info("⏱️  Game tick: ACTIVE");
   } else {
     logger.info("⏰ Scheduled jobs: SKIPPED (dev mode)");
+    logger.info("⏱️  Game tick: SKIPPED (dev mode)");
   }
 
   Alerts.serverStarted(config.port, config.nodeEnv);
 });
+
+// ── Graceful shutdown including game tick ──────────────────
+process.on("SIGTERM", () => stopGameTick());
+process.on("SIGINT",  () => stopGameTick());
 
 setupGracefulShutdown(server);
 

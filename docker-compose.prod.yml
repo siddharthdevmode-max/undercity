@@ -1,0 +1,44 @@
+# ============================================================
+# PRODUCTION OVERRIDES
+# docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# ============================================================
+
+services:
+  postgres:
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  backend:
+    ports: []
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  nginx:
+    deploy:
+      resources:
+        limits:
+          memory: 64M

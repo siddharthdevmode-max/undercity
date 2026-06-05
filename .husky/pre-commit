@@ -1,0 +1,10 @@
+# Run lint-staged
+npx lint-staged
+
+# Run gitleaks if installed
+if command -v gitleaks &> /dev/null; then
+  gitleaks detect --staged --config .github/gitleaks.toml
+else
+  echo "⚠️  gitleaks not installed — skipping secret scan"
+  echo "   Install: brew install gitleaks"
+fi

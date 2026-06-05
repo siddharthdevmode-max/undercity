@@ -5,54 +5,114 @@ import { ForbiddenError } from "../utils/errors";
 import { logger } from "../utils/logger";
 
 // ============================================================
-// requireAdmin
-//
-// Access granted if:
-//   1. User's is_admin = true in DB, OR
-//   2. User's is_developer = true in DB, OR
-//   3. User's firebase_uid is in config.adminUids (emergency override)
-//
-// Order: try DB first (dynamic, current), env list is fallback.
+// ROLE MIDDLEWARE
+// Three levels:
+//   requireAdmin     — admin OR developer only
+//   requireModerator — admin OR developer OR moderator
+//   requireDeveloper — developer only
+// All fail-CLOSED on errors
 // ============================================================
 
+type RoleRow = {
+  is_admin:     boolean;
+  is_developer: boolean;
+  is_moderator: boolean;
+};
+
+async function getRoles(uid: string): Promise<RoleRow | null> {
+  const result = await pool.query<RoleRow>(
+    `SELECT is_admin, is_developer, is_moderator
+     FROM users WHERE firebase_uid = $1 LIMIT 1`,
+    [uid]
+  );
+  return result.rows[0] ?? null;
+}
+
+// ── Admin or Developer only ────────────────────────────────
 export const requireAdmin = async (
-  req: Request,
+  req:  Request,
   _res: Response,
   next: NextFunction
 ) => {
   const uid = req.firebaseUser?.uid;
-  if (!uid) {
-    return next(new ForbiddenError());
-  }
+  if (!uid) return next(new ForbiddenError());
 
   try {
-    const result = await pool.query<{
-      is_admin: boolean;
-      is_developer: boolean;
-    }>(
-      `SELECT is_admin, is_developer FROM users WHERE firebase_uid = $1 LIMIT 1`,
-      [uid]
-    );
+    const row        = await getRoles(uid);
+    const hasDbRole  = !!row && (row.is_admin || row.is_developer);
+    const inEnvList  = config.adminUids.includes(uid);
 
-    const row = result.rows[0];
-    const hasDbRole = !!row && (row.is_admin || row.is_developer);
-    const inEnvList = config.adminUids.includes(uid);
-
-    if (hasDbRole || inEnvList) {
-      return next();
-    }
+    if (hasDbRole || inEnvList) return next();
 
     logger.warn("🚫 requireAdmin: denied", {
-      uid: uid.substring(0, 8),
+      uid:  uid.substring(0, 8),
       path: req.path,
-      dbRole: { is_admin: row?.is_admin, is_developer: row?.is_developer },
     });
     return next(new ForbiddenError());
   } catch (err) {
     logger.error("requireAdmin: DB error", {
       error: err instanceof Error ? err.message : String(err),
     });
-    // Fail-CLOSED: any error = denied. Never accidentally grant access.
+    return next(new ForbiddenError());
+  }
+};
+
+// ── Moderator or above ─────────────────────────────────────
+export const requireModerator = async (
+  req:  Request,
+  _res: Response,
+  next: NextFunction
+) => {
+  const uid = req.firebaseUser?.uid;
+  if (!uid) return next(new ForbiddenError());
+
+  try {
+    const row       = await getRoles(uid);
+    const hasDbRole = !!row && (
+      row.is_admin || row.is_developer || row.is_moderator
+    );
+    const inEnvList = config.adminUids.includes(uid);
+
+    if (hasDbRole || inEnvList) return next();
+
+    logger.warn("🚫 requireModerator: denied", {
+      uid:  uid.substring(0, 8),
+      path: req.path,
+    });
+    return next(new ForbiddenError());
+  } catch (err) {
+    logger.error("requireModerator: DB error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return next(new ForbiddenError());
+  }
+};
+
+// ── Developer only ─────────────────────────────────────────
+export const requireDeveloper = async (
+  req:  Request,
+  _res: Response,
+  next: NextFunction
+) => {
+  const uid = req.firebaseUser?.uid;
+  if (!uid) return next(new ForbiddenError());
+
+  try {
+    const row       = await getRoles(uid);
+    const isDev     = !!row && row.is_developer;
+    const inEnvList = config.adminUids.includes(uid);
+
+    if (isDev || inEnvList) return next();
+
+    logger.warn("🚫 requireDeveloper: denied", {
+      uid:  uid.substring(0, 8),
+      path: req.path,
+    });
+    return next(new ForbiddenError());
+  } catch (err) {
+    logger.error("requireDeveloper: DB error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return next(new ForbiddenError());
   }
 };

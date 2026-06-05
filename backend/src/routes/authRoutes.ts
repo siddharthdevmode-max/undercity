@@ -11,6 +11,8 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { pool } from "../config/database";
 import { getRequestLogger } from "../utils/logger";
 import { ConflictError, NotFoundError, ValidationError } from "../utils/errors";
+import { isValidUsername } from "../utils/profanityFilter";
+import { EmailService } from "../services/emailService";
 
 const router = Router();
 
@@ -47,6 +49,12 @@ router.post(
       throw new ValidationError("Username is required for new accounts");
     }
 
+    // Profanity + format validation
+    const usernameCheck = isValidUsername(username);
+    if (!usernameCheck.valid) {
+      throw new ValidationError(usernameCheck.reason || "Invalid username");
+    }
+
     const usernameTaken = await pool.query(
       `SELECT id FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,
       [username]
@@ -73,6 +81,12 @@ router.post(
       username,
       uid: uid.substring(0, 8),
     });
+
+    // Send welcome email (fire and forget)
+    if (email) {
+      EmailService.sendWelcome({ to: email, username }).catch(() => {});
+    }
+
     res.status(201).json(newUser.rows[0]);
   })
 );
@@ -128,6 +142,12 @@ router.get(
   validate(checkUsernameSchema),
   asyncHandler(async (req, res) => {
     const username = String(req.params.username);
+
+    // Validate format + profanity before DB hit
+    const usernameCheck = isValidUsername(username);
+    if (!usernameCheck.valid) {
+      return res.json({ available: false, reason: usernameCheck.reason });
+    }
 
     const result = await pool.query(
       `SELECT id FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,

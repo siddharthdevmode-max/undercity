@@ -1,0 +1,31 @@
+{
+  "name": "undercity",
+  "version": "1.0.0",
+  "description": "A browser-based crime MMO inspired by Torn. Build your criminal empire, commit crimes, train stats, and dominate the underground.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepare": "husky"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/siddharthdevmode-max/undercity.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/siddharthdevmode-max/undercity/issues"
+  },
+  "homepage": "https://github.com/siddharthdevmode-max/undercity#readme",
+  "devDependencies": {
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.7",
+    "prettier": "^3.8.3"
+  }
+}

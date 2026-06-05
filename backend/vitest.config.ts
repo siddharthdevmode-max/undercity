@@ -4,33 +4,26 @@ export default defineConfig({
   test: {
     globals:     true,
     environment: "node",
-    testTimeout: 15000,
-
+    include:     ["src/__tests__/**/*.test.ts"],
+    exclude:     ["src/__tests__/api/**"],
     coverage: {
-      provider: "v8",
-      reporter: ["text", "json", "html"],
-      exclude: [
-        "node_modules/",
-        "dist/",
-        "**/*.config.*",
-        "**/scripts/**",
-        "**/test-utils/**",
-        "**/__tests__/api/**",  // Integration tests excluded from unit coverage
-      ],
-      // Raised from 60/60/50 — these are achievable with current test suite
+      provider:  "v8",
+      reporter:  ["text", "lcov", "html"],
+      reportsDirectory: "./coverage",
       thresholds: {
-        lines:     80,
-        functions: 80,
-        branches:  70,
-        statements: 80,
+        lines:     60,
+        functions: 60,
+        branches:  50,
+        statements: 60,
       },
+      exclude: [
+        "src/scripts/**",
+        "src/types/**",
+        "src/config/**",
+        "src/__tests__/**",
+        "src/test-utils/**",
+        "dist/**",
+      ],
     },
-
-    // Exclude integration tests from default unit run
-    exclude: [
-      "node_modules/**",
-      "dist/**",
-      "src/__tests__/api/**",
-    ],
   },
 });

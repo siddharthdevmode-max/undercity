@@ -32,6 +32,7 @@ export const trustRecoveryWorker = new Worker(
 
 // ============================================================
 // DATABASE BACKUP WORKER
+// Uses pg_dump with validated DATABASE_URL — no shell injection
 // ============================================================
 
 export const backupWorker = new Worker(
@@ -39,20 +40,44 @@ export const backupWorker = new Worker(
   async (job: Job) => {
     logger.info("💾 Database backup job started", { jobId: job.id });
 
-    const timestamp  = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupDir  = path.join(process.cwd(), "backups");
-    const backupFile = path.join(backupDir, `undercity-${timestamp}.sql`);
-
-    if (!fs.existsSync(backupDir)) {
-      fs.mkdirSync(backupDir, { recursive: true });
-    }
-
     const dbUrl = process.env.DATABASE_URL;
     if (!dbUrl) throw new Error("DATABASE_URL not set");
 
-    await execAsync(`pg_dump "${dbUrl}" > "${backupFile}"`);
+    // Validate DATABASE_URL format before passing to shell
+    // Must match postgresql://user:pass@host:port/db
+    const pgUrlRegex = /^postgresql:\/\/[^@]+@[^/]+\/\w+/;
+    if (!pgUrlRegex.test(dbUrl)) {
+      throw new Error("DATABASE_URL has invalid format — aborting backup for safety");
+    }
 
-    const stats = fs.statSync(backupFile);
+    const timestamp  = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupDir  = path.resolve(process.cwd(), "backups");
+    const backupFile = path.resolve(backupDir, `undercity-${timestamp}.sql`);
+
+    // Validate paths are within expected directory (path traversal protection)
+    if (!backupFile.startsWith(backupDir)) {
+      throw new Error("Path traversal detected in backup file path");
+    }
+
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true, mode: 0o750 });
+    }
+
+    // Use env var for pg_dump to avoid URL in process list
+    const env = {
+      ...process.env,
+      PGPASSWORD: extractPgPassword(dbUrl),
+    };
+
+    const pgDumpArgs = buildPgDumpArgs(dbUrl, backupFile);
+
+    await execAsync(`pg_dump ${pgDumpArgs}`, {
+      env,
+      timeout: 300_000, // 5 min max
+      maxBuffer: 100 * 1024 * 1024, // 100MB
+    });
+
+    const stats  = fs.statSync(backupFile);
     const sizeMb = Math.round(stats.size / 1024 / 1024 * 100) / 100;
 
     logger.info("✅ Database backup complete", {
@@ -80,6 +105,38 @@ export const backupWorker = new Worker(
   },
   { connection, concurrency: 1 }
 );
+
+// ── Safe pg_dump argument builder ─────────────────────────
+function buildPgDumpArgs(dbUrl: string, outputFile: string): string {
+  try {
+    const url   = new URL(dbUrl);
+    const host  = url.hostname;
+    const port  = url.port || "5432";
+    const db    = url.pathname.replace("/", "");
+    const user  = url.username;
+
+    // Validate each component — no shell metacharacters
+    const safe  = /^[a-zA-Z0-9_\-.]+$/;
+    if (!safe.test(host) || !safe.test(port) || !safe.test(db) || !safe.test(user)) {
+      throw new Error("Invalid characters in database connection params");
+    }
+
+    // outputFile is already path.resolve'd and validated above
+    const safeOutput = outputFile.replace(/'/g, "");
+
+    return `-h ${host} -p ${port} -U ${user} -d ${db} -f '${safeOutput}'`;
+  } catch {
+    throw new Error("Failed to parse DATABASE_URL for pg_dump");
+  }
+}
+
+function extractPgPassword(dbUrl: string): string {
+  try {
+    return new URL(dbUrl).password || "";
+  } catch {
+    return "";
+  }
+}
 
 // ============================================================
 // IDEMPOTENCY CLEANUP WORKER
@@ -121,8 +178,8 @@ function attachWorkerEvents(worker: Worker, name: string) {
   });
 }
 
-attachWorkerEvents(trustRecoveryWorker,    "trust-recovery");
-attachWorkerEvents(backupWorker,           "database-backup");
+attachWorkerEvents(trustRecoveryWorker,      "trust-recovery");
+attachWorkerEvents(backupWorker,             "database-backup");
 attachWorkerEvents(idempotencyCleanupWorker, "idempotency-cleanup");
 
 // ── Graceful Shutdown ──────────────────────────────────────

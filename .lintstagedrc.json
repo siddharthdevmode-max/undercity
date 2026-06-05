@@ -1,0 +1,8 @@
+{
+  "backend/src/**/*.{ts,tsx}": [
+    "bash -c 'cd backend && npx eslint --max-warnings 0 src --fix'"
+  ],
+  "frontend/src/**/*.{ts,tsx}": [
+    "bash -c 'cd frontend && npx eslint src --fix'"
+  ]
+}

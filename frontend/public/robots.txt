@@ -1,5 +1,7 @@
 User-agent: *
 Allow: /
 Disallow: /api/
+Disallow: /admin
+Disallow: /onboarding
 
-Sitemap: https://undercity.pages.dev/sitemap.xml
+Sitemap: https://undercity.app/sitemap.xml

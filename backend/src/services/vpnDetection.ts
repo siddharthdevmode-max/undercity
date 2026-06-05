@@ -5,9 +5,7 @@ import { isImmuneFromUAC } from "./immunityCheck";
 
 // ============================================================
 // UAC 2.0 — VPN/PROXY DETECTION ENGINE
-// Uses IP-API (free tier: 45 req/min, no key needed)
-// Cache: Redis (6h TTL) — survives restarts
-// Flags: VPN, Proxy, Tor, Hosting IPs, Geo-blocked countries
+// SSRF protected: blocks all private/internal IPs
 // ============================================================
 
 interface IpApiResponse {
@@ -26,47 +24,67 @@ interface IpApiResponse {
 const CACHE_TTL_SECONDS = 60 * 60 * 6; // 6 hours
 const CACHE_PREFIX      = "vpn:";
 const API_TIMEOUT_MS    = 3000;
-const SKIP_IPS          = new Set(["127.0.0.1", "::1", "localhost"]);
 
-const BLOCKED_COUNTRIES: string[] = (
-  process.env.BLOCKED_COUNTRIES || ""
-).split(",").map((c) => c.trim()).filter(Boolean);
+const SKIP_IPS = new Set(["127.0.0.1", "::1", "localhost"]);
 
-// ============================================================
-// IP LOOKUP — Redis cached
-// ============================================================
+// ── SSRF Protection: block private/internal IP ranges ────────
+const PRIVATE_IP_PATTERNS = [
+  /^127\./,
+  /^10\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^192\.168\./,
+  /^169\.254\./,
+  /^::1$/,
+  /^fc00:/i,
+  /^fe80:/i,
+  /^0\./,
+  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,  // CGNAT
+];
+
+function isPrivateIp(ip: string): boolean {
+  return PRIVATE_IP_PATTERNS.some((pattern) => pattern.test(ip));
+}
+
+// Whitelist outbound domains for SSRF protection
+const ALLOWED_LOOKUP_HOST = "ip-api.com";
+
 async function lookupIp(ip: string): Promise<IpApiResponse | null> {
+  // SSRF: never look up private/internal IPs
+  if (isPrivateIp(ip)) {
+    logger.debug("VPN lookup skipped — private IP", { ip });
+    return null;
+  }
+
   const cacheKey = `${CACHE_PREFIX}${ip}`;
 
-  // ── Try Redis cache first ──
   try {
     const cached = await redis.get(cacheKey);
     if (cached) return JSON.parse(cached) as IpApiResponse;
   } catch {
-    // Redis down — fall through to API
+    // Redis down — fall through
   }
 
-  // ── Call IP-API ──
   try {
     const controller = new AbortController();
     const timeout    = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
-    const res = await fetch(
-      `http://ip-api.com/json/${ip}?fields=status,proxy,vpn,tor,hosting,isp,org,country,countryCode,query`,
-      { signal: controller.signal }
-    );
+    // Explicitly construct URL with whitelisted host (SSRF prevention)
+    const url = `http://${ALLOWED_LOOKUP_HOST}/json/${encodeURIComponent(ip)}?fields=status,proxy,vpn,tor,hosting,isp,org,country,countryCode,query`;
 
+    const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeout);
 
     if (!res.ok) return null;
 
     const data = await res.json() as IpApiResponse;
 
-    // ── Cache in Redis ──
+    // Validate response structure before caching
+    if (!data || typeof data.status !== "string") return null;
+
     try {
       await redis.set(cacheKey, JSON.stringify(data), "EX", CACHE_TTL_SECONDS);
     } catch {
-      // ignore cache write failures
+      // ignore
     }
 
     return data;
@@ -79,9 +97,10 @@ async function lookupIp(ip: string): Promise<IpApiResponse | null> {
   }
 }
 
-// ============================================================
-// MAIN EXPORT
-// ============================================================
+const BLOCKED_COUNTRIES: string[] = (
+  process.env.BLOCKED_COUNTRIES || ""
+).split(",").map((c) => c.trim()).filter(Boolean);
+
 export async function checkVpnProxy(
   firebaseUid: string,
   ipAddress:   string | undefined,
@@ -102,7 +121,7 @@ export async function checkVpnProxy(
   if (!ipAddress) return defaultResult;
 
   const cleanIp = ipAddress.replace(/^::ffff:/, "");
-  if (SKIP_IPS.has(cleanIp)) return defaultResult;
+  if (SKIP_IPS.has(cleanIp) || isPrivateIp(cleanIp)) return defaultResult;
 
   const immune = await isImmuneFromUAC(firebaseUid);
   const data   = await lookupIp(cleanIp);
@@ -116,56 +135,37 @@ export async function checkVpnProxy(
     country:   data.countryCode || "UNKNOWN",
   };
 
-  // Immune users — return data but skip flagging
   if (immune) return result;
 
-  // ── VPN / Proxy ──
   if (data.vpn || data.proxy) {
     logger.warn("🔒 VPN/Proxy detected", {
       uid: firebaseUid.substring(0, 8),
       ip:  cleanIp,
       isp: data.isp,
-      org: data.org,
     });
     await flagUser({
       firebaseUid,
       violationType: "VPN_PROXY_DETECTED",
-      details: {
-        ip:    cleanIp,
-        isp:   data.isp,
-        org:   data.org,
-        vpn:   data.vpn,
-        proxy: data.proxy,
-      },
+      details: { ip: cleanIp, isp: data.isp, org: data.org, vpn: data.vpn, proxy: data.proxy },
       ipAddress: cleanIp,
       userAgent,
     });
   }
 
-  // ── Hosting / Datacenter IP ──
   if (data.hosting && !data.vpn && !data.proxy) {
-    logger.warn("🖥️ Datacenter/hosting IP detected", {
+    logger.warn("🖥️ Datacenter IP detected", {
       uid: firebaseUid.substring(0, 8),
       ip:  cleanIp,
-      isp: data.isp,
-      org: data.org,
     });
     await flagUser({
       firebaseUid,
       violationType: "VPN_PROXY_DETECTED",
-      details: {
-        ip:      cleanIp,
-        isp:     data.isp,
-        org:     data.org,
-        hosting: true,
-        reason:  "Datacenter/hosting IP — likely automated traffic",
-      },
+      details: { ip: cleanIp, isp: data.isp, org: data.org, hosting: true },
       ipAddress: cleanIp,
       userAgent,
     });
   }
 
-  // ── Tor ──
   if (data.tor) {
     logger.warn("🧅 Tor exit node detected", {
       uid: firebaseUid.substring(0, 8),
@@ -180,7 +180,6 @@ export async function checkVpnProxy(
     });
   }
 
-  // ── Geo-blocking ──
   if (
     BLOCKED_COUNTRIES.length > 0 &&
     BLOCKED_COUNTRIES.includes(data.countryCode)
@@ -192,10 +191,7 @@ export async function checkVpnProxy(
     await flagUser({
       firebaseUid,
       violationType: "GEO_BLOCKED",
-      details: {
-        country:     data.country,
-        countryCode: data.countryCode,
-      },
+      details: { country: data.country, countryCode: data.countryCode },
       ipAddress: cleanIp,
       userAgent,
     });

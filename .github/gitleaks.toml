@@ -1,0 +1,25 @@
+title = "Undercity Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+description = "Firebase Service Account"
+id          = "firebase-service-account"
+regex       = '''\"type\":\s*\"service_account\"'''
+severity    = "CRITICAL"
+tags        = ["firebase", "credentials"]
+
+[[rules]]
+description = "PostgreSQL Connection String"
+id          = "pg-connection-string"
+regex       = '''postgresql://[^:]+:[^@]+@'''
+severity    = "HIGH"
+tags        = ["database", "credentials"]
+
+[allowlist]
+description = "Allowlisted files"
+paths       = [
+  ".env.example",
+  "docs/",
+]

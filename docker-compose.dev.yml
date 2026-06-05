@@ -1,0 +1,27 @@
+# ============================================================
+# DEV OVERRIDES
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# Or just: docker compose up  (uses docker-compose.yml defaults)
+# ============================================================
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  backend:
+    environment:
+      NODE_ENV: development
+    ports:
+      - "${PORT:-5000}:${PORT:-5000}"
+    volumes:
+      - backup_data:/app/backups
+    profiles: []
+
+  nginx:
+    profiles:
+      - nginx
