@@ -76,7 +76,7 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT_JSON: ""
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-coverage
           path: backend/coverage/
