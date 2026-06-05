@@ -21,16 +21,23 @@ import healthRoutes    from "./routes/healthRoutes";
 import gdprRoutes      from "./routes/gdprRoutes";
 import mfaRoutes       from "./routes/mfaRoutes";
 import supportRoutes   from "./routes/supportRoutes";
-import { logger }                    from "./utils/logger";
-import { requestId }                 from "./middleware/requestId";
+import { logger }                  from "./utils/logger";
+import { requestId }               from "./middleware/requestId";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
-import { setupGracefulShutdown }     from "./utils/gracefulShutdown";
-import { setupApiDocs }              from "./utils/apiDocs";
-import { setupSecurityMiddleware }   from "./middleware/securityMiddleware";
-import { globalLimiter, ipBlacklist, bruteForceProtection } from "./middleware/rateLimiter";
-import { sanitizeBody, sanitizeQuery, sanitizeParams } from "./middleware/sanitizeMiddleware";
+import { setupGracefulShutdown }   from "./utils/gracefulShutdown";
+import { setupApiDocs }            from "./utils/apiDocs";
+import { setupSecurityMiddleware } from "./middleware/securityMiddleware";
+import {
+  globalLimiter,
+  ipBlacklist,
+  bruteForceProtection,
+} from "./middleware/rateLimiter";
+import {
+  sanitizeBody,
+  sanitizeQuery,
+  sanitizeParams,
+} from "./middleware/sanitizeMiddleware";
 import { Alerts } from "./utils/alerts";
-import { setupScheduledJobs } from "./queues/scheduler";
 
 const app = express();
 
@@ -90,15 +97,15 @@ app.use("/api/auth",    bruteForceProtection);
 app.use("/api/v1/auth", bruteForceProtection);
 
 // ─── v1 routes ───
-app.use("/api/v1/health",    healthRoutes);
-app.use("/api/v1/auth",      authRoutes);
-app.use("/api/v1/crimes",    crimeRoutes);
-app.use("/api/v1/stats",     statsRoutes);
+app.use("/api/v1/health",  healthRoutes);
+app.use("/api/v1/auth",    authRoutes);
+app.use("/api/v1/crimes",  crimeRoutes);
+app.use("/api/v1/stats",   statsRoutes);
 app.use("/api/v1/challenge", challengeRoutes);
-app.use("/api/v1/admin",     adminRoutes);
-app.use("/api/v1/gdpr",      gdprRoutes);
-app.use("/api/v1/mfa",       mfaRoutes);
-app.use("/api/v1/support",   supportRoutes);
+app.use("/api/v1/admin",   adminRoutes);
+app.use("/api/v1/gdpr",    gdprRoutes);
+app.use("/api/v1/mfa",     mfaRoutes);
+app.use("/api/v1/support", supportRoutes);
 
 // ─── Legacy routes ───
 app.use("/api/health",    healthRoutes);
@@ -111,7 +118,7 @@ app.use("/api/gdpr",      gdprRoutes);
 app.use("/api/mfa",       mfaRoutes);
 app.use("/api/support",   supportRoutes);
 
-// ─── Honeypot (after all real routes) ───
+// ─── Honeypot (must be after all real routes) ───
 app.use("/api",    honeypotRoutes);
 app.use("/api/v1", honeypotRoutes);
 
@@ -131,13 +138,16 @@ const server = app.listen(config.port, () => {
   logger.info(`🔐 MFA: /api/v1/mfa/status`);
   logger.info(`🎫 Support: /api/v1/support/ticket`);
 
+  // ── Scheduled jobs — production only ──
   if (config.isProduction) {
-    setupScheduledJobs().catch((err) => {
-      logger.error("Failed to setup scheduled jobs", {
-        error: err instanceof Error ? err.message : String(err),
+    import("./queues/scheduler")
+      .then(({ setupScheduledJobs }) => setupScheduledJobs())
+      .then(() => logger.info("⏰ Scheduled jobs: ACTIVE"))
+      .catch((err: unknown) => {
+        logger.error("⏰ Scheduled jobs FAILED to start", {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
-    });
-    logger.info("⏰ Scheduled jobs: ACTIVE");
   } else {
     logger.info("⏰ Scheduled jobs: SKIPPED (dev mode)");
   }

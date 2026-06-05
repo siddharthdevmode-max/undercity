@@ -3,7 +3,6 @@ import { logger } from "../utils/logger";
 
 // ============================================================
 // BULLMQ QUEUE SYSTEM
-// All background jobs go through here
 // Queues: trust-recovery, backup, idempotency-cleanup
 // ============================================================
 
@@ -12,8 +11,6 @@ const connection = {
   port:     parseInt(process.env.REDIS_PORT || "6379", 10),
   password: process.env.REDIS_PASSWORD || undefined,
 };
-
-// ── Queue Definitions ──────────────────────────────────────
 
 export const trustRecoveryQueue = new Queue("trust-recovery", {
   connection,
@@ -45,14 +42,8 @@ export const idempotencyCleanupQueue = new Queue("idempotency-cleanup", {
   },
 });
 
-// ── Queue Health Check ─────────────────────────────────────
-
 export async function getQueueStats() {
-  const [
-    trustCounts,
-    backupCounts,
-    idempotencyCounts,
-  ] = await Promise.all([
+  const [trustCounts, backupCounts, idempotencyCounts] = await Promise.all([
     trustRecoveryQueue.getJobCounts(),
     backupQueue.getJobCounts(),
     idempotencyCleanupQueue.getJobCounts(),
@@ -64,8 +55,6 @@ export async function getQueueStats() {
     "idempotency-cleanup": idempotencyCounts,
   };
 }
-
-// ── Graceful Queue Shutdown ────────────────────────────────
 
 export async function closeQueues(): Promise<void> {
   logger.info("🔄 Closing BullMQ queues...");
