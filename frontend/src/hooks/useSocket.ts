@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { useAuth } from "./useAuth";
 import {
   connectSocket,
@@ -30,12 +30,8 @@ export function useSocket() {
     if (connected.current) return;
 
     connectSocket()
-      .then(() => {
-        connected.current = true;
-      })
-      .catch((err) => {
-        console.error("Socket connect failed:", err);
-      });
+      .then(() => { connected.current = true; })
+      .catch((err) => { console.error("Socket connect failed:", err); });
 
     return () => {
       disconnectSocket();
@@ -44,7 +40,7 @@ export function useSocket() {
   }, [user]);
 }
 
-// ── useNotifications — Wire toast to socket notifications ──
+// ── useNotifications ────────────────────────────────────────
 export function useNotifications() {
   useEffect(() => {
     const unsub = onNotification((n: GameNotification) => {
@@ -54,12 +50,14 @@ export function useNotifications() {
   }, []);
 }
 
-// ── useOnlineCount — Get live online player count ──────────
-export function useOnlineCount(
-  cb: (count: number) => void
-) {
+// ── useOnlineCount ──────────────────────────────────────────
+// cbRef pattern: store latest cb in ref, access only inside effect
+export function useOnlineCount(cb: (count: number) => void) {
   const cbRef = useRef(cb);
-  cbRef.current = cb;
+
+  useEffect(() => {
+    cbRef.current = cb;
+  });
 
   useEffect(() => {
     const unsub = onOnlineCount((o: OnlineCount) => {
@@ -69,12 +67,13 @@ export function useOnlineCount(
   }, []);
 }
 
-// ── useStatsUpdate — React to live stat changes ────────────
-export function useStatsUpdate(
-  cb: (stats: Record<string, number>) => void
-) {
+// ── useStatsUpdate ──────────────────────────────────────────
+export function useStatsUpdate(cb: (stats: Record<string, number>) => void) {
   const cbRef = useRef(cb);
-  cbRef.current = cb;
+
+  useEffect(() => {
+    cbRef.current = cb;
+  });
 
   useEffect(() => {
     const unsub = onStatsUpdate((s: StatsUpdate) => {

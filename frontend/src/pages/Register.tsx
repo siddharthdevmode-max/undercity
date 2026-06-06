@@ -94,7 +94,7 @@ export default function Register() {
       await createUserWithEmailAndPassword(auth, email, password);
       const newUser = await authAPI.sync(username);
       setUser(newUser);
-      navigate('/home');
+      navigate('/onboarding');
     } catch (err: unknown) {
       setError(getFriendlyError(err));
     } finally {

@@ -1,7 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ============================================================
-// MOCK POOL — must use vi.hoisted
+// CONFIG MOCK — disable config.isTest guard
+// fingerprintEngine.ts returns early when config.isTest = true
+// We must override this so the function body actually runs
+// ============================================================
+
+vi.mock("../config", () => ({
+  config: {
+    isTest:            false,
+    isProduction:      false,
+    nodeEnv:           "test",
+    logLevel:          "silent",
+    fingerprintSalt:   "test-salt-32-chars-minimum-here!",
+  },
+}));
+
+// ============================================================
+// POOL MOCK
 // ============================================================
 
 const mockQuery = vi.hoisted(() => vi.fn());
@@ -9,6 +25,22 @@ const mockQuery = vi.hoisted(() => vi.fn());
 vi.mock("../config/database", () => ({
   pool: { query: mockQuery },
 }));
+
+// ============================================================
+// REDIS MOCK — engine uses redis.exists + redis.set for VPN debounce
+// ============================================================
+
+vi.mock("../config/redis", () => ({
+  redis: {
+    exists: vi.fn().mockResolvedValue(1), // pretend VPN already checked → skip
+    set:    vi.fn().mockResolvedValue("OK"),
+    get:    vi.fn().mockResolvedValue(null),
+  },
+}));
+
+// ============================================================
+// LOGGER MOCK
+// ============================================================
 
 vi.mock("../utils/logger", () => ({
   logger: {
@@ -19,15 +51,28 @@ vi.mock("../utils/logger", () => ({
   },
 }));
 
+// ============================================================
+// IMMUNITY + VPN MOCKS
+// ============================================================
+
 vi.mock("../services/immunityCheck", () => ({
   isImmuneFromUAC: vi.fn().mockResolvedValue(false),
 }));
 
+vi.mock("../services/vpnDetection", () => ({
+  checkVpnProxy: vi.fn().mockResolvedValue(undefined),
+}));
+
+// ── Imports (after all mocks) ──────────────────────────────
 
 import {
   recordFingerprint,
   checkMultiAccount,
 } from "../services/fingerprintEngine";
+
+// ============================================================
+// recordFingerprint
+// ============================================================
 
 describe("fingerprintEngine — recordFingerprint", () => {
   beforeEach(() => {
@@ -39,10 +84,10 @@ describe("fingerprintEngine — recordFingerprint", () => {
     await recordFingerprint("test-uid", "192.168.1.1", "Mozilla/5.0");
     // No visitorId → exactly 1 INSERT (legacy hash only)
     expect(mockQuery).toHaveBeenCalledOnce();
-    const sql = mockQuery.mock.calls[0][0] as string;
+    const sql = mockQuery.mock.calls[0]![0] as string;
     expect(sql).toContain("INSERT INTO device_fingerprints");
     expect(sql).toContain("ON CONFLICT");
-    const params = mockQuery.mock.calls[0][1] as unknown[];
+    const params = mockQuery.mock.calls[0]![1] as unknown[];
     expect(params[0]).toBe("test-uid");
     expect(params[2]).toBe("192.168.1.1");
     expect(params[3]).toBe("Mozilla/5.0");
@@ -51,7 +96,7 @@ describe("fingerprintEngine — recordFingerprint", () => {
   it("strips ::ffff: IPv6 prefix from IP address", async () => {
     await recordFingerprint("test-uid", "::ffff:192.168.1.1", "Mozilla/5.0");
     expect(mockQuery).toHaveBeenCalledOnce();
-    const params = mockQuery.mock.calls[0][1] as string[];
+    const params = mockQuery.mock.calls[0]![1] as string[];
     expect(params[2]).toBe("192.168.1.1");
     expect(params[2]).not.toContain("::ffff:");
   });
@@ -75,16 +120,19 @@ describe("fingerprintEngine — recordFingerprint", () => {
 
   it("stores fingerprint hash not raw IP+UA", async () => {
     await recordFingerprint("test-uid", "10.0.0.1", "Chrome/100");
-    const params = mockQuery.mock.calls[0][1] as string[];
-    // params[1] is fingerprintHash
-    // Full SHA256 = 64 hex chars (more secure, no truncation)
+    expect(mockQuery).toHaveBeenCalledOnce();
+    const params = mockQuery.mock.calls[0]![1] as string[];
+    // params[1] = fingerprintHash — full SHA256 = 64 hex chars
     expect(params[1]).toHaveLength(64);
     expect(params[1]).not.toContain("10.0.0.1");
     expect(params[1]).not.toContain("Chrome");
-    // Must be valid hex string
     expect(params[1]).toMatch(/^[a-f0-9]{64}$/);
   });
 });
+
+// ============================================================
+// checkMultiAccount
+// ============================================================
 
 describe("fingerprintEngine — checkMultiAccount", () => {
   beforeEach(() => {
@@ -134,12 +182,10 @@ describe("fingerprintEngine — checkMultiAccount", () => {
     mockQuery.mockResolvedValue({ rows: [] });
     await checkMultiAccount("uid-1", "10.0.0.1", "Chrome/100");
     await checkMultiAccount("uid-2", "10.0.0.1", "Chrome/100");
-    // pool.query(SQL, [hashes, firebaseUid]) — params[0] = hashes array
-    const hashes1 = (mockQuery.mock.calls[0][1] as [string[], string])[0];
-    const hashes2 = (mockQuery.mock.calls[1][1] as [string[], string])[0];
+    const hashes1 = (mockQuery.mock.calls[0]![1] as [string[], string])[0];
+    const hashes2 = (mockQuery.mock.calls[1]![1] as [string[], string])[0];
     // Same IP + UA → identical legacy hash
     expect(hashes1[0]).toBe(hashes2[0]);
-    // Must be full 64-char SHA256
     expect(hashes1[0]).toHaveLength(64);
     expect(hashes1[0]).toMatch(/^[a-f0-9]{64}$/);
   });
@@ -148,8 +194,8 @@ describe("fingerprintEngine — checkMultiAccount", () => {
     mockQuery.mockResolvedValue({ rows: [] });
     await checkMultiAccount("uid-1", "10.0.0.1", "Chrome/100");
     await checkMultiAccount("uid-2", "10.0.0.2", "Chrome/100");
-    const hash1 = (mockQuery.mock.calls[0][1] as string[])[0];
-    const hash2 = (mockQuery.mock.calls[1][1] as string[])[0];
+    const hash1 = (mockQuery.mock.calls[0]![1] as string[])[0];
+    const hash2 = (mockQuery.mock.calls[1]![1] as string[])[0];
     expect(hash1).not.toBe(hash2);
   });
 });

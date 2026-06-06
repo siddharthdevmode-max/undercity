@@ -3,97 +3,185 @@ import { verifyFirebaseToken } from "../middleware/firebaseAuth";
 import {
   authSyncLimiter,
   authMeLimiter,
-  usernameCheckLimiter,
+  usernameCheckLimiter
 } from "../middleware/rateLimiter";
 import { validate } from "../middleware/validate";
-import { syncUserSchema, checkUsernameSchema } from "../utils/schemas";
+import { noCache } from "../middleware/cacheHeaders";
+import {
+  syncUserSchema,
+  checkUsernameSchema
+} from "../utils/schemas";
 import { asyncHandler } from "../utils/asyncHandler";
 import { pool } from "../config/database";
 import { getRequestLogger } from "../utils/logger";
-import { ConflictError, NotFoundError, ValidationError } from "../utils/errors";
-import { isValidUsername } from "../utils/profanityFilter";
-import { EmailService } from "../services/emailService";
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationError
+} from "../utils/errors";
+import { queueEmail } from "../queues/index";
+import { invalidateBanCache } from "../middleware/banCheck";
+import { invalidateRoleCache } from "../middleware/requireAdmin";
 
 const router = Router();
+
+router.use(noCache);
 
 const USER_FIELDS = `
   id, firebase_uid, email, username, level, money, points,
   nerve, max_nerve, life, max_life,
-  jail_until, federal_jail_until, last_crime_at,
-  onboarding_completed, is_admin, is_developer, created_at
+  energy, max_energy, happiness,
+  jail_until, hospital_until, federal_jail_until,
+  last_crime_at, last_seen_at,
+  onboarding_completed,
+  is_admin, is_developer, is_moderator,
+  created_at
 `;
 
-// ============================================================
-// POST /api/auth/sync
-// ============================================================
+const NEW_USER_DEFAULTS = {
+  money: 750,
+  level: 1,
+  points: 0,
+  nerve: 30,
+  max_nerve: 30,
+  life: 100,
+  max_life: 100,
+  energy: 100,
+  max_energy: 100,
+  happiness: 50
+} as const;
+
 router.post(
   "/sync",
   authSyncLimiter,
   verifyFirebaseToken,
   validate(syncUserSchema),
   asyncHandler(async (req, res) => {
-    const log = getRequestLogger(req);
+    const log = getRequestLogger(req.requestId);
     const { uid, email } = req.firebaseUser!;
     const { username } = req.body as { username?: string };
 
     const existing = await pool.query(
-      `SELECT ${USER_FIELDS} FROM users WHERE firebase_uid = $1 LIMIT 1`,
+      `SELECT ${USER_FIELDS}
+       FROM users
+       WHERE firebase_uid = $1
+         AND deleted_at IS NULL
+       LIMIT 1`,
       [uid]
     );
 
     if (existing.rows.length > 0) {
-      return res.json(existing.rows[0]);
+      log.debug("Auth sync returning existing user", { uid: uid.substring(0, 8) });
+      res.json(existing.rows[0]);
+      return;
     }
 
-    if (!username) {
+    if (!username || username.trim().length === 0) {
       throw new ValidationError("Username is required for new accounts");
     }
 
-    // Profanity + format validation
-    const usernameCheck = isValidUsername(username);
-    if (!usernameCheck.valid) {
-      throw new ValidationError(usernameCheck.reason || "Invalid username");
+    let isValidUsername:
+      | ((u: string) => { valid: boolean; reason?: string })
+      | undefined;
+
+    try {
+      ({ isValidUsername } = (await import("../utils/profanityFilter")) as {
+        isValidUsername: (u: string) => { valid: boolean; reason?: string };
+      });
+    } catch {
+      // profanity filter optional
     }
 
-    const usernameTaken = await pool.query(
+    if (isValidUsername) {
+      const check = isValidUsername(username);
+      if (!check.valid) {
+        throw new ValidationError(check.reason ?? "Invalid username");
+      }
+    } else {
+      if (username.length < 3 || username.length > 20) {
+        throw new ValidationError("Username must be 3-20 characters");
+      }
+      if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+        throw new ValidationError("Username may only contain letters, numbers, _ and -");
+      }
+    }
+
+    const taken = await pool.query(
       `SELECT id FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,
       [username]
     );
 
-    if (usernameTaken.rows.length > 0) {
+    if (taken.rows.length > 0) {
       throw new ConflictError("Username is already taken");
     }
 
     const newUser = await pool.query(
       `INSERT INTO users (
-        firebase_uid, email, username,
-        money, level, points,
-        nerve, max_nerve, life, max_life,
-        jail_until, federal_jail_until, last_crime_at,
-        onboarding_completed
-      )
-      VALUES ($1, $2, $3, 750, 1, 0, 30, 30, 100, 100, NULL, NULL, NULL, FALSE)
-      RETURNING ${USER_FIELDS}`,
-      [uid, email, username]
+         firebase_uid, email, username,
+         money, level, points,
+         nerve, max_nerve,
+         life, max_life,
+         energy, max_energy,
+         happiness,
+         jail_until, hospital_until, federal_jail_until,
+         last_crime_at, onboarding_completed
+       )
+       VALUES (
+         $1, $2, $3,
+         $4, $5, $6,
+         $7, $8,
+         $9, $10,
+         $11, $12,
+         $13,
+         NULL, NULL, NULL,
+         NULL, FALSE
+       )
+       RETURNING ${USER_FIELDS}`,
+      [
+        uid,
+        email,
+        username,
+        NEW_USER_DEFAULTS.money,
+        NEW_USER_DEFAULTS.level,
+        NEW_USER_DEFAULTS.points,
+        NEW_USER_DEFAULTS.nerve,
+        NEW_USER_DEFAULTS.max_nerve,
+        NEW_USER_DEFAULTS.life,
+        NEW_USER_DEFAULTS.max_life,
+        NEW_USER_DEFAULTS.energy,
+        NEW_USER_DEFAULTS.max_energy,
+        NEW_USER_DEFAULTS.happiness
+      ]
     );
 
-    log.info("👤 New user created", {
-      username,
-      uid: uid.substring(0, 8),
-    });
+    void pool.query(
+      `INSERT INTO admin_audit_log
+         (admin_firebase_uid, action_type, details, ip_address)
+       VALUES ($1, 'USER_REGISTERED', $2, $3)`,
+      [
+        "system",
+        JSON.stringify({ username, uid: uid.substring(0, 8) }),
+        req.ip ?? "unknown"
+      ]
+    ).catch(() => {});
 
-    // Send welcome email (fire and forget)
     if (email) {
-      EmailService.sendWelcome({ to: email, username }).catch(() => {});
+      void queueEmail({
+        type: "welcome",
+        to: email,
+        username
+      }).catch(() => {});
     }
+
+    log.info("New user registered", {
+      username,
+      uid: uid.substring(0, 8)
+    });
 
     res.status(201).json(newUser.rows[0]);
   })
 );
 
-// ============================================================
-// GET /api/auth/me
-// ============================================================
 router.get(
   "/me",
   authMeLimiter,
@@ -102,7 +190,11 @@ router.get(
     const { uid } = req.firebaseUser!;
 
     const result = await pool.query(
-      `SELECT ${USER_FIELDS} FROM users WHERE firebase_uid = $1 LIMIT 1`,
+      `SELECT ${USER_FIELDS}
+       FROM users
+       WHERE firebase_uid = $1
+         AND deleted_at IS NULL
+       LIMIT 1`,
       [uid]
     );
 
@@ -114,9 +206,6 @@ router.get(
   })
 );
 
-// ============================================================
-// POST /api/auth/onboarding-complete
-// ============================================================
 router.post(
   "/onboarding-complete",
   authMeLimiter,
@@ -124,37 +213,145 @@ router.post(
   asyncHandler(async (req, res) => {
     const { uid } = req.firebaseUser!;
 
-    await pool.query(
-      `UPDATE users SET onboarding_completed = TRUE WHERE firebase_uid = $1`,
+    const result = await pool.query(
+      `UPDATE users
+       SET onboarding_completed = TRUE,
+           updated_at = NOW()
+       WHERE firebase_uid = $1
+         AND deleted_at IS NULL
+       RETURNING id, onboarding_completed`,
       [uid]
     );
 
-    res.json({ message: "Onboarding completed" });
+    if (result.rows.length === 0) {
+      throw new NotFoundError("User");
+    }
+
+    res.json({
+      message: "Onboarding complete. Welcome to the Undercity.",
+      onboarding_completed: true
+    });
   })
 );
 
-// ============================================================
-// GET /api/auth/check-username/:username
-// ============================================================
 router.get(
   "/check-username/:username",
   usernameCheckLimiter,
   validate(checkUsernameSchema),
   asyncHandler(async (req, res) => {
-    const username = String(req.params.username);
+    const username = String(req.params["username"] ?? "");
 
-    // Validate format + profanity before DB hit
-    const usernameCheck = isValidUsername(username);
-    if (!usernameCheck.valid) {
-      return res.json({ available: false, reason: usernameCheck.reason });
+    if (username.length < 3 || username.length > 20) {
+      res.json({ available: false, reason: "Must be 3-20 characters" });
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+      res.json({
+        available: false,
+        reason: "Only letters, numbers, _ and - allowed"
+      });
+      return;
+    }
+
+    try {
+      const { isValidUsername } = (await import("../utils/profanityFilter")) as {
+        isValidUsername: (u: string) => { valid: boolean; reason?: string };
+      };
+      const check = isValidUsername(username);
+      if (!check.valid) {
+        res.json({ available: false, reason: check.reason });
+        return;
+      }
+    } catch {
+      // optional
     }
 
     const result = await pool.query(
-      `SELECT id FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,
+      `SELECT id
+       FROM users
+       WHERE LOWER(username) = LOWER($1)
+         AND deleted_at IS NULL
+       LIMIT 1`,
       [username]
     );
 
     res.json({ available: result.rows.length === 0 });
+  })
+);
+
+router.delete(
+  "/account",
+  authMeLimiter,
+  verifyFirebaseToken,
+  asyncHandler(async (req, res) => {
+    const { uid, email } = req.firebaseUser!;
+    const { confirm } = req.body as { confirm?: string };
+
+    if (confirm !== "DELETE MY ACCOUNT") {
+      throw new ValidationError('Send { "confirm": "DELETE MY ACCOUNT" } to confirm deletion');
+    }
+
+    const userResult = await pool.query(
+      `SELECT id, username
+       FROM users
+       WHERE firebase_uid = $1
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [uid]
+    );
+
+    if (userResult.rows.length === 0) {
+      throw new NotFoundError("User");
+    }
+
+    const user = userResult.rows[0] as { id: number; username: string };
+
+    await pool.query(
+      `UPDATE users
+       SET deleted_at = NOW(),
+           deletion_reason = 'Player self-deletion via /api/auth/account',
+           email = $2,
+           username = $3,
+           is_hard_banned = TRUE,
+           updated_at = NOW()
+       WHERE firebase_uid = $1`,
+      [
+        uid,
+        `deleted_${Date.now()}@deleted.invalid`,
+        `deleted_${user.id}`
+      ]
+    );
+
+    await Promise.allSettled([
+      invalidateBanCache(uid),
+      invalidateRoleCache(uid)
+    ]);
+
+    void pool.query(
+      `INSERT INTO admin_audit_log
+         (admin_firebase_uid, action_type, details, ip_address)
+       VALUES ($1, 'PLAYER_SELF_DELETION', $2, $3)`,
+      [
+        uid,
+        JSON.stringify({ userId: user.id, username: user.username }),
+        req.ip ?? "unknown"
+      ]
+    ).catch(() => {});
+
+    if (email && user.username) {
+      void queueEmail({
+        type: "ban_notice",
+        to: email,
+        username: user.username,
+        reason: "Account deletion requested by you."
+      }).catch(() => {});
+    }
+
+    res.json({
+      message: "Account deleted. Personal data will be purged within 30 days.",
+      deleted_at: new Date().toISOString()
+    });
   })
 );
 

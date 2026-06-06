@@ -1,9 +1,7 @@
-# ════════════════════════════════════════════════════════════
+# ============================================================
 # UNDERCITY DEPLOY PIPELINE
-# Deploys on push to main ONLY after CI passes
-# Backend → Docker Hub
-# Frontend → Cloudflare Pages
-# ════════════════════════════════════════════════════════════
+# Pure Docker — no PM2 conflict
+# ============================================================
 
 name: Deploy
 
@@ -11,23 +9,31 @@ on:
   push:
     branches: [main]
 
-# Only one deploy at a time — never cancel in progress
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+env:
+  NODE_VERSION: "20"
+  API_URL:      https://api.undercity.gg
+  FRONTEND_URL: https://undercity.gg
+  IMAGE_NAME:   ${{ secrets.DOCKER_USERNAME }}/undercity-backend
+
 jobs:
 
-  # ─── Run CI first ─────────────────────────────────────────
   ci:
-    name: Run CI checks
+    name: CI Suite
     uses: ./.github/workflows/ci.yml
+    secrets: inherit
 
-  # ─── Backend Docker Image ──────────────────────────────────
-  deploy-backend:
-    name: Build & Push Backend Docker Image
+  build-image:
+    name: Build and Push Docker Image
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [ci]
+    environment: production
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
 
     steps:
       - name: Checkout
@@ -40,37 +46,163 @@ jobs:
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context:   ./backend
-          push:      true
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/undercity-backend:latest
-            ${{ secrets.DOCKER_USERNAME }}/undercity-backend:${{ github.sha }}
+          context:    ./backend
+          push:       true
+          tags:       ${{ steps.meta.outputs.tags }}
+          labels:     ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to:   type=gha,mode=max
 
-      - name: Run DB migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          cd backend
-          npm ci
-          npm run migrate
+  deploy-backend:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build-image]
+    environment: production
 
-      - name: Smoke test
-        run: |
-          sleep 10
-          curl -f ${{ secrets.VITE_API_URL }}/api/health || exit 1
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host:            ${{ secrets.SERVER_HOST }}
+          username:        ${{ secrets.SERVER_USER }}
+          key:             ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            set -e
 
-  # ─── Frontend Cloudflare Pages ─────────────────────────────
+            echo "DEPLOY STARTING — SHA: ${{ github.sha }}"
+
+            cd /opt/undercity
+
+            # Snapshot for rollback
+            PREV_IMAGE=$(docker inspect undercity_backend \
+              --format='{{.Config.Image}}' 2>/dev/null \
+              || echo "${{ env.IMAGE_NAME }}:latest")
+
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            IMAGE="${{ env.IMAGE_NAME }}:sha-${SHORT_SHA}"
+
+            echo "Pulling $IMAGE..."
+            docker pull "$IMAGE"
+
+            # Run migrations before swap
+            echo "Running migrations..."
+            docker run --rm \
+              --env-file /opt/undercity/backend/.env \
+              --network undercity_backend_net \
+              "$IMAGE" \
+              node dist/app.js migrate
+
+            # Swap containers
+            echo "Swapping containers..."
+            docker compose stop backend
+            docker compose rm -f backend
+
+            # Update image reference in compose
+            export BACKEND_IMAGE="$IMAGE"
+            docker compose up -d backend
+
+            # Health check
+            echo "Health check..."
+            MAX_RETRIES=5
+            RETRY=0
+            HEALTHY=false
+
+            while [ $RETRY -lt $MAX_RETRIES ]; do
+              sleep 5
+              STATUS=$(curl -sf --max-time 10 \
+                http://localhost:5000/api/health \
+                | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','FAIL'))" \
+                2>/dev/null || echo "FAIL")
+
+              if [ "$STATUS" = "ok" ]; then
+                HEALTHY=true
+                echo "Health check passed on attempt $((RETRY+1))"
+                break
+              fi
+
+              RETRY=$((RETRY+1))
+              echo "Attempt $RETRY/$MAX_RETRIES failed: $STATUS"
+            done
+
+            if [ "$HEALTHY" = "false" ]; then
+              echo "ROLLBACK to $PREV_IMAGE..."
+              docker compose stop backend
+              docker compose rm -f backend
+              BACKEND_IMAGE="$PREV_IMAGE" docker compose up -d backend
+              exit 1
+            fi
+
+            # Cleanup old images
+            docker images ${{ env.IMAGE_NAME }} \
+              --format "{{.ID}} {{.CreatedAt}}" \
+              | sort -rk2 \
+              | tail -n +4 \
+              | awk '{print $1}' \
+              | xargs -r docker rmi 2>/dev/null || true
+
+            echo "DEPLOY COMPLETE"
+
+  smoke-backend:
+    name: Backend Smoke Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [deploy-backend]
+
+    steps:
+      - name: Health check
+        run: |
+          RESPONSE=$(curl -sf --max-time 10 ${{ env.API_URL }}/api/health)
+          STATUS=$(echo $RESPONSE | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','FAIL'))")
+          if [ "$STATUS" != "ok" ]; then
+            echo "Health check failed: $STATUS"
+            exit 1
+          fi
+          echo "Health OK"
+
+      - name: Auth endpoint reachable
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 \
+            ${{ env.API_URL }}/api/v1/auth/me)
+          if [[ "$STATUS" == 5* ]]; then
+            echo "Auth returning server error: $STATUS"
+            exit 1
+          fi
+          echo "Auth OK: $STATUS"
+
+      - name: Honeypot integrity
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 \
+            ${{ env.API_URL }}/api/v1/admin/users)
+          if [ "$STATUS" = "200" ]; then
+            echo "CRITICAL: Honeypot returned 200 — auth broken"
+            exit 1
+          fi
+          echo "Honeypot OK: $STATUS"
+
   deploy-frontend:
     name: Deploy Frontend to Cloudflare Pages
     runs-on: ubuntu-latest
-    needs: [ci]
+    timeout-minutes: 15
+    needs: [smoke-backend]
+    environment: production
 
     defaults:
       run:
@@ -83,28 +215,111 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Production build
         env:
-          VITE_API_URL:               ${{ secrets.VITE_API_URL }}
-          VITE_FIREBASE_API_KEY:      ${{ secrets.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN:  ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_PROJECT_ID:   ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_APP_ID:       ${{ secrets.VITE_FIREBASE_APP_ID }}
-          VITE_TURNSTILE_SITE_KEY:    ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
+          VITE_API_URL:              ${{ secrets.VITE_API_URL }}
+          VITE_FIREBASE_API_KEY:     ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID:  ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID:      ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_TURNSTILE_SITE_KEY:   ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
+          VITE_BUILD_SHA:            ${{ github.sha }}
         run: npm run build
+
+      - name: Bundle size guard
+        run: |
+          BUNDLE_SIZE=$(du -sk dist/ | cut -f1)
+          echo "Bundle size: ${BUNDLE_SIZE}KB"
+          if [ "$BUNDLE_SIZE" -gt 10240 ]; then
+            echo "Bundle too large: ${BUNDLE_SIZE}KB (limit: 10240KB)"
+            exit 1
+          fi
+          echo "Bundle OK: ${BUNDLE_SIZE}KB"
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
         with:
-          apiToken:     ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId:    ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName:  undercity
-          directory:    frontend/dist
-          gitHubToken:  ${{ secrets.GITHUB_TOKEN }}
+          apiToken:    ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId:   ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: undercity
+          directory:   frontend/dist
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+  smoke-fullstack:
+    name: Full Stack Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [deploy-frontend]
+
+    steps:
+      - name: Frontend reachable
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 15 ${{ env.FRONTEND_URL }})
+          if [[ "$STATUS" == 5* ]] || [ "$STATUS" = "000" ]; then
+            echo "Frontend not reachable: $STATUS"
+            exit 1
+          fi
+          echo "Frontend OK: $STATUS"
+
+      - name: CORS check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 \
+            -H "Origin: ${{ env.FRONTEND_URL }}" \
+            -X OPTIONS \
+            ${{ env.API_URL }}/api/health)
+          if [[ "$STATUS" == 5* ]]; then
+            echo "CORS broken: $STATUS"
+            exit 1
+          fi
+          echo "CORS OK: $STATUS"
+
+      - name: Final health
+        run: |
+          STATUS=$(curl -sf --max-time 10 ${{ env.API_URL }}/api/health \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','FAIL'))")
+          if [ "$STATUS" != "ok" ]; then
+            echo "Final health failed: $STATUS"
+            exit 1
+          fi
+          echo "Full stack healthy"
+
+  notify:
+    name: Notify Result
+    runs-on: ubuntu-latest
+    needs: [smoke-fullstack]
+    if: always()
+
+    steps:
+      - name: Notify success
+        if: needs.smoke-fullstack.result == 'success'
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {"text": "UNDERCITY DEPLOYED\nBackend + Frontend live\nCommit: ${{ github.sha }}\nBy: ${{ github.actor }}"}
+        env:
+          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Notify failure
+        if: needs.smoke-fullstack.result != 'success'
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {"text": "UNDERCITY DEPLOY FAILED\nCommit: ${{ github.sha }}\nBy: ${{ github.actor }}\nCheck production NOW"}
+        env:
+          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

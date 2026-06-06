@@ -24,7 +24,6 @@ services:
   backend:
     ports: []
     deploy:
-      replicas: 2
       resources:
         limits:
           memory: 512M

@@ -13,13 +13,13 @@ import {
 // ============================================================
 
 describe("toNumber", () => {
-  it("returns 0 for null", ()      => expect(toNumber(null)).toBe(0));
-  it("returns 0 for undefined", () => expect(toNumber(undefined)).toBe(0));
-  it("converts string number", ()  => expect(toNumber("42")).toBe(42));
-  it("converts actual number", ()  => expect(toNumber(100)).toBe(100));
-  it("converts decimal string", () => expect(toNumber("3.14")).toBeCloseTo(3.14));
-  it("converts 0 string", ()       => expect(toNumber("0")).toBe(0));
-  it("returns 0 for empty string",() => expect(toNumber("")).toBe(0));
+  it("returns 0 for null",          () => expect(toNumber(null)).toBe(0));
+  it("returns 0 for undefined",     () => expect(toNumber(undefined)).toBe(0));
+  it("converts string number",      () => expect(toNumber("42")).toBe(42));
+  it("converts actual number",      () => expect(toNumber(100)).toBe(100));
+  it("converts decimal string",     () => expect(toNumber("3.14")).toBeCloseTo(3.14));
+  it("converts 0 string",           () => expect(toNumber("0")).toBe(0));
+  it("returns 0 for empty string",  () => expect(toNumber("")).toBe(0));
 });
 
 // ============================================================
@@ -86,7 +86,9 @@ describe("calcMaxNerve", () => {
   });
 
   it("returns more than 30 with XP", () => {
-    expect(calcMaxNerve(100_000)).toBeGreaterThan(30);
+    // 100k XP is genuine early game — step rounding keeps it at 30.
+    // Use 500k XP: raw ≈ 43.8 → floor 43 → step 40 → passes > 30.
+    expect(calcMaxNerve(500_000)).toBeGreaterThan(30);
   });
 
   it("never exceeds 130 (cap)", () => {
@@ -96,15 +98,15 @@ describe("calcMaxNerve", () => {
 
   it("is monotonically increasing with XP", () => {
     const n1 = calcMaxNerve(10_000);
-    const n2 = calcMaxNerve(100_000);
+    const n2 = calcMaxNerve(500_000);
     const n3 = calcMaxNerve(1_000_000);
     expect(n2).toBeGreaterThanOrEqual(n1);
     expect(n3).toBeGreaterThanOrEqual(n2);
   });
 
-  it("returns integer (floored)", () => {
+  it("returns integer (floored to nearest 5)", () => {
     const nerve = calcMaxNerve(50_000);
-    expect(nerve).toBe(Math.floor(nerve));
+    expect(nerve % 5).toBe(0);
   });
 });
 

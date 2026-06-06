@@ -26,7 +26,7 @@ const NAV_SECTIONS = [
       { path: '/job',         label: 'Job',         icon: 'job'        },
       { path: '/company',     label: 'Company',     icon: 'company'    },
       { path: '/properties',  label: 'Properties',  icon: 'properties' },
-      { path: '/item-market', label: 'Item Market', icon: 'market'     },
+      { path: '/black-market', label: 'Black Market', icon: 'market'     },
       { path: '/casino',      label: 'Casino',      icon: 'casino'     },
       { path: '/travel',      label: 'Travel',      icon: 'travel'     },
     ],

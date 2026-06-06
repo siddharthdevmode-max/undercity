@@ -1,22 +1,19 @@
-import Filter from "bad-words";
+// bad-words uses ESM default export — use require for CommonJS compat
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const BadWords = require("bad-words") as { new(): { isProfane(s: string): boolean } };
 
-const filter = new Filter();
+const filter = new BadWords();
 
-// Add game-specific banned usernames
 const RESERVED_NAMES = new Set([
   "admin", "administrator", "moderator", "mod", "staff",
   "undercity", "support", "system", "root", "superuser",
   "developer", "dev", "owner", "god", "null", "undefined",
-  "select", "insert", "delete", "drop", "update",
+  "select", "insert", "delete", "drop", "update", "where",
 ]);
 
 export function isProfane(username: string): boolean {
   const lower = username.toLowerCase();
-
-  // Check reserved names
   if (RESERVED_NAMES.has(lower)) return true;
-
-  // Check profanity
   try {
     return filter.isProfane(lower);
   } catch {
@@ -35,7 +32,10 @@ export function isValidUsername(username: string): {
     return { valid: false, reason: "Username must be 20 characters or less" };
   }
   if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
-    return { valid: false, reason: "Username can only contain letters, numbers, underscores, and hyphens" };
+    return {
+      valid:  false,
+      reason: "Username can only contain letters, numbers, underscores, and hyphens",
+    };
   }
   if (isProfane(username)) {
     return { valid: false, reason: "Username is not allowed" };

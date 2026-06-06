@@ -1,80 +1,130 @@
-import { Request, Response, NextFunction } from "express";
-import { pool } from "../config/database";
-import { logger } from "../utils/logger";
+// ============================================================
+// IDEMPOTENCY MIDDLEWARE — UNDERCITY
+// Prevents duplicate mutations (double-clicks, retries).
+// Uses onFinished pattern instead of res.json monkey-patching.
+// TTL and key format validated upfront.
+// Only caches 2xx responses.
+// ============================================================
 
-const TTL_SECONDS = 60;
+import { Request, Response, NextFunction } from "express";
+import onFinished  from "on-finished";
+import { pool }    from "../config/database";
+import { logger }  from "../utils/logger";
+import { ValidationError } from "../utils/errors";
+import { config }  from "../config";
+
+// ─── Config ───────────────────────────────────────────────
+
+const TTL_SECONDS     = Math.floor(config.game.idempotencyTtlMs / 1_000);
+const MAX_KEY_LENGTH  = 128;
+const UUID_V4_REGEX   =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// ─── Middleware ───────────────────────────────────────────
 
 export const idempotencyCheck = async (
-  req: Request,
-  res: Response,
+  req:  Request,
+  res:  Response,
   next: NextFunction
-) => {
-  const key = req.headers["x-idempotency-key"] as string | undefined;
-  const uid = req.firebaseUser?.uid;
+): Promise<void> => {
+  const rawKey = req.headers["x-idempotency-key"];
+  const uid    = req.firebaseUser?.uid;
 
-  if (!key || !uid) return next();
+  // Skip if no key or no user
+  if (!rawKey || !uid) return next();
 
-  const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(key)) {
-    return res.status(400).json({
-      message: "Invalid idempotency key format. Must be UUID v4.",
-      code: "INVALID_IDEMPOTENCY_KEY",
-    });
+  // Validate key type and length
+  if (typeof rawKey !== "string") {
+    return next(new ValidationError("X-Idempotency-Key must be a string"));
+  }
+
+  const key = rawKey.trim();
+
+  if (key.length > MAX_KEY_LENGTH) {
+    return next(new ValidationError(
+      `X-Idempotency-Key too long (max ${MAX_KEY_LENGTH} chars)`
+    ));
+  }
+
+  if (!UUID_V4_REGEX.test(key)) {
+    return next(new ValidationError(
+      "Invalid X-Idempotency-Key format. Must be UUID v4."
+    ));
   }
 
   try {
-    const userResult = await pool.query(
-      `SELECT id FROM users WHERE firebase_uid = $1 LIMIT 1`,
-      [uid]
-    );
+    // ── Check for existing response ──────────────────────
 
-    if (userResult.rows.length === 0) return next();
-
-    const userId = userResult.rows[0].id as number;
-
-    const existing = await pool.query(
-      `SELECT response_body FROM idempotency_keys
-       WHERE user_id = $1
+    const existing = await pool.query<{
+      response_body:   unknown;
+      response_status: number;
+    }>(
+      `SELECT response_body, response_status
+       FROM idempotency_keys
+       WHERE firebase_uid    = $1
          AND idempotency_key = $2
-         AND expires_at > NOW()
+         AND expires_at      > NOW()
        LIMIT 1`,
-      [userId, key]
+      [uid, key]
     );
 
     if (existing.rows.length > 0) {
-      logger.warn("🔁 Duplicate request blocked via idempotency key", {
-        uid:  uid.substring(0, 8),
-        key:  key.substring(0, 8),
+      const { response_body, response_status } = existing.rows[0];
+
+      logger.info("🔁 Idempotent response served", {
+        uid:  uid.slice(0, 8),
+        key:  key.slice(0, 8),
         path: req.path,
       });
-      return res.status(200).json({
-        ...existing.rows[0].response_body,
-        _idempotent: true,
-      });
+
+      res.status(response_status).json(response_body);
+      return;
     }
 
-    const originalJson = res.json.bind(res);
+    // ── Capture and save response after it's sent ────────
+    // Using onFinished avoids monkey-patching res.json
 
-    res.json = (body: unknown) => {
-      pool
-        .query(
-          `INSERT INTO idempotency_keys
-             (user_id, idempotency_key, endpoint, response_body, expires_at)
-           VALUES ($1, $2, $3, $4, NOW() + INTERVAL '${TTL_SECONDS} seconds')
-           ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
-          [userId, key, req.path, JSON.stringify(body)]
-        )
-        .catch((err: Error) =>
-          logger.error("Idempotency save error", { error: err.message })
-        );
+    let responseBody:   unknown  = null;
+    let responseStatus: number   = 200;
+    let captured        = false;
+
+    // Intercept res.json to capture body before it's sent
+    // This is the minimal safe interception — just captures, doesn't block
+    const originalJson = res.json.bind(res);
+    res.json = function (body: unknown) {
+      if (!captured) {
+        captured       = true;
+        responseBody   = body;
+        responseStatus = res.statusCode;
+      }
       return originalJson(body);
     };
 
+    // After response is fully sent, persist to DB if 2xx
+    onFinished(res, () => {
+      if (responseStatus >= 200 && responseStatus < 300 && captured) {
+        pool.query(
+          `INSERT INTO idempotency_keys
+             (firebase_uid, idempotency_key, endpoint, response_body, response_status, expires_at)
+           VALUES ($1, $2, $3, $4, $5, NOW() + ($6 * INTERVAL '1 second'))
+           ON CONFLICT (firebase_uid, idempotency_key) DO NOTHING`,
+          [uid, key, req.path, JSON.stringify(responseBody), responseStatus, TTL_SECONDS]
+        ).catch((err: Error) => {
+          logger.error("Idempotency save error", {
+            error: err.message,
+            uid:   uid.slice(0, 8),
+          });
+        });
+      }
+    });
+
     next();
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error("Idempotency check error", { error: message });
+    logger.error("Idempotency check error", {
+      error: error instanceof Error ? error.message : String(error),
+      uid:   uid.slice(0, 8),
+    });
+    // Fail open — don't block the request
     next();
   }
 };

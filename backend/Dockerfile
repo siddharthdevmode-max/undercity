@@ -12,8 +12,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
-# Copy source and build
+# Copy config files needed for build
 COPY tsconfig.json ./
+COPY eslint.config.mjs ./
+
+# Copy source and build
 COPY src ./src
 RUN npm run build
 

@@ -1,135 +1,191 @@
-import { pool } from "../config/database";
-import { logger } from "../utils/logger";
-import { getTrustTier } from "./trustEngine";
+import { pool }          from "../config/database";
+import { withTransaction } from "../config/database";
+import { logger }        from "../utils/logger";
+import { getTrustTier }  from "./trustEngine";
 
 // ============================================================
 // UAC 2.0 — TRUST RECOVERY ENGINE
-// Runs daily via cron / admin trigger
-// +1 trust per day of clean play
-// +5 bonus per 7-day clean streak
-// Max auto-regen = 70 (must appeal to reach 100)
+// Runs daily via BullMQ scheduler or admin trigger.
+//
+// ALGORITHM:
+//   +1 trust per day of clean play (no flags in last 24h)
+//   +5 bonus per 7-day clean streak
+//   Max auto-regen = 70 (must appeal to reach 100)
+//   Hard-banned users never recover automatically.
+//
+// BATCH PROCESSING:
+//   Processes in batches of BATCH_SIZE to avoid holding
+//   too many pool connections simultaneously.
+//   Each row uses withTransaction() from config/database.ts
+//   (the canonical transaction helper from Round 1).
+//
+// INTERVAL FIX:
+//   $2 * INTERVAL '1 hour' is NOT valid PostgreSQL.
+//   Correct form: ($2 || ' hours')::INTERVAL
 // ============================================================
 
 const MAX_AUTO_REGEN   = 70;
 const DAILY_REGEN      = 1;
 const WEEKLY_BONUS     = 5;
 const REGEN_INTERVAL_H = 24;
+const BATCH_SIZE       = 500; // process up to 500 users per batch
 
-export async function runTrustRecovery(): Promise<{
+export interface TrustRecoveryResult {
   processed: number;
   recovered: number;
   skipped:   number;
-}> {
+  batches:   number;
+}
+
+export async function runTrustRecovery(): Promise<TrustRecoveryResult> {
   let processed = 0;
   let recovered = 0;
   let skipped   = 0;
+  let batches   = 0;
 
   try {
-    // ✅ Parameterized interval — no SQL injection risk
-    const eligible = await pool.query(
+    logger.info("🔄 Trust recovery starting...");
+
+    // ── Fetch all eligible users (read-only query) ─────────
+    // eligible = has low trust, not hard-banned, clean for 24h,
+    //            hasn't been recovered in last 24h
+    const eligibleResult = await pool.query(
       `SELECT
          u.id,
          u.firebase_uid,
          u.trust_score,
-         u.trust_regen_streak,
+         COALESCE(u.trust_regen_streak, 0) AS trust_regen_streak,
          u.last_trust_regen_at,
          u.last_flag_at
        FROM users u
-       WHERE u.deleted_at IS NULL
-         AND u.is_hard_banned = FALSE
-         AND u.trust_score > 0
-         AND u.trust_score < $1
+       WHERE u.deleted_at     IS NULL
+         AND u.is_hard_banned  = FALSE
+         AND u.trust_score     > 0
+         AND u.trust_score     < $1
          AND (
            u.last_flag_at IS NULL
-           OR u.last_flag_at < NOW() - ($2 * INTERVAL '1 hour')
+           OR u.last_flag_at < NOW() - ($2 || ' hours')::INTERVAL
          )
          AND (
            u.last_trust_regen_at IS NULL
-           OR u.last_trust_regen_at < NOW() - ($2 * INTERVAL '1 hour')
-         )`,
+           OR u.last_trust_regen_at < NOW() - ($2 || ' hours')::INTERVAL
+         )
+       ORDER BY u.trust_score ASC`,
       [MAX_AUTO_REGEN, REGEN_INTERVAL_H]
     );
 
-    logger.info(`🔄 Trust recovery: ${eligible.rows.length} users eligible`);
+    const eligible = eligibleResult.rows as Array<{
+      id:                  number;
+      firebase_uid:        string;
+      trust_score:         number;
+      trust_regen_streak:  number;
+      last_trust_regen_at: Date | null;
+      last_flag_at:        Date | null;
+    }>;
 
-    for (const user of eligible.rows) {
-      processed++;
+    logger.info(`🔄 Trust recovery: ${eligible.length} users eligible`);
 
-      const oldScore = user.trust_score as number;
-      const streak   = (user.trust_regen_streak as number) + 1;
-      const isWeekly = streak % 7 === 0;
+    // ── Process in batches ─────────────────────────────────
+    for (let batchStart = 0; batchStart < eligible.length; batchStart += BATCH_SIZE) {
+      const batch = eligible.slice(batchStart, batchStart + BATCH_SIZE);
+      batches++;
 
-      let gain = DAILY_REGEN;
-      if (isWeekly) gain += WEEKLY_BONUS;
+      // Process each user in the batch concurrently
+      // (each uses its own transaction via withTransaction)
+      const batchResults = await Promise.allSettled(
+        batch.map((user) => recoverUser(user))
+      );
 
-      const newScore = Math.min(MAX_AUTO_REGEN, oldScore + gain);
-
-      if (newScore === oldScore) {
-        skipped++;
-        continue;
+      for (const result of batchResults) {
+        processed++;
+        if (result.status === "fulfilled") {
+          if (result.value) {
+            recovered++;
+          } else {
+            skipped++;
+          }
+        } else {
+          skipped++;
+          logger.error("Trust recovery: row error", {
+            error: result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason),
+          });
+        }
       }
 
-      const isShadowBanned = newScore > 0 && newScore < 20;
-
-      // ✅ Wrapped in transaction — UPDATE + INSERT are atomic
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-
-        await client.query(
-          `UPDATE users
-           SET trust_score         = $1,
-               is_shadow_banned    = $2,
-               trust_regen_streak  = $3,
-               last_trust_regen_at = NOW()
-           WHERE id = $4`,
-          [newScore, isShadowBanned, streak, user.id]
-        );
-
-        await client.query(
-          `INSERT INTO trust_recovery_log
-             (user_id, firebase_uid, old_score, new_score, reason)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [
-            user.id,
-            user.firebase_uid,
-            oldScore,
-            newScore,
-            isWeekly ? "WEEKLY_STREAK_BONUS" : "DAILY_REGEN",
-          ]
-        );
-
-        await client.query("COMMIT");
-      } catch (err) {
-        await client.query("ROLLBACK");
-        logger.error("Trust recovery row error", {
-          uid:   (user.firebase_uid as string).substring(0, 8),
-          error: err instanceof Error ? err.message : String(err),
-        });
-        skipped++;
-        continue;
-      } finally {
-        client.release();
-      }
-
-      recovered++;
-
-      logger.info("✅ Trust recovered", {
-        uid:      (user.firebase_uid as string).substring(0, 8),
-        score:    `${oldScore} → ${newScore}`,
-        tier:     getTrustTier(newScore),
-        streak,
-        isWeekly,
+      logger.debug(`✅ Trust recovery batch ${batches} complete`, {
+        batchSize: batch.length,
+        recovered,
+        skipped,
       });
     }
 
-    logger.info("✅ Trust recovery complete", { processed, recovered, skipped });
-    return { processed, recovered, skipped };
-
-  } catch (error: unknown) {
-    logger.error("Trust recovery error", {
-      error: error instanceof Error ? error.message : String(error),
+    logger.info("✅ Trust recovery complete", {
+      processed,
+      recovered,
+      skipped,
+      batches,
     });
-    return { processed, recovered, skipped };
+
+    return { processed, recovered, skipped, batches };
+
+  } catch (err) {
+    logger.error("TrustRecovery: fatal error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { processed, recovered, skipped, batches };
   }
+}
+
+// ── Per-user recovery (uses canonical withTransaction) ─────
+
+async function recoverUser(user: {
+  id:                 number;
+  firebase_uid:       string;
+  trust_score:        number;
+  trust_regen_streak: number;
+}): Promise<boolean> {
+  const oldScore = user.trust_score;
+  const streak   = user.trust_regen_streak + 1;
+  const isWeekly = streak % 7 === 0;
+  const gain     = DAILY_REGEN + (isWeekly ? WEEKLY_BONUS : 0);
+  const newScore = Math.min(MAX_AUTO_REGEN, oldScore + gain);
+
+  // Nothing to change
+  if (newScore === oldScore) return false;
+
+  const isShadowBanned = newScore > 0 && newScore < 20;
+  const reason         = isWeekly ? "WEEKLY_STREAK_BONUS" : "DAILY_REGEN";
+
+  // withTransaction() from config/database.ts (Round 1 canonical helper)
+  await withTransaction(async (client) => {
+    await client.query(
+      `UPDATE users
+       SET    trust_score         = $1,
+              is_shadow_banned    = $2,
+              trust_regen_streak  = $3,
+              last_trust_regen_at = NOW(),
+              updated_at          = NOW()
+       WHERE  id = $4`,
+      [newScore, isShadowBanned, streak, user.id]
+    );
+
+    await client.query(
+      `INSERT INTO trust_recovery_log
+         (user_id, firebase_uid, old_score, new_score, reason)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [user.id, user.firebase_uid, oldScore, newScore, reason]
+    );
+  });
+
+  logger.debug("✅ Trust recovered", {
+    uid:      user.firebase_uid.substring(0, 8),
+    score:    `${oldScore} → ${newScore}`,
+    tier:     getTrustTier(newScore),
+    streak,
+    isWeekly,
+  });
+
+  return true;
 }

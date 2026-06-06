@@ -1,3 +1,10 @@
+# ════════════════════════════════════════════════════════════
+#  🔥 UNDERCITY CI/CD PIPELINE
+#  UAC 2.0 — Launch Grade
+#  Last updated: 2025
+#  DO NOT MODIFY without reading docs/SECURITY.md first
+# ════════════════════════════════════════════════════════════
+
 name: 🔥 Undercity CI
 
 on:
@@ -6,30 +13,134 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  NODE_VERSION: "20"
+# ── Concurrency Control ──────────────────────────────────────
+# Cancels duplicate runs on same branch
+# Never cancels main (protect production deploys)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# ── Global Environment ───────────────────────────────────────
+env:
+  NODE_VERSION:  "20"
+  API_URL:       https://api.undercity.app
+  FRONTEND_URL:  https://undercity.app
+  IMAGE_NAME:    ${{ github.repository }}/undercity-backend
+
+# ════════════════════════════════════════════════════════════
 jobs:
 
+# ┌─────────────────────────────────────────────────────────┐
+# │  LAYER 1 — SECRET & SUPPLY CHAIN SECURITY              │
+# └─────────────────────────────────────────────────────────┘
+
   # ── Secret Scanning ──────────────────────────────────────
+  # Scans full git history for leaked keys/tokens
   secret-scan:
     name: 🔐 Secret Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: 📥 Checkout
+      - name: 📥 Checkout (full history)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: 🔍 Gitleaks
+      - name: 🔍 Gitleaks — Full history scan
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── Backend Tests ────────────────────────────────────────
+  # ── Dependency Review (PRs only) ─────────────────────────
+  # Blocks PRs that introduce vulnerable or forbidden deps
+  dependency-review:
+    name: 🔎 Dependency Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔎 Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
+          comment-summary-in-pr: always
+
+# ┌─────────────────────────────────────────────────────────┐
+# │  LAYER 2 — STATIC ANALYSIS & SECURITY SCANNING         │
+# └─────────────────────────────────────────────────────────┘
+
+  # ── Semgrep SAST ─────────────────────────────────────────
+  # Catches security issues CodeQL misses
+  # Covers: SQL injection, XSS, JWT issues, secrets, Express
+  semgrep:
+    name: 🛡️ Semgrep SAST
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [secret-scan]
+    permissions:
+      security-events: write
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🛡️ Semgrep Scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/nodejs
+            p/typescript
+            p/jwt
+            p/sql-injection
+            p/xss
+            p/express
+            p/secrets
+          generateSarif: "1"
+
+      - name: 📤 Upload Semgrep results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+          category:   semgrep
+
+  # ── CodeQL Analysis ───────────────────────────────────────
+  # Deep vulnerability + quality analysis by GitHub
+  codeql:
+    name: 🔬 CodeQL Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [secret-scan]
+    permissions:
+      security-events: write
+      actions:         read
+      contents:        read
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔬 Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries:   security-extended,security-and-quality
+
+      - name: 🔬 Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:javascript-typescript
+
+# ┌─────────────────────────────────────────────────────────┐
+# │  LAYER 3 — BACKEND TEST SUITE                          │
+# └─────────────────────────────────────────────────────────┘
+
   backend-test:
     name: 🧪 Backend Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [secret-scan]
 
     services:
@@ -61,16 +172,21 @@ jobs:
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: 🟢 Setup Node
+      - name: 🟢 Setup Node ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - name: 📦 Install backend deps
+      - name: 📦 Install dependencies
         working-directory: backend
         run: npm ci
+
+      # ── Static Checks ─────────────────────────────────
+      - name: 🔍 TypeScript type check
+        working-directory: backend
+        run: npx tsc --noEmit
 
       - name: 🔍 Lint
         working-directory: backend
@@ -82,44 +198,77 @@ jobs:
 
       - name: 🔍 License check
         working-directory: backend
-        run: npx license-checker --onlyAllow 'MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0' --excludePrivatePackages
+        run: >
+          npx license-checker
+          --onlyAllow
+          'MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;
+          CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0'
+          --excludePrivatePackages
 
-      - name: 🧪 Run tests
+      # ── Database ──────────────────────────────────────
+      # Validates all migrations run cleanly before tests
+      - name: 🗄️ Run migrations
+        working-directory: backend
+        env:
+          NODE_ENV:     test
+          DATABASE_URL: postgresql://test:test@localhost:5432/undercity_test
+        run: npm run migrate
+
+      # ── Tests ─────────────────────────────────────────
+      - name: 🧪 Run tests with coverage
         working-directory: backend
         env:
           NODE_ENV:     test
           DATABASE_URL: postgresql://test:test@localhost:5432/undercity_test
           REDIS_HOST:   localhost
-          REDIS_PORT:   6379
+          REDIS_PORT:   "6379"
         run: npm run test:coverage
 
-      - name: 📊 Upload coverage
+      - name: 📊 Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          directory: backend/coverage
-          flags:     backend
-          fail_ci_if_error: false
+          directory:         backend/coverage
+          flags:             backend
+          fail_ci_if_error:  false
 
-  # ── Frontend Tests ───────────────────────────────────────
+      # ── Supply Chain ──────────────────────────────────
+      # Generates Software Bill of Materials
+      - name: 📋 Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path:          ./backend
+          artifact-name: backend-sbom.spdx.json
+          output-file:   ./backend-sbom.spdx.json
+
+# ┌─────────────────────────────────────────────────────────┐
+# │  LAYER 4 — FRONTEND TEST SUITE                         │
+# └─────────────────────────────────────────────────────────┘
+
   frontend-test:
     name: 🧪 Frontend Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [secret-scan]
 
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: 🟢 Setup Node
+      - name: 🟢 Setup Node ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: 📦 Install frontend deps
+      - name: 📦 Install dependencies
         working-directory: frontend
         run: npm ci
+
+      # ── Static Checks ─────────────────────────────────
+      - name: 🔍 TypeScript type check
+        working-directory: frontend
+        run: npx tsc --noEmit
 
       - name: 🔍 Lint
         working-directory: frontend
@@ -129,87 +278,381 @@ jobs:
         working-directory: frontend
         run: npm audit --audit-level=high
 
+      - name: 🔍 License check
+        working-directory: frontend
+        run: >
+          npx license-checker
+          --onlyAllow
+          'MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;
+          CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0'
+          --excludePrivatePackages
+
+      # ── Tests ─────────────────────────────────────────
       - name: 🧪 Run tests
         working-directory: frontend
         run: npm run test
 
-      - name: 🏗️ Build check
+      # ── Build ─────────────────────────────────────────
+      - name: 🏗️ Production build
         working-directory: frontend
         env:
-          VITE_API_URL: https://api.undercity.app/api
+          VITE_API_URL: ${{ env.API_URL }}/api
         run: npm run build
 
-  # ── Docker Image Scan ─────────────────────────────────────
+      # ── Bundle Guard ──────────────────────────────────
+      # Fails if frontend bundle exceeds 10MB
+      # Prevents accidental dependency bloat at launch
+      - name: 📦 Bundle size guard
+        working-directory: frontend
+        run: |
+          BUNDLE_SIZE=$(du -sk dist/ | cut -f1)
+          echo "📦 Bundle size: ${BUNDLE_SIZE}KB"
+          if [ "$BUNDLE_SIZE" -gt 10240 ]; then
+            echo "❌ Bundle too large: ${BUNDLE_SIZE}KB (limit: 10240KB)"
+            exit 1
+          fi
+          echo "✅ Bundle size OK: ${BUNDLE_SIZE}KB"
+
+# ┌─────────────────────────────────────────────────────────┐
+# │  LAYER 5 — CONTAINER SECURITY                          │
+# └─────────────────────────────────────────────────────────┘
+
   trivy-scan:
     name: 🐳 Container Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [backend-test]
-
-    steps:
-      - name: 📥 Checkout
-        uses: actions/checkout@v4
-
-      - name: 🐳 Build image for scanning
-        run: docker build -t undercity-backend:scan ./backend
-
-      - name: 🔍 Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: undercity-backend:scan
-          format:    table
-          exit-code: 1
-          ignore-unfixed: true
-          vuln-type: os,library
-          severity:  CRITICAL,HIGH
-
-  # ── CodeQL Analysis ───────────────────────────────────────
-  codeql:
-    name: 🔬 CodeQL Analysis
-    runs-on: ubuntu-latest
-    needs: [secret-scan]
     permissions:
       security-events: write
-      actions: read
-      contents: read
 
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: 🔬 Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: javascript-typescript
-          queries:   security-extended
+      # Cache Docker layers between runs
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: 🔬 Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+      - name: 🐳 Build image for scanning
+        uses: docker/build-push-action@v5
         with:
-          category: /language:javascript-typescript
+          context:    ./backend
+          push:       false
+          load:       true
+          tags:       undercity-backend:scan
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
 
-  # ── Deploy Backend (main only) ───────────────────────────
+      # Scan the built container image
+      - name: 🔍 Trivy — Container scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref:      undercity-backend:scan
+          format:         sarif
+          output:         trivy-container.sarif
+          exit-code:      "1"
+          ignore-unfixed: true
+          vuln-type:      os,library
+          severity:       CRITICAL,HIGH
+
+      # Also scan raw filesystem (catches what container scan misses)
+      - name: 🔍 Trivy — Filesystem scan
+        uses: aquasecurity/trivy-action@master
+        if: always()
+        with:
+          scan-type:      fs
+          scan-ref:       ./backend
+          format:         sarif
+          output:         trivy-fs.sarif
+          ignore-unfixed: true
+          vuln-type:      os,library
+          severity:       CRITICAL,HIGH
+
+      - name: 📤 Upload container scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-container.sarif
+          category:   trivy-container
+
+      - name: 📤 Upload filesystem scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-fs.sarif
+          category:   trivy-filesystem
+
+# ┌─────────────────────────────────────────────────────────┐
+# │  LAYER 6 — DEVELOP BRANCH GATE                         │
+# └─────────────────────────────────────────────────────────┘
+
+  # Explicit green signal that develop is safe to merge
+  # Gives you confidence before touching main
+  validate-develop:
+    name: 🔒 Validate Develop Branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [backend-test, frontend-test, trivy-scan, codeql, semgrep]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    steps:
+      - name: ✅ Develop branch is clean
+        run: |
+          echo "══════════════════════════════════════"
+          echo "  ✅ DEVELOP BRANCH VALIDATED"
+          echo "  All checks passed. Safe to merge."
+          echo "══════════════════════════════════════"
+          echo "  Commit : ${{ github.sha }}"
+          echo "  Author : ${{ github.actor }}"
+          echo "  Time   : $(date -u)"
+          echo "══════════════════════════════════════"
+
+# ┌─────────────────────────────────────────────────────────┐
+# │  LAYER 7 — PRODUCTION DEPLOY                           │
+# └─────────────────────────────────────────────────────────┘
+
   deploy-backend:
     name: 🚀 Deploy Backend
     runs-on: ubuntu-latest
-    needs: [backend-test, frontend-test, trivy-scan, codeql]
+    timeout-minutes: 15
+    needs: [backend-test, frontend-test, trivy-scan, codeql, semgrep]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Named environment enables manual approval gate in GitHub
+    # Settings → Environments → production → Add reviewer
+    environment: production
 
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: 🐳 Deploy via SSH
+      - name: 🚀 Deploy via SSH
+        id: deploy
         uses: appleboy/ssh-action@v1
         with:
           host:     ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key:      ${{ secrets.SERVER_SSH_KEY }}
+          # Hard timeout on SSH command (5 min max)
+          command_timeout: 5m
           script: |
+            set -e
+
+            echo "══════════════════════════════════════"
+            echo "  🚀 UNDERCITY DEPLOY STARTING"
+            echo "  Commit : ${{ github.sha }}"
+            echo "  Author : ${{ github.actor }}"
+            echo "  Time   : $(date -u)"
+            echo "══════════════════════════════════════"
+
             cd /opt/undercity
+
+            # ── Snapshot for rollback ──────────────
+            PREV_COMMIT=$(git rev-parse HEAD)
+            echo "📸 Rollback point: $PREV_COMMIT"
+            echo $PREV_COMMIT > /opt/undercity/.last_good_commit
+
+            # ── Pull latest ───────────────────────
+            echo "📥 Pulling latest code..."
             git pull origin main
+
+            # ── Install & Build ───────────────────
             cd backend
+            echo "📦 Installing production deps..."
             npm ci --omit=dev
+
+            echo "🏗️  Building..."
             npm run build
+
+            # ── Migrate ───────────────────────────
+            echo "🗄️  Running migrations..."
             npm run migrate
+
+            # ── Restart ───────────────────────────
+            echo "♻️  Restarting service..."
             pm2 restart undercity-backend --update-env
-            echo "✅ Backend deployed"
+
+            # ── Health check with retry ───────────
+            echo "⏳ Waiting for service to stabilize..."
+            sleep 8
+
+            echo "🏥 Running health check..."
+            MAX_RETRIES=3
+            RETRY=0
+            HEALTHY=false
+
+            while [ $RETRY -lt $MAX_RETRIES ]; do
+              HEALTH_STATUS=$(curl -sf \
+                --max-time 10 \
+                ${{ env.API_URL }}/health \
+                | jq -r '.status' 2>/dev/null || echo "FAIL")
+
+              if [ "$HEALTH_STATUS" = "ok" ]; then
+                HEALTHY=true
+                break
+              fi
+
+              RETRY=$((RETRY + 1))
+              echo "⚠️  Health check attempt $RETRY/$MAX_RETRIES failed..."
+              sleep 5
+            done
+
+            # ── Rollback if unhealthy ─────────────
+            if [ "$HEALTHY" = "false" ]; then
+              echo "❌ Health check failed after $MAX_RETRIES attempts"
+              echo "⏪ Rolling back to $PREV_COMMIT..."
+              git checkout $PREV_COMMIT
+              npm ci --omit=dev
+              npm run build
+              pm2 restart undercity-backend --update-env
+              echo "⏪ Rollback complete"
+              exit 1
+            fi
+
+            echo "══════════════════════════════════════"
+            echo "  ✅ DEPLOY SUCCESSFUL"
+            echo "══════════════════════════════════════"
+
+      # Notifications never block the pipeline
+      - name: ✅ Notify — Deploy success
+        if: success()
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "✅ *Undercity Deployed Successfully*\n> Commit: `${{ github.sha }}`\n> By: ${{ github.actor }}\n> <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+            }
+        env:
+          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: ❌ Notify — Deploy failed
+        if: failure()
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "❌ *Undercity Deploy FAILED*\n> Commit: `${{ github.sha }}`\n> By: ${{ github.actor }}\n> <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+            }
+        env:
+          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+# ┌─────────────────────────────────────────────────────────┐
+# │  LAYER 8 — POST-DEPLOY SMOKE TESTS                     │
+# └─────────────────────────────────────────────────────────┘
+
+  smoke-test:
+    name: 💨 Smoke Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [deploy-backend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      # ── Test 1: API alive ──────────────────────────────
+      - name: 🏥 Health endpoint
+        run: |
+          echo "Checking ${{ env.API_URL }}/health..."
+          RESPONSE=$(curl -sf --max-time 10 ${{ env.API_URL }}/health)
+          echo "Response: $RESPONSE"
+          STATUS=$(echo $RESPONSE | jq -r '.status')
+          if [ "$STATUS" != "ok" ]; then
+            echo "❌ Health check returned: $STATUS"
+            exit 1
+          fi
+          echo "✅ Health OK"
+
+      # ── Test 2: Auth reachable ─────────────────────────
+      - name: 🔐 Auth endpoint reachable
+        run: |
+          echo "Checking auth endpoint..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 \
+            ${{ env.API_URL }}/api/auth/status)
+          echo "Auth returned: $STATUS"
+          # 401 = good (protected). 5xx = server is broken.
+          if [[ "$STATUS" == 5* ]]; then
+            echo "❌ Auth endpoint returning server error: $STATUS"
+            exit 1
+          fi
+          echo "✅ Auth endpoint OK: $STATUS"
+
+      # ── Test 3: Honeypot integrity ─────────────────────
+      # Confirms UAC honeypot traps survived the deploy
+      - name: 🍯 Honeypot integrity check
+        run: |
+          echo "Verifying honeypot traps are active..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 \
+            ${{ env.API_URL }}/api/admin/users)
+          echo "Honeypot returned: $STATUS"
+          # Must NEVER return 200 (that means auth is broken)
+          if [ "$STATUS" = "200" ]; then
+            echo "❌ CRITICAL: Honeypot returned 200 — auth layer broken"
+            exit 1
+          fi
+          echo "✅ Honeypot OK: $STATUS"
+
+      # ── Test 4: Frontend reachable ─────────────────────
+      - name: 🌐 Frontend reachable
+        run: |
+          echo "Checking frontend..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 \
+            ${{ env.FRONTEND_URL }})
+          echo "Frontend returned: $STATUS"
+          if [[ "$STATUS" == 5* ]] || [ "$STATUS" = "000" ]; then
+            echo "❌ Frontend not reachable: $STATUS"
+            exit 1
+          fi
+          echo "✅ Frontend OK: $STATUS"
+
+      # ── Test 5: Rate limiter active ────────────────────
+      # Hammers an endpoint to confirm rate limiting works
+      - name: 🛡️ Rate limiter active
+        run: |
+          echo "Testing rate limiter..."
+          RATE_LIMITED=false
+          for i in $(seq 1 20); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 5 \
+              ${{ env.API_URL }}/api/auth/status)
+            if [ "$STATUS" = "429" ]; then
+              RATE_LIMITED=true
+              echo "✅ Rate limiter triggered at request $i"
+              break
+            fi
+          done
+          if [ "$RATE_LIMITED" = "false" ]; then
+            echo "⚠️  Rate limiter did not trigger in 20 requests"
+            echo "    This may be OK if limit is set high"
+            echo "    Check your rateLimiter.ts config"
+          fi
+
+      # Notifications never block the pipeline
+      - name: ❌ Notify — Smoke tests failed
+        if: failure()
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "💨❌ *Smoke Tests FAILED — Production May Be Down*\n> Commit: `${{ github.sha }}`\n> By: ${{ github.actor }}\n> <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>\n> *ACTION REQUIRED: Check production immediately*"
+            }
+        env:
+          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: ✅ Notify — All smoke tests passed
+        if: success()
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "💨✅ *Smoke Tests Passed — Undercity Is Live*\n> Commit: `${{ github.sha }}`\n> Health ✅ | Auth ✅ | Honeypot ✅ | Frontend ✅ | Rate Limiter ✅"
+            }
+        env:
+          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

@@ -1,12 +1,9 @@
 // ============================================================
-// ALERT UTILITY
-// Sends critical alerts to Discord/Slack webhooks
-// Fire-and-forget — never blocks the request
-// Only fires in production to avoid noise in dev
+// ALERT UTILITY — UNDERCITY
 // ============================================================
 
 import { logger } from "./logger";
-import { config } from "../config";
+import { config  } from "../config";
 
 export type AlertSeverity = "info" | "warning" | "critical";
 
@@ -16,13 +13,13 @@ export interface AlertPayload {
   severity:   AlertSeverity;
   fields?:    Record<string, string | number | boolean>;
   requestId?: string;
+  dedupeKey?: string;
 }
 
-// Severity → Discord colour (decimal)
 const DISCORD_COLORS: Record<AlertSeverity, number> = {
-  info:     0x3498db,  // blue
-  warning:  0xf39c12,  // orange
-  critical: 0xe74c3c,  // red
+  info:     0x3498db,
+  warning:  0xf39c12,
+  critical: 0xe74c3c,
 };
 
 const SEVERITY_EMOJI: Record<AlertSeverity, string> = {
@@ -31,81 +28,84 @@ const SEVERITY_EMOJI: Record<AlertSeverity, string> = {
   critical: "🚨",
 };
 
-// ============================================================
-// DISCORD ALERT
-// ============================================================
-async function sendDiscordAlert(payload: AlertPayload): Promise<void> {
-  const webhookUrl = process.env.DISCORD_ALERT_WEBHOOK;
-  if (!webhookUrl) return;
+const DEDUPE_COOLDOWN_MS = 5 * 60 * 1_000;
+const dedupeMap = new Map<string, number>();
+const alertQueue: AlertPayload[] = [];
+let isProcessing = false;
+const QUEUE_INTERVAL_MS = 1_000;
 
-  const fields = payload.fields
-    ? Object.entries(payload.fields).map(([name, value]) => ({
-        name,
-        value:  String(value),
-        inline: true,
-      }))
-    : [];
+function isDuplicate(payload: AlertPayload): boolean {
+  if (!payload.dedupeKey) return false;
+  const lastSent = dedupeMap.get(payload.dedupeKey);
+  if (!lastSent) return false;
+  return Date.now() - lastSent < DEDUPE_COOLDOWN_MS;
+}
 
-  if (payload.requestId) {
-    fields.push({ name: "Request ID", value: payload.requestId, inline: true });
-  }
-
-  fields.push({
-    name:   "Environment",
-    value:  config.nodeEnv,
-    inline: true,
-  });
-
-  fields.push({
-    name:   "Time",
-    value:  new Date().toISOString(),
-    inline: false,
-  });
-
-  const body = {
-    embeds: [
-      {
-        title:       `${SEVERITY_EMOJI[payload.severity]} ${payload.title}`,
-        description: payload.message,
-        color:       DISCORD_COLORS[payload.severity],
-        fields,
-        footer: { text: "Undercity UAC Alert System" },
-      },
-    ],
-  };
-
-  const response = await fetch(webhookUrl, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    logger.warn("⚠️  Discord alert failed", { status: response.status });
+function markSent(payload: AlertPayload): void {
+  if (payload.dedupeKey) {
+    dedupeMap.set(payload.dedupeKey, Date.now());
   }
 }
 
-// ============================================================
-// SLACK ALERT
-// ============================================================
-async function sendSlackAlert(payload: AlertPayload): Promise<void> {
-  const webhookUrl = process.env.SLACK_ALERT_WEBHOOK;
+async function sendDiscordAlert(payload: AlertPayload): Promise<void> {
+  const webhookUrl = config.discordAlertWebhook;
   if (!webhookUrl) return;
 
-  const fields = payload.fields
-    ? Object.entries(payload.fields)
-        .map(([k, v]) => `*${k}:* ${v}`)
-        .join("\n")
+  const fields: { name: string; value: string; inline: boolean }[] = [];
+  if (payload.fields) {
+    for (const [name, value] of Object.entries(payload.fields)) {
+      fields.push({ name, value: String(value), inline: true });
+    }
+  }
+  if (payload.requestId) {
+    fields.push({ name: "Request ID", value: payload.requestId, inline: true });
+  }
+  fields.push(
+    { name: "Environment", value: config.nodeEnv,           inline: true  },
+    { name: "Time",        value: new Date().toISOString(),  inline: false }
+  );
+
+  const body = {
+    embeds: [{
+      title:       `${SEVERITY_EMOJI[payload.severity]} ${payload.title}`,
+      description: payload.message,
+      color:       DISCORD_COLORS[payload.severity],
+      fields,
+      footer: { text: "Undercity Alert System" },
+    }],
+  };
+
+  const res = await fetch(webhookUrl, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify(body),
+    signal:  AbortSignal.timeout(5_000),
+  });
+
+  if (res.status === 429) {
+    const retryAfter = res.headers.get("retry-after");
+    logger.warn("⚠️  Discord rate limited", { retryAfter });
+    return;
+  }
+  if (!res.ok) {
+    logger.warn("⚠️  Discord alert failed", { status: res.status });
+  }
+}
+
+async function sendSlackAlert(payload: AlertPayload): Promise<void> {
+  const webhookUrl = config.slackAlertWebhook;
+  if (!webhookUrl) return;
+
+  const fieldLines = payload.fields
+    ? Object.entries(payload.fields).map(([k, v]) => `*${k}:* ${v}`).join("\n")
     : "";
 
   const text = [
     `${SEVERITY_EMOJI[payload.severity]} *${payload.title}*`,
     payload.message,
-    fields,
-    `_Environment: ${config.nodeEnv} | ${new Date().toISOString()}_`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+    fieldLines,
+    `_Env: ${config.nodeEnv} | ${new Date().toISOString()}_`,
+  ].filter(Boolean).join("\n");
 
   const body = {
     text,
@@ -113,128 +113,190 @@ async function sendSlackAlert(payload: AlertPayload): Promise<void> {
     icon_emoji: payload.severity === "critical" ? ":rotating_light:" : ":warning:",
   };
 
-  const response = await fetch(webhookUrl, {
+  const res = await fetch(webhookUrl, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
     body:    JSON.stringify(body),
+    signal:  AbortSignal.timeout(5_000),
   });
 
-  if (!response.ok) {
-    logger.warn("⚠️  Slack alert failed", { status: response.status });
+  if (!res.ok) {
+    logger.warn("⚠️  Slack alert failed", { status: res.status });
   }
 }
 
-// ============================================================
-// MAIN ALERT FUNCTION
-// Sends to all configured channels simultaneously
-// Never throws — swallows errors to avoid affecting app
-// Only alerts in production (or if FORCE_ALERTS=true)
-// ============================================================
+async function processQueue(): Promise<void> {
+  if (isProcessing || alertQueue.length === 0) return;
+  isProcessing = true;
+  const payload = alertQueue.shift()!;
+  try {
+    await Promise.allSettled([
+      sendDiscordAlert(payload),
+      sendSlackAlert(payload),
+    ]);
+  } catch (err) {
+    logger.warn("⚠️  Alert queue error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  } finally {
+    isProcessing = false;
+  }
+}
+
+setInterval(processQueue, QUEUE_INTERVAL_MS);
+
 export function sendAlert(payload: AlertPayload): void {
   const forceAlerts = process.env.FORCE_ALERTS === "true";
-
   if (!config.isProduction && !forceAlerts) return;
 
-  // Log locally always
   const logFn =
-    payload.severity === "critical" ? logger.error.bind(logger)
-    : payload.severity === "warning" ? logger.warn.bind(logger)
-    : logger.info.bind(logger);
+    payload.severity === "critical" ? logger.error.bind(logger) :
+    payload.severity === "warning"  ? logger.warn.bind(logger)  :
+    logger.info.bind(logger);
 
   logFn(`🔔 ALERT [${payload.severity.toUpperCase()}]: ${payload.title}`, {
     message: payload.message,
     ...payload.fields,
   });
 
-  // Fire and forget to all channels
-  Promise.allSettled([
-    sendDiscordAlert(payload),
-    sendSlackAlert(payload),
-  ]).catch(() => {
-    // allSettled never rejects but TypeScript doesn't know that
-  });
+  if (isDuplicate(payload)) {
+    logger.debug("🔕 Alert suppressed (dedupe)", { key: payload.dedupeKey });
+    return;
+  }
+
+  markSent(payload);
+  alertQueue.push(payload);
 }
 
-// ============================================================
-// CONVENIENCE HELPERS
-// ============================================================
+export const alertCritical = (
+  title:      string,
+  message:    string,
+  fields?:    Record<string, string | number | boolean>,
+  dedupeKey?: string
+) => sendAlert({ title, message, severity: "critical", fields, dedupeKey });
 
-export function alertCritical(
-  title:   string,
-  message: string,
-  fields?: Record<string, string | number | boolean>
-): void {
-  sendAlert({ title, message, severity: "critical", fields });
-}
+export const alertWarning = (
+  title:      string,
+  message:    string,
+  fields?:    Record<string, string | number | boolean>,
+  dedupeKey?: string
+) => sendAlert({ title, message, severity: "warning", fields, dedupeKey });
 
-export function alertWarning(
-  title:   string,
-  message: string,
-  fields?: Record<string, string | number | boolean>
-): void {
-  sendAlert({ title, message, severity: "warning", fields });
-}
-
-export function alertInfo(
-  title:   string,
-  message: string,
-  fields?: Record<string, string | number | boolean>
-): void {
-  sendAlert({ title, message, severity: "info", fields });
-}
-
-// ============================================================
-// PRE-BUILT ALERT TEMPLATES
-// Use these throughout the codebase for consistency
-// ============================================================
+export const alertInfo = (
+  title:      string,
+  message:    string,
+  fields?:    Record<string, string | number | boolean>,
+  dedupeKey?: string
+) => sendAlert({ title, message, severity: "info", fields, dedupeKey });
 
 export const Alerts = {
 
   hardBan: (uid: string, reason: string, ip?: string) =>
-    alertCritical("User Hard Banned", `UID: ${uid.substring(0, 8)}...`, {
-      reason,
-      ip:          ip ?? "unknown",
-      action:      "Firebase session revoked + IP blacklisted",
-    }),
+    alertCritical(
+      "User Hard Banned",
+      `UID: ${uid.slice(0, 8)}... permanently banned`,
+      { reason, ip: ip ?? "unknown", action: "Firebase session revoked" },
+      `hard-ban:${uid}`
+    ),
+
+  softBan: (uid: string, reason: string, expiresAt: Date) =>
+    alertWarning(
+      "User Soft Banned",
+      `UID: ${uid.slice(0, 8)}... temporarily banned`,
+      { reason, expiresAt: expiresAt.toISOString() },
+      `soft-ban:${uid}`
+    ),
 
   massViolation: (uid: string, violationType: string, count: number) =>
-    alertWarning("Mass UAC Violation", `User triggering repeated violations`, {
-      uid:            uid.substring(0, 8),
-      violationType,
-      violationCount: count,
-    }),
-
-  dbPoolExhausted: (waiting: number, total: number) =>
-    alertCritical("DB Pool Exhausted", "All database connections in use", {
-      waiting,
-      total,
-      action: "Scale up DB connections or investigate slow queries",
-    }),
+    alertWarning(
+      "Mass UAC Violation",
+      "User triggering repeated violations",
+      { uid: uid.slice(0, 8), violationType, count },
+      `mass-violation:${uid}:${violationType}`
+    ),
 
   honeypotTriggered: (uid: string, path: string, ip?: string) =>
-    alertCritical("Honeypot Triggered", "User accessed honeypot endpoint", {
-      uid:  uid.substring(0, 8),
-      path,
-      ip:   ip ?? "unknown",
-    }),
+    alertCritical(
+      "Honeypot Triggered",
+      "User accessed honeypot endpoint",
+      { uid: uid.slice(0, 8), path, ip: ip ?? "unknown" },
+      `honeypot:${uid}`
+    ),
+
+  dbPoolExhausted: (waiting: number, total: number) =>
+    alertCritical(
+      "DB Pool Exhausted",
+      "All database connections in use — possible bottleneck",
+      { waiting, total, action: "Investigate slow queries or scale DB" },
+      "db-pool-exhausted"
+    ),
 
   highErrorRate: (errorCount: number, windowMinutes: number) =>
-    alertCritical("High Error Rate", "Server error rate is elevated", {
-      errors:     errorCount,
-      windowMins: windowMinutes,
-      action:     "Check Sentry for details",
-    }),
+    alertCritical(
+      "High Error Rate",
+      "Server error rate is elevated",
+      { errors: errorCount, windowMins: windowMinutes, action: "Check Sentry" },
+      "high-error-rate"
+    ),
 
   serverStarted: (port: number, env: string) =>
-    alertInfo("Server Started", `Undercity backend is online`, {
-      port,
-      environment: env,
-    }),
+    alertInfo(
+      "Server Started",
+      "Undercity backend is online",
+      { port, environment: env },
+      "server-started"
+    ),
 
   gracefulShutdown: (signal: string) =>
-    alertWarning("Server Shutting Down", `Received ${signal}`, {
-      signal,
-      action: "Graceful shutdown in progress",
+    alertWarning(
+      "Server Shutting Down",
+      `Received signal: ${signal}`,
+      { signal, action: "Graceful shutdown in progress" },
+      "shutdown"
+    ),
+
+  suspiciousLogin: (uid: string, ip: string, reason: string) =>
+    alertWarning(
+      "Suspicious Login Detected",
+      `UID: ${uid.slice(0, 8)}... logged in from suspicious context`,
+      { ip, reason },
+      `suspicious-login:${uid}`
+    ),
+
+  paymentFailed: (uid: string, amount: number, reason: string) =>
+    alertWarning(
+      "Payment Failed",
+      `UID: ${uid.slice(0, 8)}... payment of $${amount} failed`,
+      { reason },
+      `payment-failed:${uid}`
+    ),
+
+  newUser: (username: string, uid: string) =>
+    alertInfo(
+      "New User Registered",
+      `${username} joined the Undercity`,
+      { uid: uid.slice(0, 8) }
+    ),
+
+  maintenanceToggled: (enabled: boolean, adminUid: string) =>
+    alertCritical(
+      `Maintenance Mode ${enabled ? "ENABLED" : "DISABLED"}`,
+      `Admin ${adminUid.slice(0, 8)} toggled maintenance mode`,
+      { enabled, adminUid: adminUid.slice(0, 8) },
+      "maintenance-toggle"
+    ),
+
+  // ── NEW — was missing, caused TS errors everywhere ────────
+  systemError: (
+    title:    string,
+    message:  string,
+    severity: "low" | "medium" | "high" = "medium"
+  ) =>
+    sendAlert({
+      title,
+      message,
+      severity: severity === "high" ? "critical" : severity === "medium" ? "warning" : "info",
+      dedupeKey: `system-error:${title}`,
     }),
 
 } as const;

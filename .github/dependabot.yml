@@ -1,44 +1,193 @@
+# ════════════════════════════════════════════════════════════
+#  🤖 UNDERCITY DEPENDABOT CONFIG
+#  UAC 2.0 — Launch Grade
+#  Last updated: 2025
+#
+#  SCHEDULE:
+#  Monday    09:00 UTC → Backend npm
+#  Wednesday 09:00 UTC → Frontend npm
+#  Friday    09:00 UTC → GitHub Actions + Docker
+#
+#  This stagger prevents 25 PRs arriving same morning
+# ════════════════════════════════════════════════════════════
+
 version: 2
 updates:
 
-  # Backend npm dependencies
+  # ── Backend npm ──────────────────────────────────────────
   - package-ecosystem: "npm"
     directory: "/backend"
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
+      interval:  "weekly"
+      day:       "monday"
+      time:      "09:00"
+      timezone:  "UTC"
     open-pull-requests-limit: 10
+
+    # Who gets assigned — put your GitHub username
+    assignees:
+      - "YOUR_GITHUB_USERNAME"
+
+    # Labels for easy filtering and triage
+    labels:
+      - "dependabot"
+      - "backend"
+      - "dependencies"
+
+    # Conventional commit prefix so commitlint passes
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"
+
     groups:
-      backend-minor:
+      # Minor + patch grouped → 1 PR instead of many
+      backend-minor-patch:
         update-types:
           - "minor"
           - "patch"
+
+      # Security updates get their OWN group
+      # So you can spot and merge them fast
+      backend-security:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+        applies-to: security-updates
+
+      # Major versions visible but separate
+      # You see them. You decide. Not auto-ignored.
+      backend-major:
+        update-types:
+          - "major"
+
     ignore:
-      - dependency-name: "*"
+      # Never auto-update these — too risky, review manually
+      # Add packages here that need careful migration
+      - dependency-name: "pg"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "express"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "socket.io"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "firebase-admin"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "stripe"
         update-types: ["version-update:semver-major"]
 
-  # Frontend npm dependencies
+  # ── Frontend npm ─────────────────────────────────────────
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
+      interval:  "weekly"
+      day:       "wednesday"     # Staggered from backend
+      time:      "09:00"
+      timezone:  "UTC"
     open-pull-requests-limit: 10
+
+    assignees:
+      - "YOUR_GITHUB_USERNAME"
+
+    labels:
+      - "dependabot"
+      - "frontend"
+      - "dependencies"
+
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"
+
     groups:
-      frontend-minor:
+      frontend-minor-patch:
         update-types:
           - "minor"
           - "patch"
+
+      frontend-security:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+        applies-to: security-updates
+
+      frontend-major:
+        update-types:
+          - "major"
+
     ignore:
-      - dependency-name: "*"
+      # Never auto-update these — breaking changes very likely
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "firebase"
         update-types: ["version-update:semver-major"]
 
-  # GitHub Actions
+  # ── GitHub Actions ───────────────────────────────────────
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval:  "weekly"
+      day:       "friday"        # Staggered — end of week
+      time:      "09:00"
+      timezone:  "UTC"
     open-pull-requests-limit: 5
+
+    assignees:
+      - "YOUR_GITHUB_USERNAME"
+
+    labels:
+      - "dependabot"
+      - "ci-cd"
+      - "dependencies"
+
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+    # Group ALL action updates into 1 PR
+    # Actions rarely break — safe to batch
+    groups:
+      github-actions-all:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+          - "major"
+
+  # ── Docker Base Images ───────────────────────────────────
+  # Tracks node:20-alpine and postgres:16-alpine updates
+  # Security patches to base images arrive here
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval:  "weekly"
+      day:       "friday"        # Same day as Actions
+      time:      "10:00"
+      timezone:  "UTC"
+    open-pull-requests-limit: 3
+
+    assignees:
+      - "YOUR_GITHUB_USERNAME"
+
+    labels:
+      - "dependabot"
+      - "docker"
+      - "dependencies"
+
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+    groups:
+      docker-updates:
+        patterns:
+          - "*"
+          

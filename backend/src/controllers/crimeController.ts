@@ -1,18 +1,18 @@
 import { Request, Response } from "express";
-import { PoolClient } from "pg";
-import { pool } from "../config/database";
+import { PoolClient }        from "pg";
+import { pool }              from "../config/database";
 import {
   toNumber,
   isFutureDate,
   getUserByFirebaseUid,
   calcMaxNerve,
   calcMaxLife,
-} from "../models/userModels";
-import { getRequestLogger } from "../utils/logger";
+}                            from "../models/userModels";
+import { getRequestLogger }  from "../utils/logger";
 import { UnauthorizedError, NotFoundError } from "../utils/errors";
 import { recordFingerprint, checkMultiAccount } from "../services/fingerprintEngine";
-import { analyzeBehavior, analyzePostCrime } from "../services/behaviorEngine";
-import { flagUser } from "../services/trustEngine";
+import { analyzeBehavior, analyzePostCrime }    from "../services/behaviorEngine";
+import { flagUser }          from "../services/trustEngine";
 import {
   assertCanAttempt,
   assertCrimeRequirements,
@@ -25,12 +25,12 @@ import {
   updateProgress,
   updateUserStats,
   getTotalCrimeXp,
-} from "../services/crimeService";
+}                            from "../services/crimeService";
 
 // ============================================================
 // GET /api/crimes
 // ============================================================
-export const getCrimes = async (req: Request, res: Response) => {
+export const getCrimes = async (req: Request, res: Response): Promise<void> => {
   const client: PoolClient = await pool.connect();
   try {
     const firebaseUid = req.firebaseUser?.uid;
@@ -40,18 +40,18 @@ export const getCrimes = async (req: Request, res: Response) => {
     if (!user) throw new NotFoundError("User");
 
     const playerLevel = toNumber(user.level);
-    const maxLife = calcMaxLife(playerLevel);
+    const maxLife     = calcMaxLife(playerLevel);
 
     const crimesResult = await client.query(
       `SELECT
         c.*,
-        COALESCE(ucp.crime_xp, 0) AS crime_xp,
-        COALESCE(ucp.crime_level, 0) AS crime_level,
-        COALESCE(ucp.attempts, 0) AS attempts,
-        COALESCE(ucp.successes, 0) AS successes,
-        COALESCE(ucp.failures, 0) AS failures,
-        COALESCE(ucp.crit_failures, 0) AS crit_failures,
-        COALESCE(ucp.specials_found_count, 0) AS specials_found_count,
+        COALESCE(ucp.crime_xp, 0)              AS crime_xp,
+        COALESCE(ucp.crime_level, 0)            AS crime_level,
+        COALESCE(ucp.attempts, 0)               AS attempts,
+        COALESCE(ucp.successes, 0)              AS successes,
+        COALESCE(ucp.failures, 0)               AS failures,
+        COALESCE(ucp.crit_failures, 0)          AS crit_failures,
+        COALESCE(ucp.specials_found_count, 0)   AS specials_found_count,
         CASE WHEN $2 >= c.unlock_level THEN TRUE ELSE FALSE END AS unlocked,
         (
           SELECT COUNT(*)
@@ -73,50 +73,50 @@ export const getCrimes = async (req: Request, res: Response) => {
     );
 
     const crimes = crimesResult.rows.map((row: Record<string, unknown>) => ({
-      id: toNumber(row.id),
-      key: row.crime_key,
-      name: row.name,
-      tier: toNumber(row.tier),
-      unlockLevel: toNumber(row.unlock_level),
-      nerveCost: toNumber(row.nerve_cost),
-      minReward: toNumber(row.min_reward),
-      maxReward: toNumber(row.max_reward),
-      isFederal: !!row.is_federal,
-      unlocked: !!row.unlocked,
+      id:          toNumber(row["id"]),
+      key:         row["crime_key"],
+      name:        row["name"],
+      tier:        toNumber(row["tier"]),
+      unlockLevel: toNumber(row["unlock_level"]),
+      nerveCost:   toNumber(row["nerve_cost"]),
+      minReward:   toNumber(row["min_reward"]),
+      maxReward:   toNumber(row["max_reward"]),
+      isFederal:   !!row["is_federal"],
+      unlocked:    !!row["unlocked"],
       progress: {
-        crimeXp: toNumber(row.crime_xp),
-        crimeLevel: toNumber(row.crime_level),
-        attempts: toNumber(row.attempts),
-        successes: toNumber(row.successes),
-        failures: toNumber(row.failures),
-        critFailures: toNumber(row.crit_failures),
-        specialsFoundCount: toNumber(row.specials_found_count),
-        availableSpecialsCount: toNumber(row.available_specials_count),
+        crimeXp:                toNumber(row["crime_xp"]),
+        crimeLevel:             toNumber(row["crime_level"]),
+        attempts:               toNumber(row["attempts"]),
+        successes:              toNumber(row["successes"]),
+        failures:               toNumber(row["failures"]),
+        critFailures:           toNumber(row["crit_failures"]),
+        specialsFoundCount:     toNumber(row["specials_found_count"]),
+        availableSpecialsCount: toNumber(row["available_specials_count"]),
       },
       jailRange: {
-        minSeconds: toNumber(row.jail_min_seconds),
-        maxSeconds: toNumber(row.jail_max_seconds),
+        minSeconds: toNumber(row["jail_min_seconds"]),
+        maxSeconds: toNumber(row["jail_max_seconds"]),
       },
     }));
 
     const totalCrimeXp = await getTotalCrimeXp(client, user.id);
-    const maxNerve = calcMaxNerve(totalCrimeXp);
+    const maxNerve     = calcMaxNerve(totalCrimeXp);
 
-    return res.json({
+    res.json({
       user: {
-        id: toNumber(user.id),
-        username: user.username,
-        level: playerLevel,
-        money: toNumber(user.money),
-        points: toNumber(user.points),
-        nerve: toNumber(user.nerve),
+        id:              toNumber(user.id),
+        username:        user.username,
+        level:           playerLevel,
+        money:           toNumber(user.money),
+        points:          toNumber(user.points),
+        nerve:           toNumber(user.nerve),
         maxNerve,
-        life: toNumber(user.life),
+        life:            toNumber(user.life),
         maxLife,
-        jailUntil: user.jail_until,
+        jailUntil:       user.jail_until,
         federalJailUntil: user.federal_jail_until,
-        inJail: isFutureDate(user.jail_until),
-        inFederalJail: isFutureDate(user.federal_jail_until),
+        inJail:          isFutureDate(user.jail_until),
+        inFederalJail:   isFutureDate(user.federal_jail_until),
       },
       crimes,
     });
@@ -128,8 +128,8 @@ export const getCrimes = async (req: Request, res: Response) => {
 // ============================================================
 // POST /api/crimes/attempt
 // ============================================================
-export const attemptCrime = async (req: Request, res: Response) => {
-  const log = getRequestLogger(req);
+export const attemptCrime = async (req: Request, res: Response): Promise<void> => {
+  const log    = getRequestLogger(req.requestId);
   const client: PoolClient = await pool.connect();
 
   try {
@@ -137,17 +137,18 @@ export const attemptCrime = async (req: Request, res: Response) => {
     if (!firebaseUid) throw new UnauthorizedError();
 
     const { crimeKey } = req.body as { crimeKey: string };
-    const trustInfo: { isShadowBanned: boolean; trustScore: number } = req.trustInfo ?? {
+
+    const trustInfo = req.trustInfo ?? {
       isShadowBanned: false,
-      trustScore: 100,
+      trustScore:     100,
+      tier:           "CLEAN" as const,
+      isHardBanned:   false,
     };
 
-    // UAC 2.0 — grab visitorId from fingerprint header
     const visitorId = req.headers["x-fp-visitor"] as string | undefined;
     const ipAddress = req.ip;
     const userAgent = req.headers["user-agent"] as string | undefined;
 
-    // Fire-and-forget: fingerprint + timing analysis
     recordFingerprint(firebaseUid, ipAddress, userAgent, visitorId).catch(
       (e: Error) => log.warn("Fingerprint record failed", { error: e.message })
     );
@@ -156,7 +157,6 @@ export const attemptCrime = async (req: Request, res: Response) => {
       (e: Error) => log.warn("Behavior analysis failed", { error: e.message })
     );
 
-    // Multi-account check
     checkMultiAccount(firebaseUid, ipAddress, userAgent, visitorId)
       .then(({ otherAccountsCount, otherUids }) => {
         if (otherAccountsCount > 0) {
@@ -168,18 +168,13 @@ export const attemptCrime = async (req: Request, res: Response) => {
           flagUser({
             firebaseUid,
             violationType: "IMPOSSIBLE_ACTION",
-            details: {
-              reason:             "Multi-account detected",
-              otherAccountsCount,
-            },
+            details:       { reason: "Multi-account detected", otherAccountsCount },
             ipAddress,
             userAgent,
           }).catch(() => {});
         }
       })
-      .catch((e: Error) =>
-        log.warn("Multi-account check failed", { error: e.message })
-      );
+      .catch((e: Error) => log.warn("Multi-account check failed", { error: e.message }));
 
     await client.query("BEGIN");
 
@@ -191,28 +186,22 @@ export const attemptCrime = async (req: Request, res: Response) => {
 
     assertCanAttempt(user);
 
-    const crime = await loadCrime(client, crimeKey);
+    const crime            = await loadCrime(client, crimeKey);
     assertCrimeRequirements(user, crime);
 
-    const progress = await loadOrCreateProgress(client, user.id, crime.id);
-    const availableSpecial = await pickAvailableSpecial(
-      client,
-      user.id,
-      crime.id,
-      progress.crime_level
-    );
+    const progress         = await loadOrCreateProgress(client, user.id, crime.id);
+    const availableSpecial = await pickAvailableSpecial(client, user.id, crime.id, progress.crime_level);
+    const outcome          = calculateOutcome(crime, progress, availableSpecial, user, trustInfo);
 
-    const outcome = calculateOutcome(crime, progress, availableSpecial, user, trustInfo);
-
-    const totalCrimeXp = await getTotalCrimeXp(client, user.id);
-    const stats = buildUpdatedStats(user, crime, progress, outcome, totalCrimeXp);
+    const totalCrimeXp     = await getTotalCrimeXp(client, user.id);
+    const stats            = buildUpdatedStats(user, crime, progress, outcome, totalCrimeXp);
 
     let specialDiscovered = false;
     if (outcome.outcome === "special" && outcome.special) {
       specialDiscovered = await saveSpecialDiscovery(client, user.id, outcome.special.id);
     }
-    const updatedSpecialsFoundCount =
-      progress.specials_found_count + (specialDiscovered ? 1 : 0);
+
+    const updatedSpecialsFoundCount = progress.specials_found_count + (specialDiscovered ? 1 : 0);
 
     await updateProgress(client, user.id, crime.id, {
       crimeXp:            stats.crimeXp,
@@ -238,11 +227,7 @@ export const attemptCrime = async (req: Request, res: Response) => {
 
     await client.query("COMMIT");
 
-    // ════════════════════════════════════════════════════════
-    // UAC 2.0 — Post-crime analysis (fire-and-forget)
-    // Tracks: earnings velocity, active hours, success rate
-    // ════════════════════════════════════════════════════════
-    const wasSuccess = outcome.outcome === "success" || outcome.outcome === "special";
+    const wasSuccess  = outcome.outcome === "success" || outcome.outcome === "special";
     const moneyEarned = outcome.reward_money;
 
     analyzePostCrime(firebaseUid, moneyEarned, wasSuccess, ipAddress, userAgent).catch(
@@ -255,7 +240,7 @@ export const attemptCrime = async (req: Request, res: Response) => {
       outcome: outcome.outcome,
     });
 
-    return res.json({
+    res.json({
       outcome: outcome.outcome,
       message: outcome.message,
       crime: {
@@ -278,21 +263,17 @@ export const attemptCrime = async (req: Request, res: Response) => {
         jailSeconds: outcome.jail_seconds,
         jailType:
           outcome.jail_seconds > 0
-            ? crime.is_federal
-              ? "federal"
-              : "normal"
+            ? crime.is_federal ? "federal" : "normal"
             : null,
       },
-      special: outcome.special
-        ? {
-            id:                outcome.special.id,
-            title:             outcome.special.title,
-            description:       outcome.special.description,
-            rewardMoney:       outcome.special.reward_money,
-            rewardPoints:      outcome.special.reward_points,
-            wasNewlyDiscovered: specialDiscovered,
-          }
-        : null,
+      special: outcome.special ? {
+        id:                 outcome.special.id,
+        title:              outcome.special.title,
+        description:        outcome.special.description,
+        rewardMoney:        outcome.special.reward_money,
+        rewardPoints:       outcome.special.reward_points,
+        wasNewlyDiscovered: specialDiscovered,
+      } : null,
       progress: {
         crimeXp:            stats.crimeXp,
         crimeLevel:         stats.crimeLevel,
@@ -310,9 +291,7 @@ export const attemptCrime = async (req: Request, res: Response) => {
         life:             stats.life,
         maxLife:          stats.maxLife,
         jailUntil:        stats.jailUntil ? stats.jailUntil.toISOString() : null,
-        federalJailUntil: stats.federalJailUntil
-          ? stats.federalJailUntil.toISOString()
-          : null,
+        federalJailUntil: stats.federalJailUntil ? stats.federalJailUntil.toISOString() : null,
       },
     });
   } catch (error) {

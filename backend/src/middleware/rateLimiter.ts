@@ -1,246 +1,224 @@
-import rateLimit from "express-rate-limit";
+import rateLimit, { Options } from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import type { Request, Response, NextFunction } from "express";
 import redis from "../config/redis";
+import { config } from "../config";
 import { logger } from "../utils/logger";
 
-// ============================================================
-// REDIS-BACKED RATE LIMITER STORE
-// ============================================================
+function makeRedisStore(prefix: string): RedisStore | undefined {
+  if (config.isTest) return undefined;
 
-function makeRedisStore(prefix: string) {
   try {
     return new RedisStore({
       sendCommand: (...args: string[]) =>
         redis.call(...(args as [string, ...string[]])) as Promise<number>,
-      prefix: `rl:${prefix}:`,
+      prefix: `rl:${prefix}:`
     });
-  } catch {
-    logger.warn(`⚠️  Redis store unavailable for ${prefix}, falling back to memory`);
+  } catch (err) {
+    logger.warn(`Could not create RedisStore for "${prefix}"`, {
+      error: err instanceof Error ? err.message : String(err)
+    });
     return undefined;
   }
 }
 
-// ============================================================
-// SHARED KEY GENERATORS
-// ============================================================
+const keyByUidOrIp = (req: Request): string =>
+  req.firebaseUser?.uid
+    ? `uid:${req.firebaseUser.uid}`
+    : `ip:${req.ip ?? "unknown"}`;
 
-const keyByUidOrIp = (req: Request): string => {
-  if (req.firebaseUser?.uid) return `uid:${req.firebaseUser.uid}`;
-  return `ip:${req.ip ?? "unknown"}`;
-};
-
-const keyByIp = (req: Request): string =>
-  `ip:${req.ip ?? "unknown"}`;
+const keyByIp = (req: Request): string => `ip:${req.ip ?? "unknown"}`;
 
 const skipHealthCheck = (req: Request): boolean =>
   req.path.startsWith("/api/health");
 
-// ============================================================
-// GLOBAL FALLBACK RATE LIMITER
-// Catches anything not covered by specific limiters
-// 200 req/min per IP — generous but stops true abuse
-// ============================================================
-export const globalLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
-  message: { message: "Too many requests. Please slow down." },
-  keyGenerator: keyByIp,
-  store: makeRedisStore("global"),
-  skip: skipHealthCheck,
-  handler: (req: Request, res: Response) => {
-    logger.warn("🚦 Global rate limit hit", {
-      ip:   req.ip,
-      path: req.path,
-    });
-    res.status(429).json({ message: "Too many requests. Please slow down." });
-  },
-});
-
-// ============================================================
-// IP BLACKLIST MIDDLEWARE
-// Blocks IPs stored in Redis blacklist
-// To blacklist an IP: redis.set(`blacklist:ip:1.2.3.4`, "1")
-// To unblacklist:     redis.del(`blacklist:ip:1.2.3.4`)
-// ============================================================
-export const ipBlacklist = async (
-  req:  Request,
-  res:  Response,
-  next: NextFunction
-): Promise<void> => {
-  const ip = req.ip ?? "";
-  if (!ip) { next(); return; }
-
-  const cleanIp = ip.replace(/^::ffff:/, "");
-
-  try {
-    const blocked = await redis.get(`blacklist:ip:${cleanIp}`);
-    if (blocked) {
-      logger.warn("🚫 Blacklisted IP blocked", {
-        ip:   cleanIp,
-        path: req.path,
+function makeLimiter(
+  prefix: string,
+  options: Partial<Options> & { windowMs: number; max: number }
+) {
+  return rateLimit({
+    standardHeaders: true,
+    legacyHeaders: false,
+    validate: { xForwardedForHeader: false },
+    store: makeRedisStore(prefix),
+    skip: skipHealthCheck,
+    keyGenerator: keyByUidOrIp,
+    handler: (req: Request, res: Response) => {
+      logger.warn(`Rate limit hit [${prefix}]`, {
+        ip: req.ip,
+        uid: req.firebaseUser?.uid,
+        path: req.path
       });
-      res.status(403).json({ message: "Access denied." });
-      return;
-    }
-    next();
-  } catch {
-    // Redis down — fail open
-    next();
-  }
-};
-
-// ============================================================
-// BRUTE FORCE PROTECTION
-// Tracks failed auth attempts per IP
-// After 10 failures in 15min → lockout for 1 hour
-// ============================================================
-export const bruteForceProtection = async (
-  req:  Request,
-  res:  Response,
-  next: NextFunction
-): Promise<void> => {
-  const ip      = (req.ip ?? "unknown").replace(/^::ffff:/, "");
-  const key     = `brute:${ip}`;
-  const WINDOW  = 15 * 60;   // 15 minutes tracking window
-  const LOCKOUT = 60 * 60;   // 1 hour lockout
-  const MAX     = 10;        // max failures before lockout
-
-  try {
-    const lockoutKey = `brute:lock:${ip}`;
-    const locked     = await redis.get(lockoutKey);
-
-    if (locked) {
-      logger.warn("🔒 Brute force lockout active", { ip });
       res.status(429).json({
-        message: "Too many failed attempts. Try again later.",
+        message: options.message ?? "Too many requests. Please slow down.",
+        code: "RATE_LIMIT",
+        errorCode: "ERR_9001",
+        requestId: req.requestId
+      });
+    },
+    ...options
+  });
+}
+
+export const globalLimiter = makeLimiter("global", {
+  windowMs: config.rateLimit.windowMs,
+  max: 200,
+  keyGenerator: keyByIp,
+  message: "Too many requests. Please slow down."
+});
+
+export const authSyncLimiter = makeLimiter("auth_sync", {
+  windowMs: config.rateLimit.authWindowMs,
+  max: config.rateLimit.authMaxRequests,
+  keyGenerator: keyByIp,
+  skipSuccessfulRequests: false,
+  message: "Too many registration attempts. Try again later."
+});
+
+export const authMeLimiter = makeLimiter("auth_me", {
+  windowMs: config.rateLimit.windowMs,
+  max: 60,
+  message: "Too many requests."
+});
+
+export const usernameCheckLimiter = makeLimiter("username_check", {
+  windowMs: config.rateLimit.windowMs,
+  max: 20,
+  keyGenerator: keyByIp,
+  message: "Too many username checks. Slow down."
+});
+
+export const crimeLimiter = makeLimiter("crime", {
+  windowMs: config.rateLimit.windowMs,
+  max: 30,
+  message: "Too many crime requests. Slow down."
+});
+
+export const challengeLimiter = makeLimiter("challenge", {
+  windowMs: config.rateLimit.windowMs,
+  max: 60,
+  message: "Too many requests."
+});
+
+export const adminLimiter = makeLimiter("admin", {
+  windowMs: config.rateLimit.windowMs,
+  max: 30,
+  message: "Too many admin requests."
+});
+
+export const statsLimiter = makeLimiter("stats", {
+  windowMs: config.rateLimit.windowMs,
+  max: 30,
+  keyGenerator: keyByIp,
+  message: "Too many requests."
+});
+
+export const paymentLimiter = makeLimiter("payment", {
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyGenerator: keyByUidOrIp,
+  message: "Too many payment requests. Please wait."
+});
+
+export const supportLimiter = makeLimiter("support", {
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  keyGenerator: keyByUidOrIp,
+  message: "Too many support requests. Please wait."
+});
+
+export const gdprLimiter = makeLimiter("gdpr", {
+  windowMs: 24 * 60 * 60 * 1000,
+  max: 3,
+  keyGenerator: keyByUidOrIp,
+  message: "Too many GDPR requests. Please wait 24 hours."
+});
+
+export const mfaLimiter = makeLimiter("mfa", {
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyGenerator: keyByUidOrIp,
+  message: "Too many MFA attempts. Please wait."
+});
+
+export const ipBlacklist = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const raw = req.ip ?? "";
+  if (!raw) {
+    next();
+    return;
+  }
+
+  const ip = raw.replace(/^::ffff:/, "");
+
+  try {
+    const blocked = await redis.get(`blacklist:ip:${ip}`);
+    if (blocked) {
+      logger.warn("Blacklisted IP blocked", { ip, path: req.path });
+      res.status(403).json({
+        message: "Access denied.",
+        code: "FORBIDDEN",
+        errorCode: "ERR_1002"
       });
       return;
     }
-
-    // Intercept response to track failures/successes
-    const originalJson = res.json.bind(res);
-    res.json = function (body: unknown) {
-      if (res.statusCode === 401 || res.statusCode === 403) {
-        redis.incr(key).then((count) => {
-          redis.expire(key, WINDOW);
-          if (count >= MAX) {
-            redis.set(lockoutKey, "1", "EX", LOCKOUT);
-            logger.warn("🔒 Brute force lockout triggered", { ip, count });
-          }
-        }).catch(() => {});
-      } else if (res.statusCode === 200 || res.statusCode === 201) {
-        // Success — reset failure counter
-        redis.del(key).catch(() => {});
-      }
-      return originalJson(body);
-    };
-
     next();
   } catch {
-    // Redis down — fail open
     next();
   }
 };
 
-// ============================================================
-// CRIME RATE LIMITER — 30/min per UID
-// ============================================================
-export const crimeLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
-  message: { message: "Too many requests. Slow down." },
-  keyGenerator: keyByUidOrIp,
-  store: makeRedisStore("crime"),
-  skip: skipHealthCheck,
-});
+export const bruteForceProtection = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const ip = (req.ip ?? "unknown").replace(/^::ffff:/, "");
+  const failKey = `brute:fail:${ip}`;
+  const lockKey = `brute:lock:${ip}`;
+  const WINDOW = 15 * 60;
+  const LOCKOUT = 60 * 60;
+  const MAX_FAIL = 10;
 
-// ============================================================
-// CHALLENGE RATE LIMITER — 60/min per UID
-// ============================================================
-export const challengeLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
-  message: { message: "Too many requests." },
-  keyGenerator: keyByUidOrIp,
-  store: makeRedisStore("challenge"),
-});
+  try {
+    const locked = await redis.get(lockKey);
+    if (locked) {
+      logger.warn("Brute force lockout", { ip });
+      res.status(429).json({
+        message: "Too many failed attempts. Try again in 1 hour.",
+        code: "RATE_LIMIT",
+        errorCode: "ERR_9001"
+      });
+      return;
+    }
 
-// ============================================================
-// AUTH SYNC LIMITER — 5 per 15min per IP
-// ============================================================
-export const authSyncLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
-  message: { message: "Too many registration attempts. Try again later." },
-  keyGenerator: keyByIp,
-  store: makeRedisStore("auth_sync"),
-});
+    res.on("finish", () => {
+      const statusCode = res.statusCode;
 
-// ============================================================
-// AUTH ME LIMITER — 60/min per UID
-// ============================================================
-export const authMeLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
-  message: { message: "Too many requests." },
-  keyGenerator: keyByUidOrIp,
-  store: makeRedisStore("auth_me"),
-});
+      if (statusCode === 401 || statusCode === 403) {
+        redis
+          .multi()
+          .incr(failKey)
+          .expire(failKey, WINDOW)
+          .exec()
+          .then((results) => {
+            const count = results?.[0]?.[1] as number | null;
+            if (count && count >= MAX_FAIL) {
+              redis.set(lockKey, "1", "EX", LOCKOUT).catch(() => {});
+              logger.warn("Brute force lockout triggered", { ip, count });
+            }
+          })
+          .catch(() => {});
+      } else if (statusCode >= 200 && statusCode < 300) {
+        redis.del(failKey).catch(() => {});
+      }
+    });
 
-// ============================================================
-// USERNAME CHECK LIMITER — 20/min per IP
-// ============================================================
-export const usernameCheckLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
-  message: { message: "Too many username checks. Slow down." },
-  keyGenerator: keyByIp,
-  store: makeRedisStore("username_check"),
-});
-
-// ============================================================
-// STATS LIMITER — 30/min per IP
-// ============================================================
-export const statsLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
-  message: { message: "Too many requests." },
-  keyGenerator: keyByIp,
-  store: makeRedisStore("stats"),
-});
-
-// ============================================================
-// ADMIN LIMITER — 30/min per UID
-// ============================================================
-export const adminLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
-  message: { message: "Too many admin requests." },
-  keyGenerator: keyByUidOrIp,
-  store: makeRedisStore("admin"),
-});
+    next();
+  } catch {
+    next();
+  }
+};

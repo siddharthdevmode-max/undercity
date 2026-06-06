@@ -11,11 +11,44 @@ const TOTAL_STEPS = 5;
 const OB_STORAGE_KEY = "undercity_onboarding_step";
 
 const STEP_IMAGES = [
-  { src: "/step1-welcome.jpg",  alt: "Cyberpunk city street at night" },
-  { src: "/step2-terms.jpg",    alt: "Ancient scroll with wax seal on desk" },
-  { src: "/step3-privacy.jpg",  alt: "Massive vault door with red glow" },
-  { src: "/step4-rules.jpg",    alt: "Gothic underground tribunal chamber" },
+  { src: "/step1-welcome.jpg",  alt: "Cyberpunk city street at night"          },
+  { src: "/step2-terms.jpg",    alt: "Ancient scroll with wax seal on desk"    },
+  { src: "/step3-privacy.jpg",  alt: "Massive vault door with red glow"        },
+  { src: "/step4-rules.jpg",    alt: "Gothic underground tribunal chamber"     },
   { src: "/step5-referral.jpg", alt: "Two silhouettes shaking hands in alley" },
+];
+
+const STEP_CONTENT = [
+  {
+    eyebrow: "STEP 1 OF 5",
+    title:   "WELCOME TO\nUNDERCITY",
+    body:    "You've found the city beneath the city. A place where the rules are written in blood and broken just as fast. Build your empire. Earn your reputation. Survive.",
+    cta:     "I'M READY",
+  },
+  {
+    eyebrow: "STEP 2 OF 5",
+    title:   "TERMS OF\nSERVICE",
+    body:    "By playing Undercity you agree to our Terms of Service. This is a browser-based crime simulation. No real criminal activity is encouraged or condoned. You must be 18+ to play.",
+    cta:     "I AGREE",
+  },
+  {
+    eyebrow: "STEP 3 OF 5",
+    title:   "YOUR DATA,\nYOUR RIGHTS",
+    body:    "We store only what we need to run the game. Your data is never sold. You can request export or deletion at any time. See our Privacy Policy for full details.",
+    cta:     "UNDERSTOOD",
+  },
+  {
+    eyebrow: "STEP 4 OF 5",
+    title:   "THE RULES\nOF THE STREET",
+    body:    "No cheating. No exploits. No botting. No harassing other players. One account per person. Violations result in permanent ban. The city has rules — even here.",
+    cta:     "I WILL FOLLOW THE CODE",
+  },
+  {
+    eyebrow: "STEP 5 OF 5",
+    title:   "GOT A\nREFERRAL?",
+    body:    "If someone sent you here, enter their referral code below. Both of you will earn a bonus when you reach Level 5. Skip if you found us on your own.",
+    cta:     "ENTER THE CITY",
+  },
 ];
 
 export default function Onboarding() {
@@ -26,22 +59,24 @@ export default function Onboarding() {
     return Number.isFinite(parsed) && parsed >= 1 && parsed <= TOTAL_STEPS ? parsed : 1;
   });
   const [referralCode, setReferralCode] = useState("");
-  const [completing, setCompleting] = useState(false);
-  const navigate = useNavigate();
-  const { refreshUser } = useAuth();
+  const [completing, setCompleting]     = useState(false);
+  const navigate                        = useNavigate();
+  const { user, refreshUser }           = useAuth();
 
-  // Persist step across accidental refreshes
+  // Guard — already onboarded
   useEffect(() => {
-    try { sessionStorage.setItem(OB_STORAGE_KEY, String(step)); } catch { /* private mode etc. */ }
+    if (user?.onboardingCompleted) {
+      navigate("/home", { replace: true });
+    }
+  }, [user, navigate]);
+
+  // Persist step
+  useEffect(() => {
+    try { sessionStorage.setItem(OB_STORAGE_KEY, String(step)); } catch { /* private mode */ }
   }, [step]);
 
-  const next = () => {
-    if (step < TOTAL_STEPS) setStep(step + 1);
-  };
-
-  const prev = () => {
-    if (step > 1) setStep(step - 1);
-  };
+  const next = () => { if (step < TOTAL_STEPS) setStep(step + 1); };
+  const prev = () => { if (step > 1) setStep(step - 1); };
 
   const finish = async () => {
     setCompleting(true);
@@ -49,7 +84,7 @@ export default function Onboarding() {
       await authAPI.completeOnboarding();
       try { sessionStorage.removeItem(OB_STORAGE_KEY); } catch { /* ignore */ }
       await refreshUser();
-      navigate("/home");
+      navigate("/home", { replace: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -57,226 +92,99 @@ export default function Onboarding() {
     }
   };
 
-  const current = STEP_IMAGES[step - 1];
+  const currentImage   = STEP_IMAGES[step - 1];
+  const currentContent = STEP_CONTENT[step - 1];
+  const isLastStep     = step === TOTAL_STEPS;
 
   return (
     <div className="onboarding-page">
       <Header />
       <div className="onboarding-container">
-        {/* Progress */}
-        <div className="ob-progress">
+
+        {/* Progress dots */}
+        <div className="ob-progress" role="progressbar" aria-valuenow={step} aria-valuemin={1} aria-valuemax={TOTAL_STEPS}>
           {Array.from({ length: TOTAL_STEPS }, (_, i) => (
             <div
               key={i}
               className={`ob-progress-dot ${
                 i + 1 === step ? "active" : i + 1 < step ? "done" : ""
               }`}
+              aria-label={`Step ${i + 1}${i + 1 < step ? " complete" : i + 1 === step ? " current" : ""}`}
             />
           ))}
         </div>
 
         <div key={`card-${step}`} className="ob-card">
-          {/* HERO IMAGE inside the card */}
+
+          {/* Hero image */}
           <div className="ob-hero">
             <img
-              key={current.src}
+              src={currentImage.src}
+              alt={currentImage.alt}
               className="ob-hero-img"
-              src={current.src}
-              alt={current.alt}
               loading="eager"
-              decoding="async"
             />
+            <div className="ob-hero-overlay" />
           </div>
 
-          <div className="ob-card-body">
-            {step > 1 && (
+          {/* Content */}
+          <div className="ob-content">
+            <span className="ob-eyebrow">{currentContent.eyebrow}</span>
+            <h1 className="ob-title">
+              {currentContent.title.split("\n").map((line, i) => (
+                <span key={i}>
+                  {i === 1 ? <span className="accent">{line}</span> : line}
+                  {i === 0 && <br />}
+                </span>
+              ))}
+            </h1>
+            <p className="ob-body">{currentContent.body}</p>
+
+            {/* Referral input on last step */}
+            {isLastStep && (
+              <div className="ob-referral">
+                <input
+                  type="text"
+                  placeholder="Referral code (optional)"
+                  value={referralCode}
+                  onChange={(e) => setReferralCode(e.target.value.trim())}
+                  className="ob-referral-input"
+                  maxLength={32}
+                  disabled={completing}
+                  aria-label="Referral code"
+                />
+              </div>
+            )}
+
+            {/* Nav buttons */}
+            <div className="ob-actions">
+              {step > 1 && (
+                <button
+                  className="ob-btn ob-btn-back"
+                  onClick={prev}
+                  disabled={completing}
+                  aria-label="Go back"
+                >
+                  <Icon name="chevron-left" size={14} /> BACK
+                </button>
+              )}
               <button
-                type="button"
-                className="ob-back-btn"
-                onClick={prev}
-                aria-label="Go back to previous step"
+                className="ob-btn ob-btn-next"
+                onClick={isLastStep ? finish : next}
+                disabled={completing}
+                aria-label={isLastStep ? "Enter the city" : "Continue"}
               >
-                <span className="ob-back-arrow">←</span> BACK
+                {completing ? (
+                  <><span className="spinner" /> ENTERING...</>
+                ) : (
+                  <>{currentContent.cta} <Icon name="chevron-right" size={14} /></>
+                )}
               </button>
-            )}
-            {step === 1 && <StepWelcome onContinue={next} />}
-            {step === 2 && <StepTerms onContinue={next} />}
-            {step === 3 && <StepPrivacy onContinue={next} />}
-            {step === 4 && <StepRules onContinue={next} />}
-            {step === 5 && (
-              <StepReferral
-                code={referralCode}
-                setCode={setReferralCode}
-                onFinish={finish}
-                loading={completing}
-              />
-            )}
+            </div>
           </div>
         </div>
+
       </div>
     </div>
-  );
-}
-
-function StepWelcome({ onContinue }: { onContinue: () => void }) {
-  return (
-    <>
-      <div className="ob-step-label">STEP 1 OF 5</div>
-      <h1 className="ob-title">WELCOME TO UNDERCITY</h1>
-      <p className="ob-subtitle">
-        You just stepped into the most dangerous city in the world.
-        Nothing is given. Everything is earned. Your name is your reputation
-        — and the streets never forget.
-      </p>
-      <div className="ob-welcome-features">
-        <div className="ob-feature-item"><span className="ob-feature-icon"><Icon name="crime"     size={20} /></span> Commit crimes for cash</div>
-        <div className="ob-feature-item"><span className="ob-feature-icon"><Icon name="gym"       size={20} /></span> Train at the gym</div>
-        <div className="ob-feature-item"><span className="ob-feature-icon"><Icon name="gang"      size={20} /></span> Join a gang</div>
-        <div className="ob-feature-item"><span className="ob-feature-icon"><Icon name="properties" size={20} /></span> Build your empire</div>
-        <div className="ob-feature-item"><span className="ob-feature-icon"><Icon name="casino"    size={20} /></span> Gamble at the casino</div>
-        <div className="ob-feature-item"><span className="ob-feature-icon"><Icon name="gang-wars" size={20} /></span> Wage gang wars</div>
-      </div>
-      <button className="ob-continue-btn" onClick={onContinue}>
-        CONTINUE <span className="arrow">→</span>
-      </button>
-    </>
-  );
-}
-
-function StepTerms({ onContinue }: { onContinue: () => void }) {
-  return (
-    <>
-      <div className="ob-step-label">STEP 2 OF 5</div>
-      <h1 className="ob-title">TERMS OF SERVICE</h1>
-      <p className="ob-subtitle">By playing Undercity, you agree to the following terms.</p>
-      <div className="ob-scroll-content">
-        <h4>1. Account Responsibility</h4>
-        <p>You are responsible for maintaining the security of your account. Do not share your password with anyone. One account per person.</p>
-        <h4>2. Fair Play</h4>
-        <p>Cheating, botting, scripting, multi-accounting, or exploiting bugs is strictly prohibited. Violators will be permanently banned without warning.</p>
-        <h4>3. Conduct</h4>
-        <p>Harassment, hate speech, doxxing, or threats of any kind will result in immediate account termination. Undercity is a game — keep it respectful.</p>
-        <h4>4. Virtual Economy</h4>
-        <p>All in-game currency, items, and assets are virtual and have no real-world monetary value. Trading accounts or in-game assets for real money is prohibited.</p>
-        <h4>5. Content</h4>
-        <p>Undercity contains themes of crime, violence, and gambling in a fictional context. By playing, you confirm you are at least 18 years of age or have parental consent.</p>
-        <h4>6. Modifications</h4>
-        <p>These terms may be updated at any time. Continued use of Undercity after changes constitutes acceptance. Major changes will be announced via in-game newspaper.</p>
-        <h4>7. Termination</h4>
-        <p>We reserve the right to terminate any account at any time for violation of these terms or for any reason deemed necessary to protect the game and its community.</p>
-      </div>
-      <button className="ob-continue-btn" onClick={onContinue}>
-        I UNDERSTAND — CONTINUE <span className="arrow">→</span>
-      </button>
-    </>
-  );
-}
-
-function StepPrivacy({ onContinue }: { onContinue: () => void }) {
-  return (
-    <>
-      <div className="ob-step-label">STEP 3 OF 5</div>
-      <h1 className="ob-title">PRIVACY POLICY</h1>
-      <p className="ob-subtitle">Your data, your rights. Here's what we collect and why.</p>
-      <div className="ob-scroll-content">
-        <h4>What We Collect</h4>
-        <ul>
-          <li>Email address (for authentication and recovery)</li>
-          <li>Username (public, chosen by you)</li>
-          <li>IP address (for security and anti-cheat)</li>
-          <li>Device fingerprint (for multi-account detection)</li>
-          <li>Game activity (actions, timings, transactions)</li>
-        </ul>
-        <h4>Why We Collect It</h4>
-        <ul>
-          <li>To authenticate you and secure your account</li>
-          <li>To prevent cheating and multi-accounting</li>
-          <li>To improve game balance and detect exploits</li>
-          <li>To provide you with the best possible experience</li>
-        </ul>
-        <h4>What We Never Do</h4>
-        <ul>
-          <li>Sell your personal data to third parties</li>
-          <li>Share your email publicly or with other players</li>
-          <li>Track you outside of Undercity</li>
-          <li>Use your data for advertising</li>
-        </ul>
-        <h4>Data Retention</h4>
-        <p>Your data is retained for as long as your account exists. You may request full account deletion at any time by contacting support.</p>
-        <h4>Cookies</h4>
-        <p>We use essential cookies for authentication. No tracking cookies, no analytics cookies, no third-party cookies.</p>
-        <h4>Your Rights</h4>
-        <p>You have the right to access, correct, or delete your personal data. Contact us to exercise these rights.</p>
-      </div>
-      <button className="ob-continue-btn" onClick={onContinue}>
-        CONTINUE <span className="arrow">→</span>
-      </button>
-    </>
-  );
-}
-
-function StepRules({ onContinue }: { onContinue: () => void }) {
-  return (
-    <>
-      <div className="ob-step-label">STEP 4 OF 5</div>
-      <h1 className="ob-title">GAME RULES</h1>
-      <p className="ob-subtitle">The streets have rules. Break them, and you're done.</p>
-      <div className="ob-scroll-content">
-        <h4>1. One Account Per Person</h4>
-        <p>Multi-accounting is the #1 bannable offense. Our anti-cheat system (UAC) tracks device fingerprints, IPs, and behavioral patterns. If you're caught, all accounts are permanently banned.</p>
-        <h4>2. No Botting or Scripting</h4>
-        <p>Automating any game action — crimes, gym, attacks, or anything else — is strictly prohibited. Our behavior engine detects timing anomalies, and you will be caught.</p>
-        <h4>3. No Bug Exploitation</h4>
-        <p>If you find a bug, report it. Exploiting bugs for personal gain results in account rollback and potential ban. Players who report bugs may be rewarded.</p>
-        <h4>4. No Real-Money Trading</h4>
-        <p>Selling or buying in-game items, currency, or accounts for real money is prohibited and will result in permanent bans for all parties involved.</p>
-        <h4>5. Respect Other Players</h4>
-        <p>Attacking, scamming, and stealing are part of the game. Harassment, hate speech, real-life threats, and doxxing are not. Know the difference.</p>
-        <h4>6. Gang Warfare Rules</h4>
-        <p>Gang wars are encouraged. Griefing outside of war mechanics is not. Wars have rules — your gang leader will explain them.</p>
-        <h4>7. Staff Decisions Are Final</h4>
-        <p>If a moderator or admin takes action on your account, the decision is final. Appeals can be submitted through the official process, but arguing in public channels will not help your case.</p>
-        <h4>Trust Score System</h4>
-        <p>Every player has a trust score (0-100). Violations reduce your score. Low scores result in shadow penalties, and a score of 0 means permanent ban. Play clean, stay clean.</p>
-      </div>
-      <button className="ob-continue-btn" onClick={onContinue}>
-        I ACCEPT THE RULES <span className="arrow">→</span>
-      </button>
-    </>
-  );
-}
-
-function StepReferral({
-  code, setCode, onFinish, loading,
-}: {
-  code: string;
-  setCode: (v: string) => void;
-  onFinish: () => void;
-  loading: boolean;
-}) {
-  return (
-    <>
-      <div className="ob-step-label">STEP 5 OF 5</div>
-      <h1 className="ob-title">GOT A REFERRAL?</h1>
-      <p className="ob-subtitle">
-        If someone invited you to Undercity, enter their referral code below.
-        Both of you get a bonus when you start playing.
-      </p>
-      <input
-        className="ob-referral-input"
-        type="text"
-        placeholder="Enter referral code (optional)"
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        maxLength={20}
-        disabled={loading}
-      />
-      <p className="ob-referral-note">
-        Don't have a code? No worries — skip and enter the city.
-      </p>
-      <button className="ob-continue-btn" onClick={onFinish} disabled={loading}>
-        {loading ? "ENTERING..." : <>ENTER THE CITY <span className="arrow">→</span></>}
-      </button>
-    </>
   );
 }

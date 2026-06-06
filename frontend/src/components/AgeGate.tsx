@@ -1,34 +1,26 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import '../styles/AgeGate.css';
+import { setAgeVerified } from '../utils/ageVerification';
 
 // ============================================================
-// AGE GATE — 18+ verification
+// AGE GATE - 18+ verification
 // Shown once on first visit. Stores decision in localStorage.
 // ============================================================
-
-const AGE_KEY = 'uc_age_verified';
-
-export function isAgeVerified(): boolean {
-  try { return localStorage.getItem(AGE_KEY) === 'true'; }
-  catch { return false; }
-}
 
 interface AgeGateProps {
   children: React.ReactNode;
 }
 
 export default function AgeGate({ children }: AgeGateProps) {
-  const [verified, setVerified] = useState<boolean | null>(null);
+  const [verified, setVerified] = useState<boolean>(() => {
+    try { return localStorage.getItem('uc_age_verified') === 'true'; }
+    catch { return false; }
+  });
   const [declined, setDeclined] = useState(false);
   const [checked,  setChecked]  = useState(false);
   const [error,    setError]    = useState('');
 
-  useEffect(() => {
-    setVerified(isAgeVerified());
-  }, []);
-
-  if (verified === null) return null;
-  if (verified)          return <>{children}</>;
+  if (verified) return <>{children}</>;
 
   if (declined) {
     return (
@@ -57,20 +49,23 @@ export default function AgeGate({ children }: AgeGateProps) {
       setError('Please confirm you are 18 or older to continue.');
       return;
     }
-    localStorage.setItem(AGE_KEY, 'true');
+    setAgeVerified();
     setVerified(true);
   };
 
   return (
     <div className="ag-page">
-      {/* Brand */}
       <div className="ag-brand">
         <div className="ag-brand-name">UNDERCITY</div>
         <div className="ag-brand-sub">Text-Based Crime MMO</div>
       </div>
 
-      {/* Card */}
-      <div className="ag-card" role="dialog" aria-modal="true" aria-label="Age verification">
+      <div
+        className="ag-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Age verification"
+      >
         <div className="ag-card-icon">🔞</div>
         <h1 className="ag-card-title">Age Verification Required</h1>
         <p className="ag-card-body">
@@ -79,16 +74,14 @@ export default function AgeGate({ children }: AgeGateProps) {
           <strong>18 years or older</strong> to enter.
         </p>
 
-        {/* Warnings */}
         <div className="ag-warnings">
-          <div className="ag-warnings-label">⚠️ This site contains:</div>
-          <div className="ag-warning-item">• Simulated criminal activity</div>
-          <div className="ag-warning-item">• Simulated violence</div>
-          <div className="ag-warning-item">• Simulated gambling</div>
-          <div className="ag-warning-item">• Mature themes</div>
+          <div className="ag-warnings-label">This site contains:</div>
+          <div className="ag-warning-item">Simulated criminal activity</div>
+          <div className="ag-warning-item">Simulated violence</div>
+          <div className="ag-warning-item">Simulated gambling</div>
+          <div className="ag-warning-item">Mature themes</div>
         </div>
 
-        {/* Checkbox */}
         <label className="ag-check-label">
           <input
             type="checkbox"
@@ -108,12 +101,17 @@ export default function AgeGate({ children }: AgeGateProps) {
 
         {error && <p className="ag-error" role="alert">{error}</p>}
 
-        {/* Buttons */}
         <div className="ag-actions">
-          <button className="ag-btn ag-btn-primary" onClick={handleConfirm}>
+          <button
+            className="ag-btn ag-btn-primary"
+            onClick={handleConfirm}
+          >
             I Am 18+ — Enter
           </button>
-          <button className="ag-btn ag-btn-ghost" onClick={() => setDeclined(true)}>
+          <button
+            className="ag-btn ag-btn-ghost"
+            onClick={() => setDeclined(true)}
+          >
             Exit
           </button>
         </div>

@@ -1,66 +1,136 @@
 import { Router, Request, Response } from "express";
-import { verifyFirebaseToken } from "../middleware/firebaseAuth";
-import { flagUser } from "../services/trustEngine";
-import { logger } from "../utils/logger";
-import { Alerts } from "../utils/alerts";
+import { redis }                     from "../config/redis";
+import { flagUser }                  from "../services/trustEngine";
+import { logger }                    from "../utils/logger";
+import { Alerts }                    from "../utils/alerts";
+
+// ============================================================
+// HONEYPOT ROUTES
+// These endpoints look like admin/cheat endpoints in JS bundles.
+// NO legitimate user or code path ever hits these.
+//
+// WHO HITS THESE:
+//   - Automated exploit scanners
+//   - Players trying to cheat via DevTools / Postman
+//   - Security researchers (we still ban, they can appeal)
+//
+// WHAT HAPPENS:
+//   - Authenticated users: instant hard-ban flag + alert
+//   - Anonymous traffic: IP blacklisted for 24h + alert
+//
+// AUTH NOTE:
+//   verifyFirebaseToken is NOT required here — we want to
+//   catch unauthenticated scanners too, not just authenticated
+//   users. Routes handle both cases.
+//
+// BODY NOTE:
+//   req.body is NOT logged — could contain credentials if
+//   someone sends a POST to what looks like /api/auth/login.
+//   Only path, method, and IP are logged.
+//
+// RESPONSE:
+//   Always 404 — don't reveal that the endpoint exists or
+//   that it's a honeypot.
+// ============================================================
 
 const router = Router();
 
-// ============================================================
-// HONEYPOT ENDPOINTS
-// These look like admin/exploit endpoints in JS bundles
-// NO legitimate user/code ever hits these
-// Anyone who does = INSTANT HARD BAN + alert
-// ============================================================
+// ── Config ─────────────────────────────────────────────────
+const IP_BLACKLIST_TTL_SEC = 24 * 60 * 60; // 24 hours
 
-const honeypotHandler = async (req: Request, res: Response) => {
-  try {
-    const firebaseUser = req.firebaseUser;
-    const uid = firebaseUser?.uid;
+// ── Honeypot paths (listed here for documentation) ────────
+// These are registered below as routes.
+// Add more that match common exploit patterns.
+const HONEYPOT_PATHS = [
+  { method: "POST", path: "/admin/add-money"             },
+  { method: "POST", path: "/admin/set-level"             },
+  { method: "POST", path: "/admin/give-items"            },
+  { method: "GET",  path: "/admin/user-dump"             },
+  { method: "POST", path: "/debug/skip-jail"             },
+  { method: "POST", path: "/debug/set-trust-score"       },
+  { method: "GET",  path: "/internal/users-list"         },
+  { method: "GET",  path: "/internal/config-dump"        },
+  { method: "POST", path: "/api-v2/crimes/instant-success" },
+  { method: "GET",  path: "/dev/give-points"             },
+  { method: "POST", path: "/cheats/unlock-all"           },
+  { method: "GET",  path: "/cheats/god-mode"             },
+  { method: "POST", path: "/exploit/rce"                 },
+  { method: "GET",  path: "/exploit/sqli"                },
+] as const;
 
-    if (uid) {
-      logger.warn("🍯 HONEYPOT TRIGGERED", {
-        uid:  uid.substring(0, 8),
-        path: req.path,
-        ip:   req.ip,
-      });
+// ── Honeypot handler ───────────────────────────────────────
 
-      // Fire critical alert immediately
-      Alerts.honeypotTriggered(uid, req.path, req.ip);
+const honeypotHandler = async (req: Request, res: Response): Promise<void> => {
+  const uid = req.firebaseUser?.uid; // may be undefined for unauthenticated hits
+  const ip  = req.ip ?? req.socket?.remoteAddress ?? "unknown";
 
-      await flagUser({
-        firebaseUid:   uid,
-        violationType: "HONEYPOT_TRIGGERED",
-        details: {
-          path:   req.path,
-          method: req.method,
-          body:   req.body,
-        },
-        ipAddress: req.ip,
-        userAgent: req.headers["user-agent"],
-      });
-    } else {
-      logger.warn("🍯 ANONYMOUS HONEYPOT HIT", {
-        path: req.path,
-        ip:   req.ip,
-      });
+  // Sanitize path for logging (strip query strings, cap length)
+  const safePath   = req.path.substring(0, 200).replace(/[^\w/\-.]/g, "");
+  const safeMethod = req.method.substring(0, 10).toUpperCase();
 
-      // Still alert for anonymous hits — could be a scanner
-      Alerts.honeypotTriggered("anonymous", req.path, req.ip);
+  // ── Authenticated user hit ─────────────────────────────
+  if (uid) {
+    logger.warn("🍯 HONEYPOT TRIGGERED (authenticated)", {
+      uid:    uid.substring(0, 8),
+      path:   safePath,
+      method: safeMethod,
+      ip,
+    });
+
+    // Fire alert and flag in parallel — don't await alert
+    void Alerts.honeypotTriggered(uid, safePath, ip);
+
+    await flagUser({
+      firebaseUid:   uid,
+      violationType: "HONEYPOT_TRIGGERED",
+      details: {
+        path:   safePath,
+        method: safeMethod,
+        // intentionally NOT logging req.body (may contain credentials)
+      },
+      ipAddress: ip,
+      userAgent: req.headers["user-agent"],
+    });
+
+  // ── Anonymous / unauthenticated hit ───────────────────
+  } else {
+    logger.warn("🍯 HONEYPOT TRIGGERED (anonymous)", {
+      path:   safePath,
+      method: safeMethod,
+      ip,
+    });
+
+    void Alerts.honeypotTriggered("anonymous", safePath, ip);
+
+    // Blacklist the IP for 24h
+    if (ip && ip !== "unknown") {
+      await redis
+        .set(
+          `blacklist:ip:${ip}`,
+          `Honeypot hit: ${safeMethod} ${safePath}`,
+          "EX",
+          IP_BLACKLIST_TTL_SEC
+        )
+        .catch((err) => {
+          logger.error("Honeypot: IP blacklist write failed", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
     }
-
-    return res.status(404).json({ message: "Not found" });
-  } catch {
-    return res.status(404).json({ message: "Not found" });
   }
+
+  // Always return 404 — never reveal this is a honeypot
+  res.status(404).json({ message: "Not found" });
 };
 
-router.post("/admin/add-money",            verifyFirebaseToken, honeypotHandler);
-router.post("/admin/set-level",            verifyFirebaseToken, honeypotHandler);
-router.post("/debug/skip-jail",            verifyFirebaseToken, honeypotHandler);
-router.get("/internal/users-list",         verifyFirebaseToken, honeypotHandler);
-router.post("/api-v2/crimes/instant-success", verifyFirebaseToken, honeypotHandler);
-router.get("/dev/give-points",             verifyFirebaseToken, honeypotHandler);
-router.post("/cheats/unlock-all",          verifyFirebaseToken, honeypotHandler);
+// ── Register routes ────────────────────────────────────────
+// No verifyFirebaseToken — catch both auth and unauth traffic.
+// firebaseAuth middleware still runs if token is present
+// (because app.ts applies it globally or it's in req.firebaseUser).
+
+for (const { method, path } of HONEYPOT_PATHS) {
+  if (method === "POST") router.post(path, honeypotHandler);
+  if (method === "GET")  router.get(path,  honeypotHandler);
+}
 
 export default router;

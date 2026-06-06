@@ -1,18 +1,22 @@
+// ============================================================
+// DB HELPERS — UNDERCITY
+// Typed query wrappers built on top of the central pool.
+// Single source of truth — do NOT call pool.query() directly
+// in route handlers; use these helpers instead.
+//
+// Consolidates: query, queryOne, queryCount, queryExists,
+// transaction (re-export), retry, retryTransaction.
+// ============================================================
+
 import { PoolClient, QueryResult, QueryResultRow } from "pg";
-import { pool } from "../config/database";
+import { pool, withTransaction } from "../config/database";
 import { logger } from "./logger";
 
-// ============================================================
-// DB HELPERS
-// - Slow query detection + persistence
-// - Typed query results
-// - Transaction wrapper
-// - Retry logic for transient errors
-// ============================================================
+// ─── Config ───────────────────────────────────────────────
 
 const SLOW_QUERY_THRESHOLD_MS = 100;
 
-// Postgres error codes that are safe to retry
+// PG error codes safe to retry
 const RETRYABLE_PG_CODES = new Set([
   "40001", // serialization_failure
   "40P01", // deadlock_detected
@@ -23,96 +27,160 @@ const RETRYABLE_PG_CODES = new Set([
   "57P03", // cannot_connect_now
 ]);
 
+// ─── Helpers ──────────────────────────────────────────────
+
 function isRetryableError(error: unknown): boolean {
-  const pgError = error as { code?: string; message?: string };
-  if (pgError?.code && RETRYABLE_PG_CODES.has(pgError.code)) return true;
-  if (pgError?.message?.includes("ETIMEDOUT"))                 return true;
-  if (pgError?.message?.includes("ECONNRESET"))                return true;
-  if (pgError?.message?.includes("ECONNREFUSED"))              return true;
+  const pg = error as { code?: string; message?: string };
+  if (pg.code && RETRYABLE_PG_CODES.has(pg.code)) return true;
+  if (pg.message?.includes("ETIMEDOUT"))            return true;
+  if (pg.message?.includes("ECONNRESET"))           return true;
+  if (pg.message?.includes("ECONNREFUSED"))         return true;
   return false;
 }
 
-function logSlowQueryToDB(
-  query: string,
-  durationMs: number,
-  rows: number
-): void {
-  void pool.query(
-    `INSERT INTO slow_queries (query_text, duration_ms, rows_returned)
-     VALUES ($1, $2, $3)`,
-    [query.substring(0, 500), durationMs, rows]
-  ).catch(() => {
-    // Silent — table may not exist during migrations
+/** Log slow queries to logger only — no recursive DB write */
+function warnSlowQuery(sql: string, durationMs: number, rows: number): void {
+  logger.warn("🐢 Slow query", {
+    duration_ms: durationMs,
+    rows,
+    sql:         sql.slice(0, 200),
   });
 }
 
-// ============================================================
-// QUERY WITH SLOW QUERY DETECTION
-// ============================================================
+// ─── Core Query ───────────────────────────────────────────
+
+/**
+ * Execute a parameterized query and return all rows.
+ * Logs slow queries automatically.
+ */
 export async function query<T extends QueryResultRow = QueryResultRow>(
-  text: string,
+  sql:    string,
   params?: unknown[]
 ): Promise<T[]> {
   const start = Date.now();
+
   try {
-    const result: QueryResult<T> = await pool.query<T>(text, params as unknown[]);
+    const result: QueryResult<T> = await pool.query<T>(
+      sql,
+      params as unknown[]
+    );
+
     const duration = Date.now() - start;
 
     if (duration > SLOW_QUERY_THRESHOLD_MS) {
-      logger.warn("🐢 Slow query detected", {
-        duration_ms: duration,
-        rows:        result.rowCount,
-        sql:         text.substring(0, 120),
-      });
-      logSlowQueryToDB(text, duration, result.rowCount ?? 0);
+      warnSlowQuery(sql, duration, result.rowCount ?? 0);
     }
 
     return result.rows;
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
     logger.error("💥 Query failed", {
-      error: message,
-      sql:   text.substring(0, 120),
+      error: error instanceof Error ? error.message : String(error),
+      sql:   sql.slice(0, 200),
     });
     throw error;
   }
 }
 
+/**
+ * Execute a query and return the first row, or null if no rows.
+ */
 export async function queryOne<T extends QueryResultRow = QueryResultRow>(
-  text: string,
+  sql:    string,
   params?: unknown[]
 ): Promise<T | null> {
-  const rows = await query<T>(text, params);
+  const rows = await query<T>(sql, params);
   return rows[0] ?? null;
 }
 
-// ============================================================
-// TRANSACTION WRAPPER
-// Handles BEGIN/COMMIT/ROLLBACK and client release
-// ============================================================
-export async function transaction<T>(
-  callback: (client: PoolClient) => Promise<T>
-): Promise<T> {
-  const client = await pool.connect();
+/**
+ * Execute a COUNT query and return the count as a number.
+ *
+ * Usage:
+ *   const total = await queryCount(
+ *     "SELECT COUNT(*) FROM users WHERE is_active = $1",
+ *     [true]
+ *   );
+ */
+export async function queryCount(
+  sql:    string,
+  params?: unknown[]
+): Promise<number> {
+  const row = await queryOne<{ count: string }>(sql, params);
+  return parseInt(row?.count ?? "0", 10);
+}
+
+/**
+ * Execute an EXISTS query and return boolean.
+ *
+ * Usage:
+ *   const exists = await queryExists(
+ *     "SELECT 1 FROM users WHERE username = $1",
+ *     [username]
+ *   );
+ */
+export async function queryExists(
+  sql:    string,
+  params?: unknown[]
+): Promise<boolean> {
+  const row = await queryOne<{ exists: boolean }>(
+    `SELECT EXISTS(${sql}) AS exists`,
+    params
+  );
+  return row?.exists ?? false;
+}
+
+/**
+ * Execute a query using a specific pool client (inside a transaction).
+ */
+export async function clientQuery<T extends QueryResultRow = QueryResultRow>(
+  client: PoolClient,
+  sql:    string,
+  params?: unknown[]
+): Promise<T[]> {
+  const start = Date.now();
+
   try {
-    await client.query("BEGIN");
-    const result = await callback(client);
-    await client.query("COMMIT");
-    return result;
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
+    const result: QueryResult<T> = await client.query<T>(
+      sql,
+      params as unknown[]
+    );
+
+    const duration = Date.now() - start;
+    if (duration > SLOW_QUERY_THRESHOLD_MS) {
+      warnSlowQuery(sql, duration, result.rowCount ?? 0);
+    }
+
+    return result.rows;
+  } catch (error: unknown) {
+    logger.error("💥 Client query failed", {
+      error: error instanceof Error ? error.message : String(error),
+      sql:   sql.slice(0, 200),
+    });
     throw error;
-  } finally {
-    client.release();
   }
 }
 
-// ============================================================
-// RETRY WRAPPER
-// Retries transient DB errors with exponential backoff
-// Max 3 retries, 100ms → 200ms → 400ms delays
-// Use for critical operations like crime attempts
-// ============================================================
+// ─── Transaction ──────────────────────────────────────────
+
+/**
+ * Run a callback inside a BEGIN/COMMIT/ROLLBACK transaction.
+ * Re-exported from database.ts — single implementation.
+ *
+ * Usage:
+ *   const result = await transaction(async (client) => {
+ *     await clientQuery(client, "UPDATE users SET ...", [...]);
+ *     await clientQuery(client, "INSERT INTO logs ...", [...]);
+ *     return { success: true };
+ *   });
+ */
+export const transaction = withTransaction;
+
+// ─── Retry ────────────────────────────────────────────────
+
+/**
+ * Retry a DB operation on transient errors with exponential backoff + jitter.
+ * Jitter prevents thundering herd when multiple operations retry simultaneously.
+ */
 export async function withRetry<T>(
   operation: () => Promise<T>,
   options: {
@@ -139,12 +207,16 @@ export async function withRetry<T>(
         throw error;
       }
 
-      const delay = baseDelayMs * Math.pow(2, attempt - 1);
+      // Exponential backoff + random jitter (0–50% of delay)
+      const base  = baseDelayMs * Math.pow(2, attempt - 1);
+      const jitter = Math.random() * base * 0.5;
+      const delay  = Math.round(base + jitter);
+
       logger.warn(`🔁 Retrying ${label}`, {
         attempt,
         maxRetries,
-        delay_ms:  delay,
-        error:     error instanceof Error ? error.message : String(error),
+        delay_ms: delay,
+        error:    error instanceof Error ? error.message : String(error),
       });
 
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -154,20 +226,23 @@ export async function withRetry<T>(
   throw lastError;
 }
 
-// ============================================================
-// RETRY TRANSACTION
-// Combines transaction + retry for critical operations
-// ============================================================
+/**
+ * Combines transaction + retry for critical write operations.
+ * Use for: crime execution, money transfers, market purchases.
+ */
 export async function retryTransaction<T>(
   callback: (client: PoolClient) => Promise<T>,
   label = "transaction"
 ): Promise<T> {
   return withRetry(
-    () => transaction(callback),
+    () => withTransaction(callback),
     { label, maxRetries: 3, baseDelayMs: 100 }
   );
 }
 
+// ─── Pool Stats ───────────────────────────────────────────
+
+/** Pool stats for health endpoint — single source of truth */
 export function getPoolStats() {
   return {
     total:   pool.totalCount,

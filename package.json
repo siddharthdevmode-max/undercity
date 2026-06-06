@@ -8,7 +8,10 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "prepare": "husky"
+    "prepare": "husky",
+    "start": "node dist/server.js",
+    "lint": "eslint --max-warnings 0 src",
+    "lint:fix": "eslint --max-warnings 0 src --fix"
   },
   "repository": {
     "type": "git",
@@ -24,6 +27,7 @@
   "devDependencies": {
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",
+    "@types/on-finished": "^2.3.5",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.7",
     "prettier": "^3.8.3"

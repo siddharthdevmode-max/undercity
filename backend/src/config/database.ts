@@ -1,60 +1,146 @@
-import { Pool } from "pg";
+// ============================================================
+// DATABASE POOL — UNDERCITY
+// Production-tuned pg.Pool with health check, proper SSL,
+// per-connection session config, exhaustion alerting,
+// and a safe withTransaction helper.
+// ============================================================
+
+import { Pool, PoolClient } from "pg";
 import { logger } from "../utils/logger";
 import { config } from "./index";
 
-// ============================================================
-// PRODUCTION-TUNED DATABASE POOL
-// SSL enforced in production
-// All config from central config — no direct process.env reads
-// ============================================================
+// ─── SSL Config ───────────────────────────────────────────
 
 const sslConfig = config.isProduction
-  ? {
-      rejectUnauthorized: true,
-    }
+  ? { rejectUnauthorized: true }
   : false;
 
+// ─── Pool ─────────────────────────────────────────────────
+
 export const pool = new Pool({
-  connectionString: config.databaseUrl,
-
-  // SSL — enforced in production
-  ssl: sslConfig,
-
-  // Connection limits
-  max:                     20,
-  min:                     2,
+  connectionString:        config.databaseUrl,
+  ssl:                     sslConfig,
+  max:                     config.isTest ? 5  : 20,
+  min:                     config.isTest ? 1  : 2,
   idleTimeoutMillis:       30_000,
   connectionTimeoutMillis: 5_000,
-
-  // Query safety — prevent runaway queries
-  statement_timeout: 10_000,
-  query_timeout:     10_000,
-
-  allowExitOnIdle: false,
+  allowExitOnIdle:         config.isTest,
+  application_name:        `undercity-${config.nodeEnv}`,
 });
 
-pool.on("connect", (client) => {
-  logger.debug("🔌 New database client connected");
-  // Enforce search path for security
-  client.query("SET search_path TO public").catch(() => {});
+// ─── Per-connection Session Config ───────────────────────
+// Each SET runs as a separate query to avoid multi-statement
+// driver compatibility issues.
+
+pool.on("connect", (client: PoolClient) => {
+  logger.debug("🔌 DB client connected");
+
+  const sessionConfig = [
+    "SET search_path TO public",
+    "SET statement_timeout = '10s'",
+    "SET lock_timeout = '5s'",
+    "SET idle_in_transaction_session_timeout = '30s'",
+  ];
+
+  // Fire-and-forget: log but do not crash on failure
+  void Promise.all(sessionConfig.map((sql) => client.query(sql))).catch(
+    (err: Error) => {
+      logger.error("Failed to set session config on new DB connection", {
+        error: err.message,
+      });
+    }
+  );
 });
 
-pool.on("error", (err) => {
-  logger.error("💥 Unexpected database pool error", {
+pool.on("error", (err: Error) => {
+  logger.error("💥 DB pool error", {
     error: err.message,
     stack: err.stack,
   });
 });
 
 pool.on("remove", () => {
-  logger.debug("🔌 Database client removed from pool");
+  logger.debug("🔌 DB client removed from pool");
 });
 
-// ── Pool exhaustion alert ──────────────────────────────────
-setInterval(() => {
-  if (pool.waitingCount > 5) {
-    import("../utils/alerts").then(({ Alerts }) => {
-      Alerts.dbPoolExhausted(pool.waitingCount, pool.totalCount);
-    }).catch(() => {});
+// ─── Pool Exhaustion Monitor ──────────────────────────────
+// Alerts when the wait queue builds up in production.
+
+let exhaustionAlertCooldown = false;
+
+if (config.isProduction) {
+  setInterval(() => {
+    const { waitingCount, totalCount } = pool;
+
+    if (waitingCount > 5 && !exhaustionAlertCooldown) {
+      exhaustionAlertCooldown = true;
+
+      import("../utils/alerts")
+        .then(({ Alerts }) => {
+          Alerts.dbPoolExhausted(waitingCount, totalCount);
+        })
+        .catch(() => {});
+
+      // Cooldown: 5 minutes between repeat alerts
+      setTimeout(() => {
+        exhaustionAlertCooldown = false;
+      }, 300_000);
+    }
+  }, 30_000);
+}
+
+// ─── Health Check ─────────────────────────────────────────
+
+export async function testDatabaseConnection(): Promise<void> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query<{ now: Date }>("SELECT NOW() as now");
+    logger.info("✅ Database connected", {
+      serverTime: result.rows[0]?.now,
+      totalConns: pool.totalCount,
+      idleConns:  pool.idleCount,
+    });
+  } finally {
+    client.release();
   }
-}, 30_000);
+}
+
+// ─── Pool Stats (for health endpoint) ─────────────────────
+
+export function getPoolStats() {
+  return {
+    total:   pool.totalCount,
+    idle:    pool.idleCount,
+    waiting: pool.waitingCount,
+  };
+}
+
+// ─── Transaction Helper ───────────────────────────────────
+// Rolls back safely even if ROLLBACK itself throws,
+// preserving the original error in all cases.
+
+export async function withTransaction<T>(
+  fn: (client: PoolClient) => Promise<T>
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackErr) {
+      logger.error("ROLLBACK failed — connection may be in bad state", {
+        rollbackError:
+          rollbackErr instanceof Error
+            ? rollbackErr.message
+            : String(rollbackErr),
+      });
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}

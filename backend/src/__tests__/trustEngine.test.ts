@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// ============================================================
-// vi.hoisted ensures mockClient exists before vi.mock runs
-// ============================================================
-
 const { mockClient, mockPoolQuery } = vi.hoisted(() => {
   const mockClient = {
     query:   vi.fn(),
@@ -20,29 +16,45 @@ vi.mock("../config/database", () => ({
   },
 }));
 
+vi.mock("../config/redis", () => ({
+  redis: {
+    set:    vi.fn().mockResolvedValue("OK"),
+    del:    vi.fn().mockResolvedValue(1),
+    get:    vi.fn().mockResolvedValue(null),
+    exists: vi.fn().mockResolvedValue(0),
+  },
+}));
+
 vi.mock("../services/immunityCheck", () => ({
   isImmuneFromUAC: vi.fn().mockResolvedValue(false),
 }));
 
-
-import { getTrustTier, flagUser, getTrustInfo } from "../services/trustEngine";
-
-// ============================================================
-// HELPERS
-// ============================================================
+import { pool }  from "../config/database";
+import { redis } from "../config/redis";
+import {
+  getTrustTier,
+  flagUser,
+  getTrustInfo,
+} from "../services/trustEngine";
 
 function setupFlagUserMocks(trustScore: number) {
   mockClient.query
-    .mockResolvedValueOnce(undefined)                                      // BEGIN
-    .mockResolvedValueOnce({ rows: [{ id: 1, trust_score: trustScore }] }) // SELECT user
-    .mockResolvedValueOnce(undefined)                                      // UPDATE user
-    .mockResolvedValueOnce(undefined)                                      // INSERT violation
-    .mockResolvedValueOnce(undefined);                                     // COMMIT
+    .mockResolvedValueOnce(undefined)
+    .mockResolvedValueOnce({
+      rows: [{ id: 1, trust_score: trustScore, is_hard_banned: false }],
+    })
+    .mockResolvedValueOnce(undefined)
+    .mockResolvedValueOnce(undefined)
+    .mockResolvedValueOnce(undefined);
 }
 
-// ============================================================
-// getTrustTier — pure function
-// ============================================================
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(pool.connect).mockResolvedValue(mockClient);
+  vi.mocked(redis.set).mockResolvedValue("OK");
+});
+
+// ── getTrustTier ──────────────────────────────────────────
 
 describe("getTrustTier", () => {
   it("returns CLEAN for score >= 70", () => {
@@ -70,20 +82,14 @@ describe("getTrustTier", () => {
   });
 });
 
-// ============================================================
-// flagUser
-// ============================================================
+// ── flagUser ──────────────────────────────────────────────
 
 describe("flagUser", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   it("reduces trust score by violation severity", async () => {
     setupFlagUserMocks(100);
     const result = await flagUser({
       firebaseUid:   "test-uid-001",
-      violationType: "SUSPICIOUS_TIMING", // severity 15 → 100-15 = 85
+      violationType: "SUSPICIOUS_TIMING",
     });
     expect(result.newTrustScore).toBe(85);
     expect(result.tier).toBe("CLEAN");
@@ -94,7 +100,7 @@ describe("flagUser", () => {
     setupFlagUserMocks(5);
     const result = await flagUser({
       firebaseUid:   "test-uid-002",
-      violationType: "HONEYPOT_TRIGGERED", // severity 100, 5-100 = 0
+      violationType: "HONEYPOT_TRIGGERED",
     });
     expect(result.newTrustScore).toBe(0);
     expect(result.isBanned).toBe(true);
@@ -102,19 +108,27 @@ describe("flagUser", () => {
   });
 
   it("score never goes below 0", async () => {
-    setupFlagUserMocks(0);
+    mockClient.query
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        rows: [{ id: 1, trust_score: 0, is_hard_banned: true }],
+      })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
     const result = await flagUser({
       firebaseUid:   "test-uid-003",
       violationType: "HONEYPOT_TRIGGERED",
     });
     expect(result.newTrustScore).toBe(0);
+    expect(result.isBanned).toBe(true);
   });
 
   it("returns UNKNOWN when user not found", async () => {
     mockClient.query
-      .mockResolvedValueOnce(undefined)      // BEGIN
-      .mockResolvedValueOnce({ rows: [] })   // SELECT → not found
-      .mockResolvedValueOnce(undefined);     // ROLLBACK
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce(undefined);
 
     const result = await flagUser({
       firebaseUid:   "ghost-uid",
@@ -126,15 +140,18 @@ describe("flagUser", () => {
 
   it("handles DB errors gracefully without throwing", async () => {
     mockClient.query
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error("DB connection lost"));
+      .mockResolvedValueOnce(undefined)                        // BEGIN
+      .mockRejectedValueOnce(new Error("DB connection lost"))  // SELECT throws
+      .mockResolvedValueOnce(undefined);                       // ROLLBACK in catch
 
     const result = await flagUser({
       firebaseUid:   "test-uid-err",
       violationType: "INVALID_CHALLENGE",
     });
+
     expect(result.newTrustScore).toBe(100);
-    expect(result.tier).toBe("ERROR");
+    expect(result.tier).toBe("CLEAN");
+    expect(result.skipped).toBe(true);
   });
 
   it("accepts optional ip, userAgent, details", async () => {
@@ -154,23 +171,17 @@ describe("flagUser", () => {
     setupFlagUserMocks(25);
     const result = await flagUser({
       firebaseUid:   "test-uid-005",
-      violationType: "SIGNATURE_FAILURE", // severity 20, 25-20 = 5
+      violationType: "SIGNATURE_FAILURE",
     });
     expect(result.newTrustScore).toBe(5);
     expect(result.tier).toBe("SHADOW_BANNED");
-    expect(result.isBanned).toBe(false); // shadow ban ≠ hard ban
+    expect(result.isBanned).toBe(false);
   });
 });
 
-// ============================================================
-// getTrustInfo
-// ============================================================
+// ── getTrustInfo ──────────────────────────────────────────
 
 describe("getTrustInfo", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   it("returns full trust info for known user", async () => {
     mockPoolQuery.mockResolvedValueOnce({
       rows: [{ trust_score: 75, is_shadow_banned: false, is_hard_banned: false }],

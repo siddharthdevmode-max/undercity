@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 
 // ============================================================
 // Logger tests — verify structure without real Winston output
@@ -44,7 +44,6 @@ describe("logger module", () => {
   it("log methods accept meta object", async () => {
     const { getRequestLogger } = await import("../utils/logger");
     const log = getRequestLogger("test-id");
-    // Should not throw
     expect(() => log.info("test message", { key: "value" })).not.toThrow();
     expect(() => log.warn("test warning")).not.toThrow();
     expect(() => log.error("test error", { error: "details" })).not.toThrow();
@@ -52,9 +51,10 @@ describe("logger module", () => {
     expect(() => log.http("test http")).not.toThrow();
   });
 
-  it("logger level is error in test environment", async () => {
+  it("logger level is silent in test environment", async () => {
     const { logger } = await import("../utils/logger");
-    // In test env config.isTest is true — level forced to error
-    expect(logger.level).toBe("error");
+    // config.isTest = true → level forced to "silent"
+    // This is correct — suppresses all log output during tests
+    expect(logger.level).toBe("silent");
   });
 });

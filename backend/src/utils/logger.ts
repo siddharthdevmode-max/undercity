@@ -1,140 +1,136 @@
+// ============================================================
+// LOGGER — UNDERCITY
+// Winston logger with daily rotation in production.
+// Silent in test. HTTP logs captured at debug level.
+// ============================================================
+
+import path    from "path";
+import fs      from "fs";
 import winston from "winston";
 import DailyRotateFile from "winston-daily-rotate-file";
 import { config } from "../config";
 
-// ============================================================
-// WINSTON LOGGER
-// - Dev:  colorized, human-readable console output
-// - Prod: JSON to console + rotating file (log aggregator ready)
-// - Test: error level only — no noise in test output
-// ============================================================
+const LOG_DIR = path.resolve(process.cwd(), "logs");
 
-const { combine, timestamp, printf, colorize, errors, json } = winston.format;
+if (config.isProduction && !fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
 
-const devFormat = printf(({
-  level,
-  message,
-  timestamp: ts,
-  requestId,
-  ...meta
-}) => {
-  const reqId   = requestId ? `[${String(requestId).substring(0, 8)}] ` : "";
-  const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : "";
-  return `${ts} ${level}: ${reqId}${message}${metaStr}`;
-});
+const { combine, timestamp, printf, colorize, errors, json, splat } = winston.format;
+
+const devFormat = combine(
+  colorize({ all: true }),
+  timestamp({ format: "HH:mm:ss" }),
+  errors({ stack: true }),
+  splat(),
+  printf(({ level, message, timestamp: ts, requestId, stack, ...meta }) => {
+    const reqPart   = requestId ? `[${String(requestId).slice(0, 8)}] ` : "";
+    const metaKeys  = Object.keys(meta);
+    const metaPart  = metaKeys.length > 0 ? ` ${JSON.stringify(meta)}` : "";
+    const stackPart = stack ? `\n${stack}` : "";
+    return `${ts} ${level}: ${reqPart}${message}${metaPart}${stackPart}`;
+  })
+);
 
 const prodFormat = combine(
   timestamp(),
   errors({ stack: true }),
+  splat(),
   json()
 );
 
-const devFormatFull = combine(
-  colorize(),
-  timestamp({ format: "HH:mm:ss" }),
-  devFormat
-);
-
-// ─── Transports ───────────────────────────────────────────
-
-const transports: winston.transport[] = [
-  new winston.transports.Console(),
-];
-
-if (config.isProduction) {
-  transports.push(
-    new DailyRotateFile({
-      filename:      "logs/error-%DATE%.log",
-      datePattern:   "YYYY-MM-DD",
-      level:         "error",
-      maxSize:       "20m",
-      maxFiles:      "14d",
-      zippedArchive: true,
+function buildTransports(): winston.transport[] {
+  const list: winston.transport[] = [
+    new winston.transports.Console({
+      silent: config.isTest,
+      format: config.isProduction ? prodFormat : devFormat,
     }),
-    new DailyRotateFile({
-      filename:      "logs/combined-%DATE%.log",
-      datePattern:   "YYYY-MM-DD",
-      maxSize:       "20m",
-      maxFiles:      "7d",
-      zippedArchive: true,
-    })
-  );
+  ];
+
+  if (config.isProduction) {
+    list.push(
+      new DailyRotateFile({
+        filename:      path.join(LOG_DIR, "error-%DATE%.log"),
+        datePattern:   "YYYY-MM-DD",
+        level:         "error",
+        maxSize:       "20m",
+        maxFiles:      "14d",
+        zippedArchive: true,
+        format:        prodFormat,
+      }),
+      new DailyRotateFile({
+        filename:      path.join(LOG_DIR, "combined-%DATE%.log"),
+        datePattern:   "YYYY-MM-DD",
+        maxSize:       "50m",
+        maxFiles:      "7d",
+        zippedArchive: true,
+        format:        prodFormat,
+      })
+    );
+  }
+
+  return list;
 }
 
-// ─── Logger instance ──────────────────────────────────────
-
 export const logger = winston.createLogger({
-  level:       config.logLevel,
-  format:      config.isProduction ? prodFormat : devFormatFull,
-  transports,
-  silent:      false,
+  level:       config.isTest ? "silent" : config.logLevel,
+  format:      prodFormat,
+  transports:  buildTransports(),
   exitOnError: false,
 });
 
-if (config.isTest) {
-  logger.level = "error";
-}
+// ── Error Rate Tracking ───────────────────────────────────
 
-// ============================================================
-// ERROR RATE TRACKER
-// Counts errors per minute — triggers alert if threshold hit
-// Only active in production
-// ============================================================
+const ERROR_RATE_THRESHOLD = 50;
+const ERROR_RATE_WINDOW_MS = 60_000;
 
 let errorCount       = 0;
 let errorWindowStart = Date.now();
-
-const ERROR_RATE_THRESHOLD = 50;   // errors per window
-const ERROR_RATE_WINDOW_MS = 60_000; // 1 minute
+let alertInCooldown  = false;
 
 function trackErrorRate(): void {
-  if (!config.isProduction) return;
+  if (!config.isProduction || alertInCooldown) return;
 
-  errorCount++;
   const now = Date.now();
-
   if (now - errorWindowStart > ERROR_RATE_WINDOW_MS) {
-    if (errorCount > ERROR_RATE_THRESHOLD) {
-      // Lazy import to avoid circular dependency
-      import("./alerts").then(({ Alerts }) => {
-        Alerts.highErrorRate(errorCount, 1);
-      }).catch(() => {});
-    }
     errorCount       = 0;
     errorWindowStart = now;
   }
+
+  errorCount++;
+
+  if (errorCount >= ERROR_RATE_THRESHOLD) {
+    alertInCooldown = true;
+
+    import("./alerts")
+      .then(({ Alerts }) => Alerts.highErrorRate(errorCount, 1))
+      .catch(() => {});
+
+    setTimeout(() => {
+      alertInCooldown  = false;
+      errorCount       = 0;
+      errorWindowStart = Date.now();
+    }, 300_000);
+  }
 }
 
-// ─── Override error() to track rate ──────────────────────
-const originalError = logger.error.bind(logger);
-logger.error = ((...args: Parameters<typeof originalError>) => {
+// Wrap logger.error to track error rate.
+// We store the original, call it, then track — avoids any type gymnastics.
+const _origError = logger.error.bind(logger);
+
+logger.error = function (
+  message: string | object,
+  ...splat: unknown[]
+): winston.Logger {
   trackErrorRate();
-  return originalError(...args);
-}) as typeof logger.error;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (_origError as any)(message, ...splat);
+};
 
-// ============================================================
-// REQUEST-SCOPED LOGGER
-// Attaches requestId to every log line automatically
-// ============================================================
+// ── Child Logger ──────────────────────────────────────────
 
-export function getRequestLogger(
-  req: { requestId?: string } | string | undefined
-) {
-  const requestId =
-    typeof req === "string"
-      ? req
-      : (req as { requestId?: string } | undefined)?.requestId;
-
-  return {
-    info:  (message: string, meta?: Record<string, unknown>) =>
-      logger.info(message,  { requestId, ...meta }),
-    warn:  (message: string, meta?: Record<string, unknown>) =>
-      logger.warn(message,  { requestId, ...meta }),
-    error: (message: string, meta?: Record<string, unknown>) =>
-      logger.error(message, { requestId, ...meta }),
-    debug: (message: string, meta?: Record<string, unknown>) =>
-      logger.debug(message, { requestId, ...meta }),
-    http:  (message: string, meta?: Record<string, unknown>) =>
-      logger.http(message,  { requestId, ...meta }),
-  };
+export function getRequestLogger(requestId: string | undefined) {
+  return logger.child({ requestId });
 }
+
+export type RequestLogger = ReturnType<typeof getRequestLogger>;

@@ -1,82 +1,126 @@
-import redis from "../config/redis";
-import { flagUser } from "./trustEngine";
-import { isImmuneFromUAC } from "./immunityCheck";
-import { logger } from "../utils/logger";
+import { redis }            from "../config/redis";
+import { flagUser }         from "./trustEngine";
+import { isImmuneFromUAC }  from "./immunityCheck";
+import { logger }           from "../utils/logger";
+import { config }           from "../config";
 
 // ============================================================
 // UAC 2.0 — BEHAVIOR ENGINE
 // Pillar 2: Statistical Anomaly Detection
 //
-// 1. Timing stddev       (UAC 1.0 — kept)
-// 2. Earnings velocity   (UAC 2.0 — NEW)
-// 3. Active hours        (UAC 2.0 — NEW)
-// 4. Success rate spike  (UAC 2.0 — NEW)
+// Checks:
+//   1. Timing stddev       — bot-like mechanical intervals
+//   2. Earnings velocity   — abnormal money gain per hour
+//   3. Active hours        — 23+ hours active in 24h window
+//   4. Success rate spike  — sudden jump above baseline
+//
+// DEDUPLICATION:
+//   Each check has a per-uid cooldown in Redis so the same
+//   violation doesn't fire 100x in a minute if the caller
+//   is invoked rapidly (e.g., crime spam).
+//
+// EARNINGS MINIMUM:
+//   Velocity check requires both current AND baseline to be
+//   above MIN_EARNINGS_FLOOR to avoid false positives from
+//   players who had $0 baseline and just earned $1.
 // ============================================================
 
-const CONFIG = {
+// ── Config ─────────────────────────────────────────────────
+
+const CFG = {
   // Timing analysis
-  WINDOW_SIZE:               10,
-  MIN_ATTEMPTS_TO_ANALYZE:   8,
-  BOT_STDDEV_THRESHOLD:      150,
-  REDIS_TTL:                 600,
+  TIMING_WINDOW_SIZE:        10,
+  TIMING_MIN_SAMPLES:        8,
+  TIMING_BOT_STDDEV_MS:      150,   // ms — below this = bot-like
+  TIMING_REDIS_TTL:          600,   // 10 min
+  TIMING_FLAG_COOLDOWN:      300,   // 5 min between timing flags
 
   // Earnings velocity
-  EARNINGS_WINDOW_SECONDS:   3600,
+  EARNINGS_WINDOW_SEC:       3_600, // 1 hour bucket
   EARNINGS_BASELINE_HOURS:   24,
   EARNINGS_SPIKE_MULTIPLIER: 10,
-  MIN_EARNINGS_SAMPLES:      5,
+  EARNINGS_MIN_SAMPLES:      5,
+  EARNINGS_MIN_FLOOR:        500,   // minimum avg earnings to trigger (avoid $0→$1 false positives)
+  EARNINGS_FLAG_COOLDOWN:    1_800, // 30 min between earnings flags
 
   // Active hours
-  ACTIVE_HOURS_WINDOW:       86400,  // 24h in seconds
+  ACTIVE_HOURS_WINDOW_SEC:   86_400, // 24h
   ACTIVE_HOURS_MAX:          23,     // flag at 23+ hours
-  ACTIVE_BUCKET_MINUTES:     15,     // 15 min granularity
+  ACTIVE_BUCKET_MIN:         15,     // 15-min granularity
+  ACTIVE_FLAG_COOLDOWN:      3_600,  // 1h between active-hours flags
 
-  // Success rate
-  SUCCESS_RATE_WINDOW:       50,
-  SUCCESS_RATE_BASELINE:     30,
-  SUCCESS_RATE_SPIKE_PCT:    30,
+  // Success rate spike
+  SUCCESS_RECENT_WINDOW:     50,
+  SUCCESS_BASELINE_MIN:      30,
+  SUCCESS_SPIKE_PCT:         30,    // % above baseline to flag
+  SUCCESS_FLAG_COOLDOWN:     900,   // 15 min between success-rate flags
 } as const;
+
+// ── Deduplication helper ───────────────────────────────────
+// Returns true if we're still within the cooldown window
+// → skip the flag to avoid spam
+
+async function isOnCooldown(key: string, ttlSeconds: number): Promise<boolean> {
+  try {
+    const result = await redis.set(key, "1", "EX", ttlSeconds, "NX");
+    // NX = only set if not exists
+    // result === null  → key already existed → on cooldown
+    // result === "OK"  → key was set → NOT on cooldown (fire the flag)
+    return result === null;
+  } catch {
+    return false; // Redis error → allow flag (fail open)
+  }
+}
+
+// ── IP/UA cleaning ─────────────────────────────────────────
+
+function cleanIp(ip?: string): string | undefined {
+  return ip?.replace(/^::ffff:/, "");
+}
 
 // ============================================================
 // 1. TIMING ANALYSIS
 // ============================================================
 
-export async function recordAndAnalyze(firebaseUid: string): Promise<{
-  isBotLike:    boolean;
-  stddev:       number;
-  attemptCount: number;
-} | null> {
+export async function recordAndAnalyze(
+  firebaseUid: string
+): Promise<{ isBotLike: boolean; stddev: number; attemptCount: number } | null> {
   try {
-    const redisKey = `timing:${firebaseUid}`;
-    const now      = Date.now();
+    const key = `timing:${firebaseUid}`;
+    const now = Date.now();
 
-    await redis.rpush(redisKey, now.toString());
-    await redis.ltrim(redisKey, -CONFIG.WINDOW_SIZE, -1);
-    await redis.expire(redisKey, CONFIG.REDIS_TTL);
+    // Use pipeline for atomic rpush + ltrim + expire
+    await redis
+      .pipeline()
+      .rpush(key, now.toString())
+      .ltrim(key, -CFG.TIMING_WINDOW_SIZE, -1)
+      .expire(key, CFG.TIMING_REDIS_TTL)
+      .exec();
 
-    const timestamps = await redis.lrange(redisKey, 0, -1);
+    const timestamps = await redis.lrange(key, 0, -1);
 
-    if (timestamps.length < CONFIG.MIN_ATTEMPTS_TO_ANALYZE) {
-      return null;
-    }
+    if (timestamps.length < CFG.TIMING_MIN_SAMPLES) return null;
 
     const gaps: number[] = [];
     for (let i = 1; i < timestamps.length; i++) {
-      gaps.push(parseInt(timestamps[i]) - parseInt(timestamps[i - 1]));
+      const diff = parseInt(timestamps[i]!, 10) - parseInt(timestamps[i - 1]!, 10);
+      if (diff >= 0) gaps.push(diff); // ignore clock skew negatives
     }
 
+    if (gaps.length === 0) return null;
+
     const mean     = gaps.reduce((a, b) => a + b, 0) / gaps.length;
-    const variance = gaps.reduce((sum, gap) => sum + Math.pow(gap - mean, 2), 0) / gaps.length;
+    const variance = gaps.reduce((sum, g) => sum + Math.pow(g - mean, 2), 0) / gaps.length;
     const stddev   = Math.sqrt(variance);
 
     return {
-      isBotLike:    stddev < CONFIG.BOT_STDDEV_THRESHOLD,
+      isBotLike:    stddev < CFG.TIMING_BOT_STDDEV_MS,
       stddev:       Math.round(stddev),
       attemptCount: timestamps.length,
     };
-  } catch (error: unknown) {
-    logger.error("Behavior analysis error", {
-      error: error instanceof Error ? error.message : String(error),
+  } catch (err) {
+    logger.error("BehaviorEngine: timing analysis error", {
+      error: err instanceof Error ? err.message : String(err),
     });
     return null;
   }
@@ -95,61 +139,94 @@ export async function trackEarningsVelocity(
   if (moneyEarned <= 0) return;
 
   try {
-    const now               = Date.now();
-    const currentHourBucket = Math.floor(now / (CONFIG.EARNINGS_WINDOW_SECONDS * 1000));
-    const hourlyKey         = `earnings:hourly:${firebaseUid}:${currentHourBucket}`;
-    const historyKey        = `earnings:history:${firebaseUid}`;
+    const now              = Date.now();
+    const hourBucket       = Math.floor(now / (CFG.EARNINGS_WINDOW_SEC * 1_000));
+    const hourlyKey        = `earnings:h:${firebaseUid}:${hourBucket}`;
+    const historyKey       = `earnings:hist:${firebaseUid}`;
 
-    await redis.incrby(hourlyKey, moneyEarned);
-    await redis.expire(hourlyKey, CONFIG.EARNINGS_WINDOW_SECONDS * 2);
+    // Increment current hour total
+    const currentHourTotal = await redis
+      .pipeline()
+      .incrby(hourlyKey, moneyEarned)
+      .expire(hourlyKey, CFG.EARNINGS_WINDOW_SEC * 2)
+      .exec()
+      .then((results) => {
+        const incrResult = results?.[0];
+        return Array.isArray(incrResult) ? (incrResult[1] as number) : 0;
+      });
 
-    const currentHourTotal = parseInt(await redis.get(hourlyKey) || "0");
+    // Record in sorted set: score=bucket, member="bucket:total"
+    // We use a unique member per bucket — re-add just updates the score
+    await redis
+      .pipeline()
+      .zadd(historyKey, hourBucket, `${hourBucket}`)
+      .expire(historyKey, CFG.EARNINGS_BASELINE_HOURS * 3_600)
+      .exec();
 
-    await redis.zadd(historyKey, currentHourBucket, `${currentHourBucket}:${currentHourTotal}`);
-    await redis.expire(historyKey, CONFIG.EARNINGS_BASELINE_HOURS * 3600);
+    // Store the actual total separately (ZADD score can't hold large floats reliably)
+    await redis.set(
+      `earnings:total:${firebaseUid}:${hourBucket}`,
+      String(currentHourTotal),
+      "EX",
+      CFG.EARNINGS_BASELINE_HOURS * 3_600
+    );
 
-    const oldestBucket = currentHourBucket - CONFIG.EARNINGS_BASELINE_HOURS;
-    await redis.zremrangebyscore(historyKey, "-inf", oldestBucket);
+    // Prune old buckets
+    await redis.zremrangebyscore(historyKey, "-inf", hourBucket - CFG.EARNINGS_BASELINE_HOURS);
 
-    const history = await redis.zrange(historyKey, 0, -1);
-    if (history.length < CONFIG.MIN_EARNINGS_SAMPLES) return;
+    // Get past hour buckets (exclude current)
+    const pastBuckets = await redis.zrange(historyKey, 0, -1);
+    const pastBucketsExCurrent = pastBuckets.filter((b) => parseInt(b, 10) !== hourBucket);
 
-    const pastEarnings: number[] = [];
-    for (const entry of history) {
-      const [bucket, amount] = entry.split(":");
-      if (parseInt(bucket) !== currentHourBucket) {
-        pastEarnings.push(parseInt(amount));
-      }
-    }
+    if (pastBucketsExCurrent.length < CFG.EARNINGS_MIN_SAMPLES - 1) return;
 
-    if (pastEarnings.length < CONFIG.MIN_EARNINGS_SAMPLES - 1) return;
+    // Fetch totals for past buckets
+    const totalKeys = pastBucketsExCurrent.map(
+      (b) => `earnings:total:${firebaseUid}:${b}`
+    );
+    const totals = await redis.mget(...totalKeys);
+    const pastEarnings = totals
+      .map((v) => (v ? parseInt(v, 10) : 0))
+      .filter((v) => v > 0);
+
+    if (pastEarnings.length < CFG.EARNINGS_MIN_SAMPLES - 1) return;
 
     const avgEarnings = pastEarnings.reduce((a, b) => a + b, 0) / pastEarnings.length;
 
-    if (avgEarnings > 0 && currentHourTotal > avgEarnings * CONFIG.EARNINGS_SPIKE_MULTIPLIER) {
-      logger.warn("💰 Earnings velocity anomaly", {
-        uid:         firebaseUid.substring(0, 8),
-        currentHour: currentHourTotal,
-        avgHourly:   Math.round(avgEarnings),
-        multiplier:  Math.round(currentHourTotal / avgEarnings),
-      });
-
-      await flagUser({
-        firebaseUid,
-        violationType: "EARNINGS_VELOCITY",
-        details: {
-          current_hour_earnings: currentHourTotal,
-          avg_hourly_earnings:   Math.round(avgEarnings),
-          multiplier:            Math.round(currentHourTotal / avgEarnings),
-          threshold:             CONFIG.EARNINGS_SPIKE_MULTIPLIER,
-        },
-        ipAddress,
-        userAgent,
-      });
+    // Minimum floor prevents $0→$1 false positives
+    if (
+      avgEarnings < CFG.EARNINGS_MIN_FLOOR ||
+      currentHourTotal <= avgEarnings * CFG.EARNINGS_SPIKE_MULTIPLIER
+    ) {
+      return;
     }
-  } catch (error: unknown) {
-    logger.error("Earnings velocity error", {
-      error: error instanceof Error ? error.message : String(error),
+
+    // Deduplication cooldown
+    const cooldownKey = `flag:cooldown:EARNINGS_VELOCITY:${firebaseUid}`;
+    if (await isOnCooldown(cooldownKey, CFG.EARNINGS_FLAG_COOLDOWN)) return;
+
+    logger.warn("💰 Earnings velocity anomaly", {
+      uid:         firebaseUid.substring(0, 8),
+      currentHour: currentHourTotal,
+      avgHourly:   Math.round(avgEarnings),
+      multiplier:  Math.round(currentHourTotal / avgEarnings),
+    });
+
+    await flagUser({
+      firebaseUid,
+      violationType: "EARNINGS_VELOCITY",
+      details: {
+        current_hour_earnings: currentHourTotal,
+        avg_hourly_earnings:   Math.round(avgEarnings),
+        multiplier:            Math.round(currentHourTotal / avgEarnings),
+        threshold:             CFG.EARNINGS_SPIKE_MULTIPLIER,
+      },
+      ipAddress: cleanIp(ipAddress),
+      userAgent,
+    });
+  } catch (err) {
+    logger.error("BehaviorEngine: earnings velocity error", {
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 }
@@ -165,50 +242,49 @@ export async function trackActiveHours(
 ): Promise<void> {
   try {
     const now        = Date.now();
-    const bucketSize = CONFIG.ACTIVE_BUCKET_MINUTES * 60 * 1000;
-    const bucketKey  = Math.floor(now / bucketSize);
+    const bucketMs   = CFG.ACTIVE_BUCKET_MIN * 60 * 1_000;
+    const bucketKey  = Math.floor(now / bucketMs);
     const activeKey  = `active:${firebaseUid}`;
 
-    // Add current bucket
-    await redis.zadd(activeKey, bucketKey, bucketKey.toString());
-    await redis.expire(activeKey, CONFIG.ACTIVE_HOURS_WINDOW * 2);
+    const bucketsPerHour = 60 / CFG.ACTIVE_BUCKET_MIN; // 4 for 15-min buckets
+    const maxBuckets     = 24 * bucketsPerHour;         // 96
+    const oldestBucket   = bucketKey - maxBuckets;
 
-    // Remove buckets older than 24h
-    const bucketsPerHour  = 60 / CONFIG.ACTIVE_BUCKET_MINUTES;
-    const maxBuckets      = 24 * bucketsPerHour; // 96 for 15-min buckets
-    const oldestBucket    = bucketKey - maxBuckets;
-    await redis.zremrangebyscore(activeKey, "-inf", oldestBucket);
+    await redis
+      .pipeline()
+      .zadd(activeKey, bucketKey, bucketKey.toString())
+      .expire(activeKey, CFG.ACTIVE_HOURS_WINDOW_SEC * 2)
+      .zremrangebyscore(activeKey, "-inf", oldestBucket)
+      .exec();
 
-    // Count unique active buckets in last 24h
     const activeBuckets = await redis.zcard(activeKey);
+    const activeHours   = activeBuckets / bucketsPerHour;
 
-    // Convert buckets → hours
-    const activeHours = activeBuckets / bucketsPerHour;
+    if (activeHours < CFG.ACTIVE_HOURS_MAX) return;
 
-    if (activeHours >= CONFIG.ACTIVE_HOURS_MAX) {
-      logger.warn("⏰ Active hours anomaly", {
-        uid:          firebaseUid.substring(0, 8),
-        activeHours:  Math.round(activeHours * 10) / 10,
-        activeBuckets,
-        maxBuckets,
-      });
+    const cooldownKey = `flag:cooldown:ACTIVE_HOURS:${firebaseUid}`;
+    if (await isOnCooldown(cooldownKey, CFG.ACTIVE_FLAG_COOLDOWN)) return;
 
-      await flagUser({
-        firebaseUid,
-        violationType: "ACTIVE_HOURS_ANOMALY",
-        details: {
-          active_hours:    Math.round(activeHours * 10) / 10,
-          active_buckets:  activeBuckets,
-          max_buckets:     maxBuckets,
-          threshold_hours: CONFIG.ACTIVE_HOURS_MAX,
-        },
-        ipAddress,
-        userAgent,
-      });
-    }
-  } catch (error: unknown) {
-    logger.error("Active hours tracking error", {
-      error: error instanceof Error ? error.message : String(error),
+    logger.warn("⏰ Active hours anomaly", {
+      uid:         firebaseUid.substring(0, 8),
+      activeHours: Math.round(activeHours * 10) / 10,
+    });
+
+    await flagUser({
+      firebaseUid,
+      violationType: "ACTIVE_HOURS_ANOMALY",
+      details: {
+        active_hours:    Math.round(activeHours * 10) / 10,
+        active_buckets:  activeBuckets,
+        max_buckets:     maxBuckets,
+        threshold_hours: CFG.ACTIVE_HOURS_MAX,
+      },
+      ipAddress: cleanIp(ipAddress),
+      userAgent,
+    });
+  } catch (err) {
+    logger.error("BehaviorEngine: active hours error", {
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 }
@@ -224,67 +300,70 @@ export async function trackSuccessRate(
   userAgent?:  string
 ): Promise<void> {
   try {
-    const recentKey   = `success:recent:${firebaseUid}`;
-    const baselineKey = `success:baseline:${firebaseUid}`;
     const value       = wasSuccess ? "1" : "0";
+    const recentKey   = `sr:recent:${firebaseUid}`;
+    const baselineKey = `sr:base:${firebaseUid}`;
 
-    await redis.rpush(recentKey, value);
-    await redis.ltrim(recentKey, -CONFIG.SUCCESS_RATE_WINDOW, -1);
-    await redis.expire(recentKey, 3600);
+    await redis
+      .pipeline()
+      .rpush(recentKey, value)
+      .ltrim(recentKey, -CFG.SUCCESS_RECENT_WINDOW, -1)
+      .expire(recentKey, 3_600)
+      .rpush(baselineKey, value)
+      .ltrim(baselineKey, -(CFG.SUCCESS_RECENT_WINDOW * 5), -1)
+      .expire(baselineKey, 86_400)
+      .exec();
 
-    await redis.rpush(baselineKey, value);
-    await redis.ltrim(baselineKey, -(CONFIG.SUCCESS_RATE_WINDOW * 5), -1);
-    await redis.expire(baselineKey, 86400);
+    const [recent, baseline] = await Promise.all([
+      redis.lrange(recentKey, 0, -1),
+      redis.lrange(baselineKey, 0, -1),
+    ]);
 
-    const recent   = await redis.lrange(recentKey, 0, -1);
-    const baseline = await redis.lrange(baselineKey, 0, -1);
+    if (recent.length < CFG.SUCCESS_RECENT_WINDOW) return;
 
-    if (recent.length < CONFIG.SUCCESS_RATE_WINDOW) return;
-    if (baseline.length < CONFIG.SUCCESS_RATE_BASELINE + CONFIG.SUCCESS_RATE_WINDOW) return;
+    // Baseline = everything BEFORE the recent window
+    const baselineOnly = baseline.slice(0, baseline.length - recent.length);
+    if (baselineOnly.length < CFG.SUCCESS_BASELINE_MIN) return;
 
-    const recentSuccesses = recent.filter((v) => v === "1").length;
-    const recentRate      = (recentSuccesses / recent.length) * 100;
+    const recentRate   = (recent.filter((v) => v === "1").length   / recent.length)      * 100;
+    const baselineRate = (baselineOnly.filter((v) => v === "1").length / baselineOnly.length) * 100;
+    const spike        = recentRate - baselineRate;
 
-    const baselineOnly     = baseline.slice(0, baseline.length - recent.length);
-    if (baselineOnly.length < CONFIG.SUCCESS_RATE_BASELINE) return;
+    if (spike < CFG.SUCCESS_SPIKE_PCT) return;
 
-    const baselineSuccesses = baselineOnly.filter((v) => v === "1").length;
-    const baselineRate      = (baselineSuccesses / baselineOnly.length) * 100;
+    const cooldownKey = `flag:cooldown:SUCCESS_RATE:${firebaseUid}`;
+    if (await isOnCooldown(cooldownKey, CFG.SUCCESS_FLAG_COOLDOWN)) return;
 
-    const spike = recentRate - baselineRate;
+    logger.warn("📈 Success rate spike", {
+      uid:         firebaseUid.substring(0, 8),
+      recentRate:  Math.round(recentRate),
+      baselineRate: Math.round(baselineRate),
+      spike:       Math.round(spike),
+    });
 
-    if (spike >= CONFIG.SUCCESS_RATE_SPIKE_PCT) {
-      logger.warn("📈 Success rate spike detected", {
-        uid:         firebaseUid.substring(0, 8),
-        recentRate:  Math.round(recentRate),
-        baselineRate: Math.round(baselineRate),
-        spike:       Math.round(spike),
-      });
-
-      await flagUser({
-        firebaseUid,
-        violationType: "SUCCESS_RATE_SPIKE",
-        details: {
-          recent_rate:      Math.round(recentRate),
-          baseline_rate:    Math.round(baselineRate),
-          spike_pct:        Math.round(spike),
-          threshold_pct:    CONFIG.SUCCESS_RATE_SPIKE_PCT,
-          recent_window:    recent.length,
-          baseline_window:  baselineOnly.length,
-        },
-        ipAddress,
-        userAgent,
-      });
-    }
-  } catch (error: unknown) {
-    logger.error("Success rate tracking error", {
-      error: error instanceof Error ? error.message : String(error),
+    await flagUser({
+      firebaseUid,
+      violationType: "SUCCESS_RATE_SPIKE",
+      details: {
+        recent_rate:     Math.round(recentRate),
+        baseline_rate:   Math.round(baselineRate),
+        spike_pct:       Math.round(spike),
+        threshold_pct:   CFG.SUCCESS_SPIKE_PCT,
+        recent_window:   recent.length,
+        baseline_window: baselineOnly.length,
+      },
+      ipAddress: cleanIp(ipAddress),
+      userAgent,
+    });
+  } catch (err) {
+    logger.error("BehaviorEngine: success rate error", {
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 }
 
 // ============================================================
-// MAIN ENTRY — called from crimeController
+// MAIN ENTRY — timing analysis (called from crimeController)
 // ============================================================
 
 export async function analyzeBehavior(
@@ -292,35 +371,38 @@ export async function analyzeBehavior(
   ipAddress?:  string,
   userAgent?:  string
 ): Promise<void> {
+  if (config.isTest) return;
   if (await isImmuneFromUAC(firebaseUid)) return;
 
   const analysis = await recordAndAnalyze(firebaseUid);
-  if (!analysis) return;
+  if (!analysis?.isBotLike) return;
 
-  if (analysis.isBotLike) {
-    logger.warn("🤖 Bot-like behavior detected", {
-      uid:               firebaseUid.substring(0, 8),
-      stddev_ms:         analysis.stddev,
-      threshold_ms:      CONFIG.BOT_STDDEV_THRESHOLD,
-      attempts_analyzed: analysis.attemptCount,
-    });
+  const cooldownKey = `flag:cooldown:TIMING:${firebaseUid}`;
+  if (await isOnCooldown(cooldownKey, CFG.TIMING_FLAG_COOLDOWN)) return;
 
-    await flagUser({
-      firebaseUid,
-      violationType: "SUSPICIOUS_TIMING",
-      details: {
-        stddev_ms:         analysis.stddev,
-        threshold_ms:      CONFIG.BOT_STDDEV_THRESHOLD,
-        attempts_analyzed: analysis.attemptCount,
-      },
-      ipAddress,
-      userAgent,
-    });
-  }
+  logger.warn("🤖 Bot-like timing detected", {
+    uid:       firebaseUid.substring(0, 8),
+    stddev_ms: analysis.stddev,
+    threshold: CFG.TIMING_BOT_STDDEV_MS,
+    samples:   analysis.attemptCount,
+  });
+
+  await flagUser({
+    firebaseUid,
+    violationType: "SUSPICIOUS_TIMING",
+    details: {
+      stddev_ms:  analysis.stddev,
+      threshold:  CFG.TIMING_BOT_STDDEV_MS,
+      samples:    analysis.attemptCount,
+    },
+    ipAddress: cleanIp(ipAddress),
+    userAgent,
+  });
 }
 
 // ============================================================
-// FULL POST-CRIME ANALYSIS — fire and forget
+// POST-CRIME ANALYSIS — fire-and-forget from crimeController
+// All 3 checks run in parallel. Immune users skip entirely.
 // ============================================================
 
 export async function analyzePostCrime(
@@ -330,6 +412,7 @@ export async function analyzePostCrime(
   ipAddress?:  string,
   userAgent?:  string
 ): Promise<void> {
+  if (config.isTest) return;
   if (await isImmuneFromUAC(firebaseUid)) return;
 
   await Promise.allSettled([

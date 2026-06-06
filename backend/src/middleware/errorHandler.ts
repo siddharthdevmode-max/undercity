@@ -1,28 +1,109 @@
+// ============================================================
+// ERROR HANDLER — UNDERCITY
+// Centralized error handling with Sentry, pg error mapping,
+// Zod support, Retry-After headers, and dev stack traces.
+// ============================================================
+
 import { Request, Response, NextFunction } from "express";
-import { AppError, ValidationError, JailError, NerveError, CrimeLockError, InsufficientFundsError } from "../utils/errors";
+import * as Sentry   from "@sentry/node";
+import { DatabaseError } from "pg";
+import { ZodError }      from "zod";
+import {
+  AppError,
+  ValidationError,
+  ConflictError,
+  CrimeCooldownError,
+  MaintenanceError,
+  RateLimitError,
+  isAppError,
+} from "../utils/errors";
 import { logger } from "../utils/logger";
 import { config } from "../config";
 
-// ============================================================
-// CENTRALIZED ERROR HANDLER
-// Every AppError subclass now includes:
-//   - message    (human readable)
-//   - code       (string for legacy compat)
-//   - errorCode  (ERR_XXXX for frontend switching)
-//   - requestId  (for tracing)
-// ============================================================
+// ─── PG Error → AppError ──────────────────────────────────
+
+function mapDatabaseError(err: DatabaseError): AppError {
+  switch (err.code) {
+    case "23505":
+      return new ConflictError(
+        err.detail
+          ? `Duplicate entry: ${err.detail}`
+          : "A record with this value already exists."
+      );
+    case "23503":
+      return new ValidationError("Referenced record does not exist.");
+    case "23502":
+      return new ValidationError(`Missing required field: ${err.column ?? "unknown"}`);
+    case "22001":
+      return new ValidationError("Input value is too long.");
+    case "57014":
+      return new AppError("Database query timed out.", 503, "DB_TIMEOUT", "ERR_10004");
+    default:
+      return new AppError("Database error.", 500, "DB_ERROR", "ERR_10005");
+  }
+}
+
+// ─── Build Response Body ──────────────────────────────────
+
+function buildResponseBody(
+  err:       AppError,
+  requestId: string | undefined,
+  isDev:     boolean
+): Record<string, unknown> {
+  const base: Record<string, unknown> = {
+    ...err.toJSON(),
+    requestId,
+  };
+
+  if (err instanceof RateLimitError && err.retryAfterSeconds) {
+    base.retryAfter = err.retryAfterSeconds;
+  }
+
+  if (isDev) {
+    base.stack = err.stack;
+  }
+
+  return base;
+}
+
+// ─── Error Handler ────────────────────────────────────────
 
 export const errorHandler = (
-  err:  Error,
-  req:  Request,
-  res:  Response,
+  err:   Error,
+  req:   Request,
+  res:   Response,
   _next: NextFunction
-) => {
+): void => {
   const requestId = req.requestId;
 
-  // ─── Operational errors (AppError subclasses) ───
-  if (err instanceof AppError) {
-    logger.warn(`${err.code}: ${err.message}`, {
+  // ── Zod validation error ─────────────────────────────
+  if (err instanceof ZodError) {
+    const appErr = new ValidationError(
+      "Validation failed",
+      err.flatten().fieldErrors
+    );
+    res.status(400).json(buildResponseBody(appErr, requestId, config.isDevelopment));
+    return;
+  }
+
+  // ── PostgreSQL error ──────────────────────────────────
+  if (err instanceof DatabaseError) {
+    const appErr = mapDatabaseError(err);
+    logger.warn(`DB Error [${err.code}]: ${err.message}`, {
+      requestId,
+      pgCode: err.code,
+      detail: err.detail,
+      table:  err.table,
+    });
+    res.status(appErr.statusCode).json(
+      buildResponseBody(appErr, requestId, config.isDevelopment)
+    );
+    return;
+  }
+
+  // ── Operational AppErrors ─────────────────────────────
+  if (isAppError(err)) {
+    logger.warn(`[${err.code}] ${err.message}`, {
       requestId,
       path:       req.path,
       method:     req.method,
@@ -30,65 +111,58 @@ export const errorHandler = (
       errorCode:  err.errorCode,
     });
 
-    const response: Record<string, unknown> = {
-      message:   err.message,
-      code:      err.code,
-      errorCode: err.errorCode,
-      requestId,
-    };
+    const resBody = buildResponseBody(err, requestId, config.isDevelopment);
 
-    // Attach subclass-specific fields
-    if (err instanceof ValidationError && err.details) {
-      response.details = err.details;
+    if (err instanceof RateLimitError && err.retryAfterSeconds) {
+      res.setHeader("Retry-After", String(err.retryAfterSeconds));
     }
 
-    if (err instanceof JailError) {
-      response.secondsRemaining = err.secondsRemaining;
-      response.jailType         = err.jailType;
+    if (err instanceof CrimeCooldownError) {
+      res.setHeader("Retry-After", String(err.secondsRemaining));
     }
 
-    if (err instanceof NerveError) {
-      response.currentNerve  = err.currentNerve;
-      response.requiredNerve = err.requiredNerve;
+    if (err instanceof MaintenanceError) {
+      res.setHeader("Retry-After", "300");
     }
 
-    if (err instanceof CrimeLockError) {
-      response.unlockLevel = err.unlockLevel;
-    }
-
-    if (err instanceof InsufficientFundsError) {
-      response.currentMoney  = err.currentMoney;
-      response.requiredMoney = err.requiredMoney;
-    }
-
-    return res.status(err.statusCode).json(response);
+    res.status(err.statusCode).json(resBody);
+    return;
   }
 
-  // ─── Unknown / programmer errors ───
+  // ── Unknown / programmer errors ───────────────────────
+  Sentry.captureException(err, {
+    extra: {
+      requestId,
+      path:   req.path,
+      method: req.method,
+      uid:    req.firebaseUser?.uid,
+    },
+  });
+
   logger.error("Unhandled error", {
     requestId,
     path:   req.path,
     method: req.method,
     error:  err.message,
-    stack:  config.isProduction ? undefined : err.stack,
+    stack:  err.stack,
   });
 
-  return res.status(500).json({
+  res.status(500).json({
     message:   "Internal server error",
     code:      "INTERNAL_ERROR",
-    errorCode: "ERR_10004",
+    errorCode: "ERR_10003",
     requestId,
+    ...(config.isDevelopment ? { stack: err.stack } : {}),
   });
 };
 
-// ============================================================
-// 404 HANDLER
-// ============================================================
-export const notFoundHandler = (req: Request, res: Response) => {
+// ─── 404 Handler ──────────────────────────────────────────
+
+export const notFoundHandler = (req: Request, res: Response): void => {
   res.status(404).json({
     message:   `Cannot ${req.method} ${req.path}`,
     code:      "NOT_FOUND",
-    errorCode: "ERR_10002",
+    errorCode: "ERR_10001",
     requestId: req.requestId,
   });
 };

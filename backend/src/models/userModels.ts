@@ -1,9 +1,11 @@
-import { PoolClient } from "pg";
-import { config } from "../config";
+// ============================================================
+// USER MODELS — UNDERCITY
+// UserRow type, DB query helpers, and game formula functions.
+// Single source of truth for all user-related types.
+// ============================================================
 
-// ============================================================
-// USER ROW — explicit return type, no implicit any
-// ============================================================
+import { PoolClient } from "pg";
+import type { UserTier } from "../config/tiers";
 
 export interface UserRow {
   id:                  number;
@@ -17,6 +19,7 @@ export interface UserRow {
   max_nerve:           number | string;
   life:                number | string;
   max_life:            number | string;
+  hospital_until:      string | null;
   jail_until:          string | null;
   federal_jail_until:  string | null;
   last_crime_at:       string | null;
@@ -27,11 +30,14 @@ export interface UserRow {
   trust_score:         number | string;
   total_flags:         number | string;
   created_at:          string;
+  user_tier:           UserTier;
+  tier_expires_at:     string | null;
+  tier_granted_at:     string | null;
+  tier_granted_by:     string | null;
+  last_nerve_update:   string | null;
 }
 
-// ============================================================
-// SCALAR HELPERS
-// ============================================================
+// ─── Type coercion ────────────────────────────────────────
 
 export function toNumber(value: unknown): number {
   if (value === null || value === undefined) return 0;
@@ -51,12 +57,10 @@ function toDate(value: unknown): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-// ============================================================
-// DB QUERY
-// ============================================================
+// ─── DB Queries ───────────────────────────────────────────
 
 export async function getUserByFirebaseUid(
-  client: PoolClient,
+  client:      PoolClient,
   firebaseUid: string
 ): Promise<UserRow | null> {
   const result = await client.query<UserRow>(
@@ -64,11 +68,14 @@ export async function getUserByFirebaseUid(
        id, firebase_uid, email, username,
        level, money, points,
        nerve, max_nerve, life, max_life,
+       hospital_until,
        jail_until, federal_jail_until, last_crime_at,
        is_shadow_banned, is_hard_banned,
        is_admin, is_developer,
        trust_score, total_flags,
-       created_at
+       created_at,
+       user_tier, tier_expires_at, tier_granted_at, tier_granted_by,
+       last_nerve_update
      FROM users
      WHERE firebase_uid = $1
      LIMIT 1`,
@@ -77,22 +84,50 @@ export async function getUserByFirebaseUid(
   return result.rows[0] ?? null;
 }
 
-// ============================================================
-// LEVEL / NERVE / COOLDOWN CALCULATORS
-// ============================================================
+// ─── Game Formulas ────────────────────────────────────────
 
 export function calcMaxLife(playerLevel: number): number {
   return 100 + (playerLevel - 1) * 25;
 }
 
+// ============================================================
+// NERVE GROWTH CURVE
+//
+// Formula: nerve = 30 + 100 × (1 - e^(-xp / RATE))
+// Cap: 130 for ALL tiers — only regen SPEED differs by tier
+//
+// Target: 10 years of regular grinding to hit 130
+// Regular grinder = ~50 crimes/day × ~150 XP = 7,500 XP/day
+//                 = ~2,737,500 XP/year
+//
+// Rate = 3_500_000 milestones:
+//   Year 1  (~2.7M XP)  → ~68  nerve
+//   Year 3  (~8.2M XP)  → ~93  nerve
+//   Year 5  (~13.7M XP) → ~107 nerve
+//   Year 10 (~27.4M XP) → ~126 nerve
+//   Year 12+ (~35M+ XP) → 130  nerve (endgame)
+//
+// Nerve rounds to nearest 5 for milestone feel.
+// ============================================================
+
+const NERVE_BASE          = 30;
+const NERVE_CAP           = 130;
+const NERVE_RATE          = 3_500_000;
+const NERVE_CAP_THRESHOLD = 127.5;
+
 export function calcMaxNerve(totalCrimeXp: number): number {
-  const base   = 30;
-  const cap    = 130;
-  const growth = cap - base;
-  const rate   = config.isDevelopment ? 800000 : 800000;
-  const nerve  = base + growth * (1 - Math.exp(-totalCrimeXp / rate));
-  return Math.floor(Math.min(cap, Math.max(base, nerve)));
+  if (totalCrimeXp <= 0) return NERVE_BASE;
+
+  const raw     = NERVE_BASE + (NERVE_CAP - NERVE_BASE) * (1 - Math.exp(-totalCrimeXp / NERVE_RATE));
+  const floored = Math.floor(raw);
+
+  if (raw >= NERVE_CAP_THRESHOLD) return NERVE_CAP;
+
+  const stepped = Math.floor(floored / 5) * 5;
+  return Math.min(NERVE_CAP, Math.max(NERVE_BASE, stepped));
 }
+
+// ─── Crime Cooldown ───────────────────────────────────────
 
 export function canAttemptCrime(lastCrimeAt: unknown): boolean {
   const date = toDate(lastCrimeAt);
@@ -107,17 +142,26 @@ export function getCooldownRemaining(lastCrimeAt: unknown): number {
   return remaining > 0 ? Math.ceil(remaining) : 0;
 }
 
-// ============================================================
-// ROLE HELPERS
-// ============================================================
+// ─── Permission Helpers ───────────────────────────────────
 
-/**
- * Quick local check (no DB hit) — use when you already have a UserRow.
- * For firebaseUid-only checks, use isImmuneFromUAC() from immunityCheck.ts
- * (which is cached + handles all anti-cheat short-circuits).
- */
 export function isImmuneToAntiCheat(
   user: Pick<UserRow, "is_developer" | "is_admin">
 ): boolean {
   return user.is_developer === true || user.is_admin === true;
+}
+
+export function isContributor(user: Pick<UserRow, "user_tier">): boolean {
+  return user.user_tier === "contributor";
+}
+
+export function isCitizen(user: Pick<UserRow, "user_tier">): boolean {
+  return user.user_tier === "citizen";
+}
+
+export function isFreePlayer(user: Pick<UserRow, "user_tier">): boolean {
+  return user.user_tier === "player";
+}
+
+export function hasPaidTier(user: Pick<UserRow, "user_tier">): boolean {
+  return user.user_tier === "citizen" || user.user_tier === "contributor";
 }

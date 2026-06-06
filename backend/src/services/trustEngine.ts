@@ -1,34 +1,61 @@
-import { PoolClient } from "pg";
-import { pool } from "../config/database";
-import { logger } from "../utils/logger";
+import { pool }            from "../config/database";
+import { redis }           from "../config/redis";
+import { logger }          from "../utils/logger";
 import { isImmuneFromUAC } from "./immunityCheck";
+import { Alerts }          from "../utils/alerts";
 
 // ============================================================
-// VIOLATION TYPES & SEVERITY
+// UAC 2.0 — TRUST ENGINE
+// Central flagging system for all UAC violations.
+//
+// DEDUPLICATION:
+//   flagUser checks a per-uid per-violation Redis cooldown
+//   before writing to DB. Same violation won't fire twice
+//   within the cooldown window even if called 100x/second.
+//
+// ALREADY-BANNED GUARD:
+//   If trust_score is already 0, skip the DB update entirely.
+//   Just log the violation — no wasted writes.
+//
+// SEVERITY TIERS:
+//   0–19   → HARD_BAN  (is_hard_banned = true)
+//   1–19   → SHADOW_BAN (is_shadow_banned = true, score > 0)
+//   20–39  → SUSPICIOUS  (watched)
+//   40–69  → WATCHED
+//   70–100 → CLEAN
 // ============================================================
+
+// ── Violation registry ─────────────────────────────────────
 
 export const VIOLATIONS = {
-  // UAC 1.0
-  INVALID_CHALLENGE:    { severity: 10,  reason: "Invalid challenge token" },
-  RATE_LIMIT_HIT:       { severity: 5,   reason: "Rate limit exceeded" },
-  HONEYPOT_TRIGGERED:   { severity: 100, reason: "Honeypot endpoint accessed" },
-  SUSPICIOUS_TIMING:    { severity: 15,  reason: "Bot-like timing detected" },
-  SIGNATURE_FAILURE:    { severity: 20,  reason: "Multiple signature failures" },
-  CHALLENGE_REUSE:      { severity: 25,  reason: "Challenge token replay attempt" },
-  IMPOSSIBLE_ACTION:    { severity: 50,  reason: "Physically impossible action" },
-  // UAC 2.0 — Pillar 2: Statistical Anomaly Detection
-  EARNINGS_VELOCITY:    { severity: 30,  reason: "Abnormal earnings velocity detected" },
-  ACTIVE_HOURS_ANOMALY: { severity: 25,  reason: "Inhuman active hours detected" },
-  SUCCESS_RATE_SPIKE:   { severity: 20,  reason: "Suspicious success rate spike" },
-  // UAC 2.0 — Pillar 3: Network Intelligence
-  VPN_PROXY_DETECTED:   { severity: 15,  reason: "VPN or proxy usage detected" },
-  TOR_DETECTED:         { severity: 40,  reason: "Tor exit node detected" },
-  GEO_BLOCKED:          { severity: 50,  reason: "Access from geo-blocked region" },
+  // Auth & access
+  INVALID_CHALLENGE:    { severity: 10,  reason: "Invalid challenge token",         cooldownSec: 60   },
+  RATE_LIMIT_HIT:       { severity: 5,   reason: "Rate limit exceeded",             cooldownSec: 300  },
+  HONEYPOT_TRIGGERED:   { severity: 100, reason: "Honeypot endpoint accessed",      cooldownSec: 0    }, // always flag
+  SIGNATURE_FAILURE:    { severity: 20,  reason: "Multiple signature failures",     cooldownSec: 120  },
+  CHALLENGE_REUSE:      { severity: 25,  reason: "Challenge token replay attempt",  cooldownSec: 60   },
+  IMPOSSIBLE_ACTION:    { severity: 50,  reason: "Physically impossible action",    cooldownSec: 60   },
+
+  // Statistical anomaly
+  SUSPICIOUS_TIMING:    { severity: 15,  reason: "Bot-like timing detected",        cooldownSec: 300  },
+  EARNINGS_VELOCITY:    { severity: 30,  reason: "Abnormal earnings velocity",      cooldownSec: 1_800 },
+  ACTIVE_HOURS_ANOMALY: { severity: 25,  reason: "Inhuman active hours detected",   cooldownSec: 3_600 },
+  SUCCESS_RATE_SPIKE:   { severity: 20,  reason: "Suspicious success rate spike",   cooldownSec: 900  },
+
+  // Network intelligence
+  VPN_PROXY_DETECTED:   { severity: 15,  reason: "VPN or proxy usage detected",     cooldownSec: 21_600 }, // 6h
+  DATACENTER_IP:        { severity: 10,  reason: "Datacenter IP detected",          cooldownSec: 21_600 },
+  TOR_DETECTED:         { severity: 40,  reason: "Tor exit node detected",          cooldownSec: 21_600 },
+  GEO_BLOCKED:          { severity: 50,  reason: "Access from geo-blocked region",  cooldownSec: 86_400 },
 } as const;
 
 export type ViolationType = keyof typeof VIOLATIONS;
 
-export function getTrustTier(score: number): string {
+// ── Trust tier labels ──────────────────────────────────────
+
+export type TrustTier = "CLEAN" | "WATCHED" | "SUSPICIOUS" | "SHADOW_BANNED" | "HARD_BANNED" | "UNKNOWN";
+
+export function getTrustTier(score: number): TrustTier {
   if (score >= 70) return "CLEAN";
   if (score >= 40) return "WATCHED";
   if (score >= 20) return "SUSPICIOUS";
@@ -36,62 +63,151 @@ export function getTrustTier(score: number): string {
   return "HARD_BANNED";
 }
 
+// ── flagUser result ────────────────────────────────────────
+
+export interface FlagResult {
+  newTrustScore: number;
+  tier:          TrustTier;
+  isBanned:      boolean;
+  skipped:       boolean; // true if deduped or immune
+  reason:        string;
+}
+
+// ── Dedup cooldown ─────────────────────────────────────────
+
+async function isViolationOnCooldown(
+  uid:           string,
+  violationType: ViolationType,
+  cooldownSec:   number
+): Promise<boolean> {
+  if (cooldownSec === 0) return false; // HONEYPOT_TRIGGERED always fires
+
+  try {
+    const key    = `trust:cooldown:${violationType}:${uid}`;
+    const result = await redis.set(key, "1", "EX", cooldownSec, "NX");
+    return result === null; // null = key existed = on cooldown
+  } catch {
+    return false; // Redis error → allow flag
+  }
+}
+
+// ============================================================
+// flagUser — Core UAC flagging function
+// ============================================================
+
 export async function flagUser(params: {
   firebaseUid:    string;
   violationType:  ViolationType;
   details?:       Record<string, unknown>;
   ipAddress?:     string;
   userAgent?:     string;
-}): Promise<{ newTrustScore: number; tier: string; isBanned: boolean }> {
+}): Promise<FlagResult> {
 
-  // 🛡️ DEV/ADMIN IMMUNITY — bail before any DB writes
+  const violation = VIOLATIONS[params.violationType];
+
+  const SKIPPED: FlagResult = {
+    newTrustScore: 100,
+    tier:          "CLEAN",
+    isBanned:      false,
+    skipped:       true,
+    reason:        "immune or deduped",
+  };
+
+  // ── Immunity check ─────────────────────────────────────
   if (await isImmuneFromUAC(params.firebaseUid)) {
-    logger.info("🛡️ UAC flag SKIPPED (immune user)", {
+    logger.debug("🛡️ UAC flag skipped — immune user", {
       uid:  params.firebaseUid.substring(0, 8),
       type: params.violationType,
     });
-    return { newTrustScore: 100, tier: "CLEAN", isBanned: false };
+    return SKIPPED;
   }
 
-  const client: PoolClient = await pool.connect();
+  // ── Cooldown dedup ─────────────────────────────────────
+  if (await isViolationOnCooldown(params.firebaseUid, params.violationType, violation.cooldownSec)) {
+    logger.debug("⏳ UAC flag skipped — cooldown active", {
+      uid:         params.firebaseUid.substring(0, 8),
+      type:        params.violationType,
+      cooldownSec: violation.cooldownSec,
+    });
+    return SKIPPED;
+  }
+
+  // ── DB update ─────────────────────────────────────────
+  const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    const violation = VIOLATIONS[params.violationType];
-
     const userResult = await client.query(
-      `SELECT id, trust_score FROM users WHERE firebase_uid = $1 LIMIT 1`,
+      `SELECT id, trust_score, is_hard_banned
+       FROM users
+       WHERE firebase_uid = $1
+         AND deleted_at   IS NULL
+       LIMIT 1
+       FOR UPDATE`, // row-level lock prevents concurrent flag races
       [params.firebaseUid]
     );
 
     if (userResult.rows.length === 0) {
       await client.query("ROLLBACK");
-      return { newTrustScore: 0, tier: "UNKNOWN", isBanned: false };
+      return { newTrustScore: 0, tier: "UNKNOWN", isBanned: false, skipped: true, reason: "user not found" };
     }
 
-    const user     = userResult.rows[0];
+    const user    = userResult.rows[0] as { id: number; trust_score: number; is_hard_banned: boolean };
     const oldScore = user.trust_score ?? 100;
-    const newScore = Math.max(0, oldScore - violation.severity);
 
+    // Already hard-banned → still log violation, skip score update
+    if (user.is_hard_banned || oldScore === 0) {
+      await client.query(
+        `INSERT INTO uac_violations
+           (user_id, firebase_uid, violation_type, severity, details, ip_address, user_agent)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          user.id,
+          params.firebaseUid,
+          params.violationType,
+          violation.severity,
+          JSON.stringify(params.details ?? {}),
+          params.ipAddress  ?? null,
+          params.userAgent  ?? null,
+        ]
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        newTrustScore: 0,
+        tier:          "HARD_BANNED",
+        isBanned:      true,
+        skipped:       false,
+        reason:        "already banned",
+      };
+    }
+
+    const newScore       = Math.max(0, oldScore - violation.severity);
     const isShadowBanned = newScore > 0 && newScore < 20;
     const isHardBanned   = newScore === 0;
 
     await client.query(
       `UPDATE users
-       SET trust_score      = $1,
-           is_shadow_banned = $2,
-           is_hard_banned   = $3,
-           last_flag_reason = $4,
-           last_flag_at     = CURRENT_TIMESTAMP,
-           total_flags      = total_flags + 1
-       WHERE id = $5`,
+       SET    trust_score      = $1,
+              is_shadow_banned = $2,
+              is_hard_banned   = $3,
+              ban_type         = CASE WHEN $3 THEN 'hard'
+                                      WHEN $2 THEN 'shadow'
+                                      ELSE ban_type
+                                 END,
+              last_flag_reason = $4,
+              last_flag_at     = NOW(),
+              total_flags      = total_flags + 1,
+              updated_at       = NOW()
+       WHERE  id = $5`,
       [newScore, isShadowBanned, isHardBanned, violation.reason, user.id]
     );
 
     await client.query(
       `INSERT INTO uac_violations
-       (user_id, firebase_uid, violation_type, severity, details, ip_address, user_agent)
+         (user_id, firebase_uid, violation_type, severity, details, ip_address, user_agent)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         user.id,
@@ -99,8 +215,8 @@ export async function flagUser(params: {
         params.violationType,
         violation.severity,
         JSON.stringify(params.details ?? {}),
-        params.ipAddress  || null,
-        params.userAgent  || null,
+        params.ipAddress ?? null,
+        params.userAgent ?? null,
       ]
     );
 
@@ -113,59 +229,128 @@ export async function flagUser(params: {
       type:  params.violationType,
       trust: `${oldScore} → ${newScore}`,
       tier,
+      severity: violation.severity,
     });
 
-    return { newTrustScore: newScore, tier, isBanned: isHardBanned };
+    // Alert on hard ban
+    if (isHardBanned) {
+      void Alerts.systemError(
+        "Auto Hard-Ban",
+        `User ${params.firebaseUid.substring(0, 8)} auto-banned by UAC. Violation: ${params.violationType}`,
+        "high"
+      );
+    }
 
-  } catch (error: unknown) {
-    await client.query("ROLLBACK");
-    logger.error("flagUser error", {
-      error: error instanceof Error ? error.message : String(error),
+    return { newTrustScore: newScore, tier, isBanned: isHardBanned, skipped: false, reason: violation.reason };
+
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+
+    logger.error("TrustEngine: flagUser error", {
+      error: err instanceof Error ? err.message : String(err),
+      uid:   params.firebaseUid.substring(0, 8),
     });
-    return { newTrustScore: 100, tier: "ERROR", isBanned: false };
+
+    // Return safe default — don't expose internal error to caller
+    return { newTrustScore: 100, tier: "CLEAN", isBanned: false, skipped: true, reason: "error" };
+
   } finally {
     client.release();
   }
 }
 
+// ============================================================
+// getTrustInfo — Read-only, for auth/ban checks
+// ============================================================
+
 export async function getTrustInfo(firebaseUid: string): Promise<{
   trustScore:     number;
-  tier:           string;
+  tier:           TrustTier;
   isShadowBanned: boolean;
   isHardBanned:   boolean;
 }> {
-  // Devs/admins always show CLEAN
   if (await isImmuneFromUAC(firebaseUid)) {
-    return {
-      trustScore:     100,
-      tier:           "CLEAN",
-      isShadowBanned: false,
-      isHardBanned:   false,
-    };
+    return { trustScore: 100, tier: "CLEAN", isShadowBanned: false, isHardBanned: false };
   }
 
-  const result = await pool.query(
-    `SELECT trust_score, is_shadow_banned, is_hard_banned
-     FROM users WHERE firebase_uid = $1 LIMIT 1`,
-    [firebaseUid]
-  );
+  try {
+    const result = await pool.query(
+      `SELECT trust_score, is_shadow_banned, is_hard_banned
+       FROM users
+       WHERE firebase_uid = $1
+         AND deleted_at   IS NULL
+       LIMIT 1`,
+      [firebaseUid]
+    );
 
-  if (result.rows.length === 0) {
+    if (result.rows.length === 0) {
+      return { trustScore: 100, tier: "UNKNOWN" as TrustTier, isShadowBanned: false, isHardBanned: false };
+    }
+
+    const row   = result.rows[0] as { trust_score: number; is_shadow_banned: boolean; is_hard_banned: boolean };
+    const score = row.trust_score ?? 100;
+
     return {
-      trustScore:     100,
-      tier:           "UNKNOWN",
-      isShadowBanned: false,
-      isHardBanned:   false,
+      trustScore:     score,
+      tier:           getTrustTier(score),
+      isShadowBanned: !!row.is_shadow_banned,
+      isHardBanned:   !!row.is_hard_banned,
     };
+  } catch (err) {
+    logger.error("TrustEngine: getTrustInfo error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { trustScore: 100, tier: "CLEAN", isShadowBanned: false, isHardBanned: false };
   }
+}
 
-  const row   = result.rows[0];
-  const score = row.trust_score ?? 100;
+// ============================================================
+// manualTrustAdjust — Admin-initiated, bypasses cooldown
+// ============================================================
 
-  return {
-    trustScore:     score,
-    tier:           getTrustTier(score),
-    isShadowBanned: !!row.is_shadow_banned,
-    isHardBanned:   !!row.is_hard_banned,
-  };
+export async function manualTrustAdjust(
+  firebaseUid: string,
+  newScore:    number,
+  adminUid:    string,
+  reason:      string
+): Promise<{ success: boolean; newScore: number }> {
+  const clamped        = Math.min(100, Math.max(0, newScore));
+  const isShadowBanned = clamped > 0 && clamped < 20;
+  const isHardBanned   = clamped === 0;
+
+  try {
+    await pool.query(
+      `UPDATE users
+       SET    trust_score      = $1,
+              is_shadow_banned = $2,
+              is_hard_banned   = $3,
+              last_flag_reason = $4,
+              last_flag_at     = NOW(),
+              updated_at       = NOW()
+       WHERE  firebase_uid = $5
+         AND  deleted_at   IS NULL`,
+      [clamped, isShadowBanned, isHardBanned, `Admin adjustment: ${reason}`, firebaseUid]
+    );
+
+    await pool.query(
+      `INSERT INTO trust_recovery_log
+         (firebase_uid, old_score, new_score, reason)
+       VALUES ($1, (SELECT trust_score FROM users WHERE firebase_uid = $1 LIMIT 1), $2, $3)`,
+      [firebaseUid, clamped, `ADMIN_ADJUST by ${adminUid.substring(0, 8)}: ${reason}`]
+    );
+
+    logger.info("🔧 Manual trust adjustment", {
+      uid:      firebaseUid.substring(0, 8),
+      adminUid: adminUid.substring(0, 8),
+      newScore: clamped,
+      reason,
+    });
+
+    return { success: true, newScore: clamped };
+  } catch (err) {
+    logger.error("TrustEngine: manualTrustAdjust error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { success: false, newScore: -1 };
+  }
 }

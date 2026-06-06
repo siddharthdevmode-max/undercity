@@ -1,139 +1,208 @@
+// ============================================================
+// FIREBASE AUTH MIDDLEWARE — UNDERCITY
+// Token verification, revocation check, email enforcement,
+// IP logging (rate-limited), last_seen_at update.
+// ============================================================
+
 import { Request, Response, NextFunction } from "express";
-import { authAdmin } from "../config/firebase";
-import { logger } from "../utils/logger";
-import { pool } from "../config/database";
+import { authAdmin }  from "../config/firebase";
+import { pool }       from "../config/database";
+import redis          from "../config/redis";
+import { logger }     from "../utils/logger";
+import { Alerts }     from "../utils/alerts";
+import { config }     from "../config";
+import {
+  UnauthorizedError,
+  ForbiddenError,
+} from "../utils/errors";
 
-// ============================================================
-// FIREBASE AUTH MIDDLEWARE
-// - Token verification
-// - Session revocation check
-// - Email verification enforcement
-// - Login attempt logging
-// - New IP detection
-// ============================================================
+// ─── Config ───────────────────────────────────────────────
 
-// Routes that don't need email verification
-const EMAIL_VERIFY_EXEMPT = ["/sync"];
+const EMAIL_VERIFY_EXEMPT_SUFFIXES = [
+  "/sync",
+  "/resend-verification",
+  "/logout",
+  "/mfa/verify",
+];
+
+// IP logging: at most once per hour per uid+ip pair
+const IP_LOG_COOLDOWN_SEC = 3_600;
+
+// last_seen_at: at most once per 5 minutes per user
+const SEEN_UPDATE_COOLDOWN_SEC = 300;
+
+// New IP alert: at most once per 24h per uid+ip pair (prevents launch spam)
+const NEW_IP_ALERT_COOLDOWN_SEC = 86_400;
+
+// ─── Middleware ───────────────────────────────────────────
 
 export const verifyFirebaseToken = async (
   req:  Request,
   res:  Response,
   next: NextFunction
-) => {
-  const header = req.headers.authorization;
-
-  if (!header) {
-    return res.status(401).json({ message: "No token provided" });
-  }
-
-  const token = header.split(" ")[1];
-  if (!token) {
-    return res.status(401).json({ message: "Malformed token" });
-  }
-
+): Promise<void> => {
   try {
-    // checkRevoked: true — blocks banned users with valid tokens
+    const header = req.headers.authorization;
+
+    if (!header || !header.startsWith("Bearer ")) {
+      throw new UnauthorizedError("No token provided");
+    }
+
+    const token = header.slice(7).trim();
+    if (!token) throw new UnauthorizedError("Malformed authorization header");
+
+    // checkRevoked: true — blocks revoked sessions immediately
     const decoded = await authAdmin.verifyIdToken(token, true);
 
-    // ── Email verification enforcement ──
-    const isExempt = EMAIL_VERIFY_EXEMPT.some((path) =>
-      req.path.endsWith(path)
+    // ── Email verification enforcement ──────────────────
+    const isExempt = EMAIL_VERIFY_EXEMPT_SUFFIXES.some((suffix) =>
+      req.path.endsWith(suffix)
     );
 
     if (!decoded.email_verified && !isExempt) {
       logger.warn("📧 Unverified email blocked", {
-        uid:  decoded.uid.substring(0, 8),
+        uid:  decoded.uid.slice(0, 8),
         path: req.path,
       });
-      return res.status(403).json({
-        message: "Please verify your email address before continuing.",
-        code:    "EMAIL_NOT_VERIFIED",
-      });
+      throw new ForbiddenError(
+        "Please verify your email address before continuing."
+      );
     }
 
     req.firebaseUser = {
-      uid:   decoded.uid,
-      email: decoded.email,
-      name:  decoded.name,
+      uid:           decoded.uid,
+      email:         decoded.email,
+      name:          decoded.name,
+      emailVerified: decoded.email_verified ?? false,
     };
 
-    // ── Fire-and-forget: log auth access ──
-    logAuthAccess(decoded.uid, req).catch(() => {});
+    void runBackgroundTasks(decoded.uid, req);
 
     next();
   } catch (err: unknown) {
-    const error = err as { message?: string; code?: string };
+    const firebaseErr = err as { code?: string; message?: string };
 
-    if (error.code === "auth/id-token-revoked") {
-      logger.warn("🔐 Revoked token used", {
-        path: req.path,
-        ip:   req.ip,
-      });
-      return res.status(401).json({
-        message: "Session revoked. Please sign in again.",
-      });
+    if (firebaseErr.code === "auth/id-token-revoked") {
+      logger.warn("🔐 Revoked token used", { path: req.path, ip: req.ip });
+      return next(new UnauthorizedError("Session revoked. Please sign in again."));
+    }
+
+    if (
+      firebaseErr.code === "auth/id-token-expired" ||
+      firebaseErr.code === "auth/argument-error"   ||
+      firebaseErr.code === "auth/invalid-id-token"
+    ) {
+      return next(new UnauthorizedError("Invalid or expired token"));
+    }
+
+    if (err instanceof Error && "statusCode" in err) {
+      return next(err);
     }
 
     logger.warn("🔐 Firebase token verification failed", {
-      error: error.message,
-      code:  error.code,
+      error: firebaseErr.message,
+      code:  firebaseErr.code,
       path:  req.path,
     });
-    return res.status(401).json({ message: "Invalid token" });
+    return next(new UnauthorizedError("Invalid token"));
   }
 };
 
-// ============================================================
-// AUTH ACCESS LOGGER
-// Tracks login IPs — new IP detection
-// ============================================================
-async function logAuthAccess(uid: string, req: Request): Promise<void> {
+// ─── Background Tasks ─────────────────────────────────────
+
+async function runBackgroundTasks(uid: string, req: Request): Promise<void> {
+  await Promise.allSettled([
+    maybeLogAuthAccess(uid, req),
+    maybeUpdateLastSeen(uid),
+  ]);
+}
+
+// ─── IP Access Logging ────────────────────────────────────
+
+async function maybeLogAuthAccess(uid: string, req: Request): Promise<void> {
   try {
     const ip        = (req.ip ?? "").replace(/^::ffff:/, "");
-    const userAgent = req.headers["user-agent"] ?? "";
+    const userAgent = (req.headers["user-agent"] ?? "").slice(0, 500);
 
-    const seen = await pool.query(
+    if (!ip) return;
+
+    const cooldownKey = `auth:ip-log:${uid}:${ip}`;
+    const alreadyLogged = await redis.get(cooldownKey).catch(() => null);
+    if (alreadyLogged) return;
+
+    // Set cooldown before DB write to prevent race conditions
+    await redis.set(cooldownKey, "1", "EX", IP_LOG_COOLDOWN_SEC).catch(() => {});
+
+    const seen = await pool.query<{ id: number }>(
       `SELECT id FROM auth_access_log
        WHERE firebase_uid = $1 AND ip_address = $2
        LIMIT 1`,
       [uid, ip]
-    ).catch(() => ({ rows: [] }));
+    );
 
     const isNewIp = seen.rows.length === 0;
 
     await pool.query(
       `INSERT INTO auth_access_log
-       (firebase_uid, ip_address, user_agent, is_new_ip, accessed_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         (firebase_uid, ip_address, user_agent, is_new_ip, accessed_at)
+       VALUES ($1, $2, $3, $4, NOW())
        ON CONFLICT DO NOTHING`,
       [uid, ip, userAgent, isNewIp]
-    ).catch(() => {});
+    );
 
     if (isNewIp) {
       logger.info("🔔 New IP login detected", {
-        uid:  uid.substring(0, 8),
+        uid: uid.slice(0, 8),
         ip,
-        path: req.path,
       });
+
+      // Only alert in production AND with a per-uid+ip cooldown
+      // Prevents spam during launch when every user is new
+      if (config.isProduction) {
+        const alertKey = `auth:new-ip-alert:${uid}:${ip}`;
+        const alreadyAlerted = await redis.get(alertKey).catch(() => null);
+        if (!alreadyAlerted) {
+          await redis.set(alertKey, "1", "EX", NEW_IP_ALERT_COOLDOWN_SEC).catch(() => {});
+          Alerts.suspiciousLogin(uid, ip, "New IP address detected");
+        }
+      }
     }
   } catch {
-    // Non-critical — swallow
+    // Non-critical — swallow silently
   }
 }
 
-// ============================================================
-// REVOKE USER SESSION
-// ============================================================
+// ─── Last Seen Update ─────────────────────────────────────
+
+async function maybeUpdateLastSeen(uid: string): Promise<void> {
+  try {
+    const cooldownKey    = `auth:seen:${uid}`;
+    const alreadyUpdated = await redis.get(cooldownKey).catch(() => null);
+    if (alreadyUpdated) return;
+
+    await redis.set(cooldownKey, "1", "EX", SEEN_UPDATE_COOLDOWN_SEC).catch(() => {});
+
+    await pool.query(
+      `UPDATE users SET last_seen_at = NOW() WHERE firebase_uid = $1`,
+      [uid]
+    );
+  } catch {
+    // Non-critical — swallow silently
+  }
+}
+
+// ─── Session Revocation ───────────────────────────────────
+
 export async function revokeUserSession(uid: string): Promise<void> {
   try {
     await authAdmin.revokeRefreshTokens(uid);
-    logger.info("🔒 Firebase session revoked", {
-      uid: uid.substring(0, 8),
-    });
+    await redis.del(`ban:${uid}`).catch(() => {});
+    logger.info("🔒 Firebase session revoked", { uid: uid.slice(0, 8) });
   } catch (error: unknown) {
     logger.error("Session revocation failed", {
-      uid:   uid.substring(0, 8),
+      uid:   uid.slice(0, 8),
       error: error instanceof Error ? error.message : String(error),
     });
+    throw error;
   }
 }

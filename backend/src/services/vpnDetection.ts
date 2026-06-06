@@ -1,12 +1,8 @@
-import redis from "../config/redis";
-import { logger } from "../utils/logger";
-import { flagUser } from "./trustEngine";
+import { redis }           from "../config/redis";
+import { logger }          from "../utils/logger";
+import { flagUser }        from "./trustEngine";
 import { isImmuneFromUAC } from "./immunityCheck";
-
-// ============================================================
-// UAC 2.0 — VPN/PROXY DETECTION ENGINE
-// SSRF protected: blocks all private/internal IPs
-// ============================================================
+import { config }          from "../config";
 
 interface IpApiResponse {
   status:      "success" | "fail";
@@ -21,14 +17,27 @@ interface IpApiResponse {
   query:       string;
 }
 
-const CACHE_TTL_SECONDS = 60 * 60 * 6; // 6 hours
-const CACHE_PREFIX      = "vpn:";
-const API_TIMEOUT_MS    = 3000;
+export interface VpnCheckResult {
+  isVpn:     boolean;
+  isTor:     boolean;
+  isHosting: boolean;
+  country:   string;
+}
 
-const SKIP_IPS = new Set(["127.0.0.1", "::1", "localhost"]);
+const DEFAULT_RESULT: VpnCheckResult = {
+  isVpn:     false,
+  isTor:     false,
+  isHosting: false,
+  country:   "UNKNOWN",
+};
 
-// ── SSRF Protection: block private/internal IP ranges ────────
-const PRIVATE_IP_PATTERNS = [
+const CACHE_TTL_SEC     = 6 * 60 * 60;
+const API_TIMEOUT_MS    = 4_000;
+const CACHE_PREFIX      = "vpnip:";
+const FLAG_COOLDOWN_SEC = CACHE_TTL_SEC;
+const API_FIELDS        = "status,proxy,vpn,tor,hosting,isp,org,country,countryCode,query";
+
+const PRIVATE_IP_PATTERNS: RegExp[] = [
   /^127\./,
   /^10\./,
   /^172\.(1[6-9]|2\d|3[01])\./,
@@ -38,20 +47,26 @@ const PRIVATE_IP_PATTERNS = [
   /^fc00:/i,
   /^fe80:/i,
   /^0\./,
-  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,  // CGNAT
+  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,
 ];
 
+const LOOPBACK_SET = new Set(["127.0.0.1", "::1", "localhost"]);
+
 function isPrivateIp(ip: string): boolean {
-  return PRIVATE_IP_PATTERNS.some((pattern) => pattern.test(ip));
+  if (LOOPBACK_SET.has(ip)) return true;
+  return PRIVATE_IP_PATTERNS.some((re) => re.test(ip));
 }
 
-// Whitelist outbound domains for SSRF protection
-const ALLOWED_LOOKUP_HOST = "ip-api.com";
+// ── Fixed: blockedCountries is already string[] from config ─
+const BLOCKED_COUNTRIES: ReadonlySet<string> = new Set(
+  config.blockedCountries
+    .map((c: string) => c.trim().toUpperCase())
+    .filter(Boolean)
+);
 
 async function lookupIp(ip: string): Promise<IpApiResponse | null> {
-  // SSRF: never look up private/internal IPs
   if (isPrivateIp(ip)) {
-    logger.debug("VPN lookup skipped — private IP", { ip });
+    logger.debug("VpnDetection: skipping private IP", { ip });
     return null;
   }
 
@@ -60,75 +75,79 @@ async function lookupIp(ip: string): Promise<IpApiResponse | null> {
   try {
     const cached = await redis.get(cacheKey);
     if (cached) return JSON.parse(cached) as IpApiResponse;
-  } catch {
-    // Redis down — fall through
-  }
+  } catch { /* Redis down */ }
 
   try {
     const controller = new AbortController();
-    const timeout    = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+    const timer      = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+    const scheme     = config.isProduction ? "https" : "http";
+    const url        = `${scheme}://ip-api.com/json/${encodeURIComponent(ip)}?fields=${API_FIELDS}`;
 
-    // Explicitly construct URL with whitelisted host (SSRF prevention)
-    const url = `http://${ALLOWED_LOOKUP_HOST}/json/${encodeURIComponent(ip)}?fields=status,proxy,vpn,tor,hosting,isp,org,country,countryCode,query`;
+    const response = await fetch(url, {
+      signal:  controller.signal,
+      headers: { "Accept": "application/json" },
+    });
 
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
+    clearTimeout(timer);
 
-    if (!res.ok) return null;
-
-    const data = await res.json() as IpApiResponse;
-
-    // Validate response structure before caching
-    if (!data || typeof data.status !== "string") return null;
-
-    try {
-      await redis.set(cacheKey, JSON.stringify(data), "EX", CACHE_TTL_SECONDS);
-    } catch {
-      // ignore
+    if (!response.ok) {
+      logger.debug("VpnDetection: API non-200", { ip, status: response.status });
+      return null;
     }
 
-    return data;
-  } catch (error: unknown) {
-    logger.debug("VPN lookup failed (fail open)", {
+    const data = await response.json() as unknown;
+
+    if (
+      !data ||
+      typeof data !== "object" ||
+      !("status" in data) ||
+      typeof (data as IpApiResponse).status !== "string"
+    ) {
+      return null;
+    }
+
+    const typed = data as IpApiResponse;
+
+    if (typed.status === "success") {
+      await redis.set(cacheKey, JSON.stringify(typed), "EX", CACHE_TTL_SEC).catch(() => {});
+    }
+
+    return typed;
+  } catch (err) {
+    logger.debug("VpnDetection: API lookup failed (fail open)", {
       ip,
-      error: error instanceof Error ? error.message : String(error),
+      error: err instanceof Error ? err.message : String(err),
     });
     return null;
   }
 }
 
-const BLOCKED_COUNTRIES: string[] = (
-  process.env.BLOCKED_COUNTRIES || ""
-).split(",").map((c) => c.trim()).filter(Boolean);
+async function isFlagOnCooldown(uid: string, type: string, ip: string): Promise<boolean> {
+  try {
+    const key    = `vpn:flag:${type}:${uid}:${ip}`;
+    const result = await redis.set(key, "1", "EX", FLAG_COOLDOWN_SEC, "NX");
+    return result === null;
+  } catch {
+    return false;
+  }
+}
 
 export async function checkVpnProxy(
   firebaseUid: string,
   ipAddress:   string | undefined,
   userAgent?:  string
-): Promise<{
-  isVpn:      boolean;
-  isTor:      boolean;
-  isHosting:  boolean;
-  country:    string;
-}> {
-  const defaultResult = {
-    isVpn:     false,
-    isTor:     false,
-    isHosting: false,
-    country:   "UNKNOWN",
-  };
+): Promise<VpnCheckResult> {
+  if (!ipAddress) return DEFAULT_RESULT;
 
-  if (!ipAddress) return defaultResult;
-
-  const cleanIp = ipAddress.replace(/^::ffff:/, "");
-  if (SKIP_IPS.has(cleanIp) || isPrivateIp(cleanIp)) return defaultResult;
+  const cleanIp = ipAddress.replace(/^::ffff:/, "").trim();
+  if (!cleanIp || isPrivateIp(cleanIp)) return DEFAULT_RESULT;
 
   const immune = await isImmuneFromUAC(firebaseUid);
   const data   = await lookupIp(cleanIp);
 
-  if (!data || data.status !== "success") return defaultResult;
+  if (!data || data.status !== "success") return DEFAULT_RESULT;
 
-  const result = {
+  const result: VpnCheckResult = {
     isVpn:     data.vpn || data.proxy,
     isTor:     data.tor,
     isHosting: data.hosting,
@@ -137,64 +156,66 @@ export async function checkVpnProxy(
 
   if (immune) return result;
 
+  const flagPromises: Promise<unknown>[] = [];
+
   if (data.vpn || data.proxy) {
-    logger.warn("🔒 VPN/Proxy detected", {
-      uid: firebaseUid.substring(0, 8),
-      ip:  cleanIp,
-      isp: data.isp,
-    });
-    await flagUser({
-      firebaseUid,
-      violationType: "VPN_PROXY_DETECTED",
-      details: { ip: cleanIp, isp: data.isp, org: data.org, vpn: data.vpn, proxy: data.proxy },
-      ipAddress: cleanIp,
-      userAgent,
-    });
+    const onCooldown = await isFlagOnCooldown(firebaseUid, "VPN", cleanIp);
+    if (!onCooldown) {
+      logger.warn("🔒 VPN/Proxy detected", { uid: firebaseUid.substring(0, 8), isp: data.isp });
+      flagPromises.push(flagUser({
+        firebaseUid,
+        violationType: "VPN_PROXY_DETECTED",
+        details:       { isp: data.isp, org: data.org, vpn: data.vpn, proxy: data.proxy },
+        ipAddress:     cleanIp,
+        userAgent,
+      }));
+    }
   }
 
   if (data.hosting && !data.vpn && !data.proxy) {
-    logger.warn("🖥️ Datacenter IP detected", {
-      uid: firebaseUid.substring(0, 8),
-      ip:  cleanIp,
-    });
-    await flagUser({
-      firebaseUid,
-      violationType: "VPN_PROXY_DETECTED",
-      details: { ip: cleanIp, isp: data.isp, org: data.org, hosting: true },
-      ipAddress: cleanIp,
-      userAgent,
-    });
+    const onCooldown = await isFlagOnCooldown(firebaseUid, "DATACENTER", cleanIp);
+    if (!onCooldown) {
+      logger.warn("🖥️ Datacenter IP detected", { uid: firebaseUid.substring(0, 8), isp: data.isp });
+      flagPromises.push(flagUser({
+        firebaseUid,
+        violationType: "DATACENTER_IP",
+        details:       { isp: data.isp, org: data.org, hosting: true },
+        ipAddress:     cleanIp,
+        userAgent,
+      }));
+    }
   }
 
   if (data.tor) {
-    logger.warn("🧅 Tor exit node detected", {
-      uid: firebaseUid.substring(0, 8),
-      ip:  cleanIp,
-    });
-    await flagUser({
-      firebaseUid,
-      violationType: "TOR_DETECTED",
-      details: { ip: cleanIp },
-      ipAddress: cleanIp,
-      userAgent,
-    });
+    const onCooldown = await isFlagOnCooldown(firebaseUid, "TOR", cleanIp);
+    if (!onCooldown) {
+      logger.warn("🧅 Tor exit node detected", { uid: firebaseUid.substring(0, 8) });
+      flagPromises.push(flagUser({
+        firebaseUid,
+        violationType: "TOR_DETECTED",
+        details:       { isp: data.isp },
+        ipAddress:     cleanIp,
+        userAgent,
+      }));
+    }
   }
 
-  if (
-    BLOCKED_COUNTRIES.length > 0 &&
-    BLOCKED_COUNTRIES.includes(data.countryCode)
-  ) {
-    logger.warn("🌍 Geo-blocked country", {
-      uid:     firebaseUid.substring(0, 8),
-      country: data.countryCode,
-    });
-    await flagUser({
-      firebaseUid,
-      violationType: "GEO_BLOCKED",
-      details: { country: data.country, countryCode: data.countryCode },
-      ipAddress: cleanIp,
-      userAgent,
-    });
+  if (BLOCKED_COUNTRIES.size > 0 && BLOCKED_COUNTRIES.has(data.countryCode)) {
+    const onCooldown = await isFlagOnCooldown(firebaseUid, "GEO", cleanIp);
+    if (!onCooldown) {
+      logger.warn("🌍 Geo-blocked country", { uid: firebaseUid.substring(0, 8), country: data.countryCode });
+      flagPromises.push(flagUser({
+        firebaseUid,
+        violationType: "GEO_BLOCKED",
+        details:       { country: data.country, countryCode: data.countryCode },
+        ipAddress:     cleanIp,
+        userAgent,
+      }));
+    }
+  }
+
+  if (flagPromises.length > 0) {
+    await Promise.allSettled(flagPromises);
   }
 
   return result;

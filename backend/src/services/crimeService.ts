@@ -1,3 +1,9 @@
+// ============================================================
+// CRIME SERVICE — UNDERCITY
+// Pre-flight checks, loaders, persistence, and stat builders.
+// All DB operations use a passed PoolClient (caller manages tx).
+// ============================================================
+
 import { PoolClient } from "pg";
 import {
   toNumber,
@@ -28,23 +34,29 @@ import {
   ForbiddenError,
   ValidationError,
   JailError,
+  HospitalError,
   RateLimitError,
 } from "../utils/errors";
 
-// ============================================================
-// NOTE: UserRow is now imported from userModels.ts
-// Single source of truth — no duplicate type definitions
-// ============================================================
+// ─── Pre-flight checks ────────────────────────────────────
 
-// ─── Pre-flight checks ───────────────────────────────────
-
-export function assertCanAttempt(user: UserRow) {
+export function assertCanAttempt(user: UserRow): void {
+  // Cooldown check first — cheapest check
   if (!canAttemptCrime(user.last_crime_at)) {
     throw new RateLimitError(
       `Slow down. Cooldown ${getCooldownRemaining(user.last_crime_at)}ms`
     );
   }
 
+  // Hospital check — cannot commit crimes while hospitalised
+  if (isFutureDate(user.hospital_until)) {
+    const seconds = Math.ceil(
+      (new Date(user.hospital_until as string).getTime() - Date.now()) / 1000
+    );
+    throw new HospitalError(seconds);
+  }
+
+  // Federal jail takes priority over normal jail
   if (isFutureDate(user.federal_jail_until)) {
     const seconds = Math.ceil(
       (new Date(user.federal_jail_until as string).getTime() - Date.now()) / 1000
@@ -60,7 +72,7 @@ export function assertCanAttempt(user: UserRow) {
   }
 }
 
-export function assertCrimeRequirements(user: UserRow, crime: CrimeDefinition) {
+export function assertCrimeRequirements(user: UserRow, crime: CrimeDefinition): void {
   if (toNumber(user.level) < crime.unlock_level) {
     throw new ForbiddenError(
       `You need to be level ${crime.unlock_level} to attempt this crime.`
@@ -75,25 +87,23 @@ export function assertCrimeRequirements(user: UserRow, crime: CrimeDefinition) {
   }
 }
 
-// ─── Loaders ─────────────────────────────────────────────
+// ─── Loaders ──────────────────────────────────────────────
 
 export async function loadCrime(
-  client: PoolClient,
+  client:   PoolClient,
   crimeKey: string
 ): Promise<CrimeDefinition> {
   const result = await client.query(
     `SELECT * FROM crimes WHERE crime_key = $1 AND is_active = TRUE LIMIT 1`,
     [crimeKey]
   );
-  if (result.rows.length === 0) {
-    throw new NotFoundError("Crime");
-  }
+  if (result.rows.length === 0) throw new NotFoundError("Crime");
   return parseCrime(result.rows[0] as Record<string, unknown>);
 }
 
 export async function loadOrCreateProgress(
-  client: PoolClient,
-  userId: number,
+  client:  PoolClient,
+  userId:  number,
   crimeId: number
 ): Promise<CrimeProgress> {
   await client.query(
@@ -111,9 +121,9 @@ export async function loadOrCreateProgress(
 }
 
 export async function pickAvailableSpecial(
-  client: PoolClient,
-  userId: number,
-  crimeId: number,
+  client:     PoolClient,
+  userId:     number,
+  crimeId:    number,
   crimeLevel: number
 ): Promise<CrimeSpecial | null> {
   const result = await client.query(
@@ -131,11 +141,11 @@ export async function pickAvailableSpecial(
   return parseSpecial(result.rows[idx] as Record<string, unknown>);
 }
 
-// ─── Persistence ─────────────────────────────────────────
+// ─── Persistence ──────────────────────────────────────────
 
 export async function saveSpecialDiscovery(
-  client: PoolClient,
-  userId: number,
+  client:    PoolClient,
+  userId:    number,
   specialId: number
 ): Promise<boolean> {
   const result = await client.query(
@@ -149,8 +159,8 @@ export async function saveSpecialDiscovery(
 }
 
 export async function updateProgress(
-  client: PoolClient,
-  userId: number,
+  client:  PoolClient,
+  userId:  number,
   crimeId: number,
   data: {
     crimeXp:            number;
@@ -162,13 +172,18 @@ export async function updateProgress(
     critFailures:       number;
     specialsFoundCount: number;
   }
-) {
+): Promise<void> {
   await client.query(
     `UPDATE user_crime_progress
-     SET crime_xp = $1, crime_level = $2, hidden_cpl = $3,
-         attempts = $4, successes = $5, failures = $6,
-         crit_failures = $7, specials_found_count = $8,
-         updated_at = CURRENT_TIMESTAMP
+     SET crime_xp            = $1,
+         crime_level         = $2,
+         hidden_cpl          = $3,
+         attempts            = $4,
+         successes           = $5,
+         failures            = $6,
+         crit_failures       = $7,
+         specials_found_count = $8,
+         updated_at          = CURRENT_TIMESTAMP
      WHERE user_id = $9 AND crime_id = $10`,
     [
       data.crimeXp, data.crimeLevel, data.hiddenCpl,
@@ -192,12 +207,18 @@ export async function updateUserStats(
     jailUntil:        Date | null;
     federalJailUntil: Date | null;
   }
-) {
+): Promise<void> {
   await client.query(
     `UPDATE users
-     SET money = $1, points = $2, nerve = $3, max_nerve = $4,
-         life = $5, max_life = $6, jail_until = $7,
-         federal_jail_until = $8, last_crime_at = CURRENT_TIMESTAMP
+     SET money              = $1,
+         points             = $2,
+         nerve              = $3,
+         max_nerve          = $4,
+         life               = $5,
+         max_life           = $6,
+         jail_until         = $7,
+         federal_jail_until = $8,
+         last_crime_at      = CURRENT_TIMESTAMP
      WHERE id = $9`,
     [
       data.money, data.points, data.nerve, data.maxNerve,
@@ -219,7 +240,7 @@ export async function getTotalCrimeXp(
   return toNumber(result.rows[0]?.total_xp ?? 0);
 }
 
-// ─── Outcome calculation ─────────────────────────────────
+// ─── Outcome calculation ──────────────────────────────────
 
 export function calculateOutcome(
   crime:            CrimeDefinition,
@@ -238,7 +259,6 @@ export function calculateOutcome(
     maxLife
   );
 
-  // 🛡️ Sync check — user already loaded, no extra DB hit needed
   const immune = isImmuneToAntiCheat(user);
 
   if (trustInfo.isShadowBanned && !immune) {
@@ -248,7 +268,7 @@ export function calculateOutcome(
   return outcome;
 }
 
-// ─── Stat builder ────────────────────────────────────────
+// ─── Stat builder ─────────────────────────────────────────
 
 export function buildUpdatedStats(
   user:         UserRow,
@@ -261,17 +281,24 @@ export function buildUpdatedStats(
   const maxLife         = calcMaxLife(playerLevel);
   const updatedMaxNerve = calcMaxNerve(totalCrimeXp);
 
-  const updatedNerve  = Math.max(0, toNumber(user.nerve) - crime.nerve_cost);
-  const finalNerve    = Math.min(updatedNerve, updatedMaxNerve);
+  // Nerve: deduct cost, never below 0, never above maxNerve
+  const updatedNerve = Math.max(0, toNumber(user.nerve) - crime.nerve_cost);
+  const finalNerve   = Math.min(updatedNerve, updatedMaxNerve);
 
-  const updatedMoney  = Math.max(0,
-    toNumber(user.money) - outcome.money_loss + outcome.reward_money
-  );
+  // ── Money — debt mechanic ──────────────────────────────
+  // Tier 1-2: crimeEngine already caps money_loss so result >= 0
+  // Tier 3-5: money CAN go negative — this is intentional
+  // Do NOT add Math.max(0, ...) here — it would break the debt mechanic
+  const updatedMoney = toNumber(user.money) - outcome.money_loss + outcome.reward_money;
+
   const updatedPoints = Math.max(0,
     toNumber(user.points) + outcome.reward_points
   );
-  const updatedLife   = Math.max(1, toNumber(user.life) - outcome.life_loss);
 
+  // Life: minimum 1 — players cannot die, just get very low
+  const updatedLife = Math.max(1, toNumber(user.life) - outcome.life_loss);
+
+  // Crime progress
   const updatedCrimeXp    = Math.max(0,
     progress.crime_xp + outcome.xp_gained - outcome.xp_lost
   );
@@ -286,6 +313,7 @@ export function buildUpdatedStats(
   const critFailures = progress.crit_failures +
     (outcome.outcome === "crit_fail" ? 1 : 0);
 
+  // Jail timestamps
   let jailUntil: Date | null =
     user.jail_until ? new Date(user.jail_until) : null;
   let federalJailUntil: Date | null =

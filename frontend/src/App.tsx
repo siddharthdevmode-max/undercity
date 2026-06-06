@@ -20,7 +20,7 @@ import Inventory from './pages/Inventory';
 import Travel from './pages/Travel';
 import Missions from './pages/Missions';
 import Casino from './pages/Casino';
-import ItemMarket from './pages/ItemMarket';
+import BlackMarket from './pages/BlackMarket';
 import Hospital from './pages/Hospital';
 import Jail from './pages/Jail';
 import FederalJail from './pages/FederalJail';
@@ -64,7 +64,7 @@ function App() {
               <Route path="/travel"       element={<ProtectedRoute><Travel /></ProtectedRoute>} />
               <Route path="/missions"     element={<ProtectedRoute><Missions /></ProtectedRoute>} />
               <Route path="/casino"       element={<ProtectedRoute><Casino /></ProtectedRoute>} />
-              <Route path="/item-market"  element={<ProtectedRoute><ItemMarket /></ProtectedRoute>} />
+              <Route path="/black-market"  element={<ProtectedRoute><BlackMarket /></ProtectedRoute>} />
               <Route path="/hospital"     element={<ProtectedRoute><Hospital /></ProtectedRoute>} />
               <Route path="/jail"         element={<ProtectedRoute><Jail /></ProtectedRoute>} />
               <Route path="/federal-jail" element={<ProtectedRoute><FederalJail /></ProtectedRoute>} />

@@ -1,32 +1,68 @@
-import { Router } from "express";
-import { pool } from "../config/database";
+import { Router }              from "express";
+import { z }                   from "zod";
+import { pool }                from "../config/database";
 import { verifyFirebaseToken } from "../middleware/firebaseAuth";
-import { requireAdmin } from "../middleware/requireAdmin";
-import { authMeLimiter, adminLimiter } from "../middleware/rateLimiter";
-import { asyncHandler } from "../utils/asyncHandler";
-import { validate } from "../middleware/validate";
-import { z } from "zod";
-import { sanitizeString } from "../utils/sanitize";
-import { logger } from "../utils/logger";
+import {
+  requireModerator,
+}                              from "../middleware/requireAdmin";
+import {
+  supportLimiter,
+  adminLimiter,
+  authMeLimiter,
+}                              from "../middleware/rateLimiter";
+import { asyncHandler }        from "../utils/asyncHandler";
+import { validate }            from "../middleware/validate";
+import {
+  createSupportTicketSchema,
+  replyTicketSchema,
+}                              from "../utils/schemas";
+import { sanitizeString }      from "../utils/sanitize";
+import { logger }              from "../utils/logger";
+import { queueEmail }          from "../queues/index";
+import { getPagination, buildPaginatedResponse } from "../utils/pagination";
+import {
+  NotFoundError,
+  ValidationError,
+  AppError,
+}                              from "../utils/errors";
+
+// ============================================================
+// SUPPORT ROUTES — /api/support
+//
+// POST   /ticket               — Create ticket (player)
+// GET    /my-tickets           — Own tickets (player)
+// GET    /tickets              — All tickets (moderator+)
+// GET    /tickets/:id          — Single ticket (moderator+)
+// POST   /tickets/:id/respond  — Respond to ticket (moderator+)
+// POST   /tickets/:id/close    — Close ticket (moderator+)
+// ============================================================
 
 const router = Router();
 
-const createTicketSchema = z.object({
-  body: z.object({
-    subject:  z.string().min(5).max(200).transform(sanitizeString),
-    message:  z.string().min(20).max(5000).transform(sanitizeString),
-    category: z.enum(["general", "bug", "appeal", "billing", "abuse"]).default("general"),
+// ── Valid ticket statuses ──────────────────────────────────
+const TICKET_STATUSES = ["open", "in_progress", "resolved", "closed", "wont_fix"] as const;
+type TicketStatus = typeof TICKET_STATUSES[number];
+
+// ── Ticket ID param validator ──────────────────────────────
+const ticketIdParam = z.object({
+  params: z.object({
+    id: z.string().regex(/^\d+$/, "Ticket ID must be numeric"),
   }),
 });
 
-// ── POST /api/support/ticket — Create ticket ──────────────
+// ── Open ticket limit per user ─────────────────────────────
+const MAX_OPEN_TICKETS = 3;
+
+// ============================================================
+// POST /api/support/ticket
+// ============================================================
 router.post(
   "/ticket",
-  authMeLimiter,
+  supportLimiter,
   verifyFirebaseToken,
-  validate(createTicketSchema),
+  validate(createSupportTicketSchema),
   asyncHandler(async (req, res) => {
-    const { uid } = req.firebaseUser!;
+    const { uid }               = req.firebaseUser!;
     const { subject, message, category } = req.body as {
       subject:  string;
       message:  string;
@@ -34,140 +70,250 @@ router.post(
     };
 
     const userResult = await pool.query(
-      `SELECT id, username FROM users WHERE firebase_uid = $1 LIMIT 1`,
+      `SELECT id, username, email
+       FROM users
+       WHERE firebase_uid = $1
+         AND deleted_at   IS NULL
+       LIMIT 1`,
       [uid]
     );
 
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ message: "User not found" });
-    }
+    if (userResult.rows.length === 0) throw new NotFoundError("User");
 
-    const user = userResult.rows[0] as { id: number; username: string };
+    const user = userResult.rows[0] as { id: number; username: string; email: string };
 
-    // Limit: 3 open tickets per user
+    // Check open ticket limit
     const openCount = await pool.query(
-      `SELECT COUNT(*) FROM support_tickets
-       WHERE firebase_uid = $1 AND status = 'open'`,
+      `SELECT COUNT(*)::int AS count
+       FROM support_tickets
+       WHERE firebase_uid = $1
+         AND status       = 'open'`,
       [uid]
     );
 
-    if (parseInt((openCount.rows[0] as { count: string }).count, 10) >= 3) {
-      return res.status(429).json({
-        message: "You already have 3 open tickets. Please wait for a response.",
-      });
+    const count = (openCount.rows[0] as { count: number }).count;
+    if (count >= MAX_OPEN_TICKETS) {
+      throw new AppError(
+        `You already have ${MAX_OPEN_TICKETS} open tickets. Wait for a response before opening more.`,
+        429,
+        "ERR_9003"
+      );
     }
 
     const result = await pool.query(
       `INSERT INTO support_tickets
-         (firebase_uid, username, subject, message, category)
-       VALUES ($1, $2, $3, $4, $5)
+         (firebase_uid, username, subject, message, category, status)
+       VALUES ($1, $2, $3, $4, $5, 'open')
        RETURNING id, subject, category, status, created_at`,
       [uid, user.username, subject, message, category]
     );
 
+    const ticket = result.rows[0] as { id: number };
+
     logger.info("📬 Support ticket created", {
-      ticketId: (result.rows[0] as { id: number }).id,
+      ticketId: ticket.id,
       uid:      uid.substring(0, 8),
       category,
     });
 
     res.status(201).json({
-      message: "Ticket submitted. We'll respond within 48 hours.",
+      message: "Ticket submitted. We respond within 48 hours.",
       ticket:  result.rows[0],
     });
   })
 );
 
-// ── GET /api/support/my-tickets — Player's own tickets ────
+// ============================================================
+// GET /api/support/my-tickets
+// ============================================================
 router.get(
   "/my-tickets",
   authMeLimiter,
   verifyFirebaseToken,
   asyncHandler(async (req, res) => {
-    const { uid } = req.firebaseUser!;
+    const { uid }             = req.firebaseUser!;
+    const { limit, offset, page } = getPagination(req);
 
-    const result = await pool.query(
-      `SELECT id, subject, category, status, admin_response,
-              responded_at, created_at, updated_at
-       FROM support_tickets
-       WHERE firebase_uid = $1
-       ORDER BY created_at DESC
-       LIMIT 20`,
-      [uid]
-    );
+    const [countR, rowsR] = await Promise.all([
+      pool.query(
+        `SELECT COUNT(*)::int AS total
+         FROM support_tickets
+         WHERE firebase_uid = $1`,
+        [uid]
+      ),
+      pool.query(
+        `SELECT id, subject, category, status,
+                admin_response, responded_at,
+                created_at, updated_at
+         FROM support_tickets
+         WHERE firebase_uid = $1
+         ORDER BY created_at DESC
+         LIMIT $2 OFFSET $3`,
+        [uid, limit, offset]
+      ),
+    ]);
 
-    res.json({ tickets: result.rows });
+    const total = (countR.rows[0] as { total: number }).total;
+    res.json(buildPaginatedResponse(rowsR.rows, total, { page, limit, offset }));
   })
 );
 
-// ── GET /api/support/tickets — Admin: all tickets ─────────
+// ============================================================
+// GET /api/support/tickets — All tickets (moderator+)
+// ============================================================
 router.get(
   "/tickets",
   verifyFirebaseToken,
-  requireAdmin,
+  requireModerator,
   adminLimiter,
-  asyncHandler(async (_req, res) => {
-    const result = await pool.query(
-      `SELECT id, firebase_uid, username, subject, category,
-              status, created_at, updated_at
-       FROM support_tickets
-       ORDER BY
-         CASE status WHEN 'open' THEN 0 ELSE 1 END,
-         created_at ASC
-       LIMIT 100`
-    );
-    res.json({ tickets: result.rows });
+  asyncHandler(async (req, res) => {
+    const { limit, offset, page } = getPagination(req);
+    const statusFilter = req.query["status"]
+      ? String(req.query["status"])
+      : null;
+    const categoryFilter = req.query["category"]
+      ? String(req.query["category"])
+      : null;
+
+    // Validate status filter
+    if (statusFilter && !TICKET_STATUSES.includes(statusFilter as TicketStatus)) {
+      throw new ValidationError(`Invalid status. Valid: ${TICKET_STATUSES.join(", ")}`);
+    }
+
+    const [countR, rowsR] = await Promise.all([
+      pool.query(
+        `SELECT COUNT(*)::int AS total
+         FROM support_tickets
+         WHERE ($1::text IS NULL OR status   = $1)
+           AND ($2::text IS NULL OR category = $2)`,
+        [statusFilter, categoryFilter]
+      ),
+      pool.query(
+        `SELECT id, firebase_uid, username, subject, category,
+                status, created_at, updated_at, responded_at
+         FROM support_tickets
+         WHERE ($1::text IS NULL OR status   = $1)
+           AND ($2::text IS NULL OR category = $2)
+         ORDER BY
+           CASE status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,
+           created_at ASC
+         LIMIT $3 OFFSET $4`,
+        [statusFilter, categoryFilter, limit, offset]
+      ),
+    ]);
+
+    const total = (countR.rows[0] as { total: number }).total;
+    res.json(buildPaginatedResponse(rowsR.rows, total, { page, limit, offset }));
   })
 );
 
-// ── POST /api/support/tickets/:id/respond — Admin respond ─
+// ============================================================
+// GET /api/support/tickets/:id — Single ticket (moderator+)
+// ============================================================
+router.get(
+  "/tickets/:id",
+  verifyFirebaseToken,
+  requireModerator,
+  adminLimiter,
+  validate(ticketIdParam),
+  asyncHandler(async (req, res) => {
+    const ticketId = parseInt(String(req.params["id"]), 10);
+
+    const result = await pool.query(
+      `SELECT id, firebase_uid, username, subject, category,
+              message, status, admin_response,
+              responded_by, responded_at,
+              created_at, updated_at
+       FROM support_tickets
+       WHERE id = $1`,
+      [ticketId]
+    );
+
+    if (result.rows.length === 0) throw new NotFoundError("Ticket");
+    res.json({ ticket: result.rows[0] });
+  })
+);
+
+// ============================================================
+// POST /api/support/tickets/:id/respond — Moderator respond
+// ============================================================
 router.post(
   "/tickets/:id/respond",
   verifyFirebaseToken,
-  requireAdmin,
+  requireModerator,
   adminLimiter,
+  validate(
+    z.object({
+      params: z.object({ id: z.string().regex(/^\d+$/) }),
+      body:   replyTicketSchema.shape.body,
+    })
+  ),
   asyncHandler(async (req, res) => {
-    const ticketId = parseInt(String(req.params.id), 10);
-    const adminUid = req.firebaseUser!.uid;
+    const ticketId  = parseInt(String(req.params["id"]), 10);
+    const adminUid  = req.firebaseUser!.uid;
     const { response, status = "resolved" } = req.body as {
       response: string;
       status?:  string;
     };
 
-    if (!response || response.trim().length < 10) {
-      return res.status(400).json({ message: "Response must be at least 10 characters" });
-    }
-
-    if (isNaN(ticketId)) {
-      return res.status(400).json({ message: "Invalid ticket ID" });
+    // Validate status
+    if (!TICKET_STATUSES.includes(status as TicketStatus)) {
+      throw new ValidationError(`Invalid status. Valid: ${TICKET_STATUSES.join(", ")}`);
     }
 
     const result = await pool.query(
       `UPDATE support_tickets
-       SET admin_response = $1,
-           status         = $2,
-           responded_by   = $3,
-           responded_at   = CURRENT_TIMESTAMP,
-           updated_at     = CURRENT_TIMESTAMP
-       WHERE id = $4
-       RETURNING id, subject, status, firebase_uid`,
+       SET    admin_response = $1,
+              status         = $2,
+              responded_by   = $3,
+              responded_at   = NOW(),
+              updated_at     = NOW()
+       WHERE  id = $4
+       RETURNING id, subject, status, firebase_uid, username`,
       [sanitizeString(response), status, adminUid, ticketId]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Ticket not found" });
-    }
+    if (result.rows.length === 0) throw new NotFoundError("Ticket");
 
-    await pool.query(
+    const ticket = result.rows[0] as {
+      id:          number;
+      subject:     string;
+      status:      string;
+      firebase_uid: string;
+      username:    string;
+    };
+
+    // Audit log — fire-and-forget
+    void pool.query(
       `INSERT INTO admin_audit_log
          (admin_firebase_uid, action_type, details, ip_address)
        VALUES ($1, 'TICKET_RESPONDED', $2, $3)`,
       [
         adminUid,
-        JSON.stringify({ ticketId, status }),
-        req.ip,
+        JSON.stringify({ ticketId, status, username: ticket.username }),
+        req.ip ?? "unknown",
       ]
-    );
+    ).catch(() => {});
+
+    // Notify player via email — only on resolved/closed
+    if (status === "resolved" || status === "closed") {
+      // Get player email
+      const userR = await pool.query(
+        `SELECT email FROM users WHERE firebase_uid = $1 LIMIT 1`,
+        [ticket.firebase_uid]
+      ).catch(() => ({ rows: [] }));
+
+      const email = (userR.rows[0] as { email?: string } | undefined)?.email;
+      if (email) {
+        void queueEmail({
+          type:      "support_reply",
+          to:        email,
+          username:  ticket.username,
+          ticketId:  String(ticket.id),
+          message:   response,
+        }).catch(() => {});
+      }
+    }
 
     logger.info("📨 Support ticket responded", {
       ticketId,
@@ -176,6 +322,41 @@ router.post(
     });
 
     res.json({ message: "Response sent", ticket: result.rows[0] });
+  })
+);
+
+// ============================================================
+// POST /api/support/tickets/:id/close — Close ticket
+// ============================================================
+router.post(
+  "/tickets/:id/close",
+  verifyFirebaseToken,
+  requireModerator,
+  adminLimiter,
+  validate(ticketIdParam),
+  asyncHandler(async (req, res) => {
+    const ticketId = parseInt(String(req.params["id"]), 10);
+    const adminUid = req.firebaseUser!.uid;
+
+    const result = await pool.query(
+      `UPDATE support_tickets
+       SET    status     = 'closed',
+              updated_at = NOW()
+       WHERE  id = $1
+       RETURNING id, status`,
+      [ticketId]
+    );
+
+    if (result.rows.length === 0) throw new NotFoundError("Ticket");
+
+    void pool.query(
+      `INSERT INTO admin_audit_log
+         (admin_firebase_uid, action_type, details, ip_address)
+       VALUES ($1, 'TICKET_CLOSED', $2, $3)`,
+      [adminUid, JSON.stringify({ ticketId }), req.ip ?? "unknown"]
+    ).catch(() => {});
+
+    res.json({ message: "Ticket closed", ticket: result.rows[0] });
   })
 );
 
