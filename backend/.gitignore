@@ -23,3 +23,5 @@ firebase-service-account.json
 *.sqlite
 *.sqlite-journal
 logs/
+firebase-service-account.json
+backups/*.sql
