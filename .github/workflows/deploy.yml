@@ -1,13 +1,15 @@
 # ============================================================
 # UNDERCITY DEPLOY PIPELINE
-# Pure Docker — no PM2 conflict
+# Triggers after CI passes on main
 # ============================================================
 
 name: Deploy
 
 on:
-  push:
+  workflow_run:
+    workflows: ["🔥 Undercity CI"]
     branches: [main]
+    types: [completed]
 
 concurrency:
   group: deploy-production
@@ -21,16 +23,20 @@ env:
 
 jobs:
 
-  ci:
-    name: CI Suite
-    uses: ./.github/workflows/ci.yml
-    secrets: inherit
+  # Only deploy if CI passed
+  check-ci:
+    name: Check CI Result
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: CI passed — proceeding with deploy
+        run: echo "CI passed. Starting deploy pipeline."
 
   build-image:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [ci]
+    needs: [check-ci]
     environment: production
     outputs:
       image-tag: ${{ steps.meta.outputs.version }}
@@ -85,22 +91,20 @@ jobs:
           script: |
             set -e
 
-            echo "DEPLOY STARTING — SHA: ${{ github.sha }}"
+            echo "DEPLOY STARTING — SHA: ${{ github.event.workflow_run.head_sha }}"
 
             cd /opt/undercity
 
-            # Snapshot for rollback
             PREV_IMAGE=$(docker inspect undercity_backend \
               --format='{{.Config.Image}}' 2>/dev/null \
               || echo "${{ env.IMAGE_NAME }}:latest")
 
-            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            SHORT_SHA=$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-7)
             IMAGE="${{ env.IMAGE_NAME }}:sha-${SHORT_SHA}"
 
             echo "Pulling $IMAGE..."
             docker pull "$IMAGE"
 
-            # Run migrations before swap
             echo "Running migrations..."
             docker run --rm \
               --env-file /opt/undercity/backend/.env \
@@ -108,16 +112,12 @@ jobs:
               "$IMAGE" \
               node dist/app.js migrate
 
-            # Swap containers
             echo "Swapping containers..."
             docker compose stop backend
             docker compose rm -f backend
-
-            # Update image reference in compose
             export BACKEND_IMAGE="$IMAGE"
             docker compose up -d backend
 
-            # Health check
             echo "Health check..."
             MAX_RETRIES=5
             RETRY=0
@@ -148,7 +148,6 @@ jobs:
               exit 1
             fi
 
-            # Cleanup old images
             docker images ${{ env.IMAGE_NAME }} \
               --format "{{.ID}} {{.CreatedAt}}" \
               | sort -rk2 \
@@ -233,7 +232,7 @@ jobs:
           VITE_FIREBASE_PROJECT_ID:  ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_APP_ID:      ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_TURNSTILE_SITE_KEY:   ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
-          VITE_BUILD_SHA:            ${{ github.sha }}
+          VITE_BUILD_SHA:            ${{ github.event.workflow_run.head_sha }}
         run: npm run build
 
       - name: Bundle size guard
@@ -308,7 +307,7 @@ jobs:
         uses: slackapi/slack-github-action@v1.26.0
         with:
           payload: |
-            {"text": "UNDERCITY DEPLOYED\nBackend + Frontend live\nCommit: ${{ github.sha }}\nBy: ${{ github.actor }}"}
+            {"text": "UNDERCITY DEPLOYED\nBackend + Frontend live\nCommit: ${{ github.event.workflow_run.head_sha }}\nBy: ${{ github.actor }}"}
         env:
           SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
@@ -319,7 +318,7 @@ jobs:
         uses: slackapi/slack-github-action@v1.26.0
         with:
           payload: |
-            {"text": "UNDERCITY DEPLOY FAILED\nCommit: ${{ github.sha }}\nBy: ${{ github.actor }}\nCheck production NOW"}
+            {"text": "UNDERCITY DEPLOY FAILED\nCommit: ${{ github.event.workflow_run.head_sha }}\nBy: ${{ github.actor }}\nCheck production NOW"}
         env:
           SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

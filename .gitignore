@@ -33,3 +33,7 @@ backend/coverage/
 # Docker env (contains real passwords)
 .env.docker
 docker-compose.override.yml
+backend/firebase-service-account.json
+backend/backups/*.sql
+backend/firebase-service-account.json
+backend/backups/*.sql

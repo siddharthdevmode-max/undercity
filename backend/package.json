@@ -7,10 +7,13 @@
     "dev": "tsx watch src/server.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "migrate": "node-pg-migrate up",
     "migrate:down": "node-pg-migrate down",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:all": "vitest run && vitest run --config vitest.integration.config.ts"
+    "test:all": "vitest run && vitest run --config vitest.integration.config.ts",
+    "lint": "eslint --max-warnings 0 src",
+    "lint:fix": "eslint --max-warnings 0 src --fix"
   },
   "dependencies": {
     "@sentry/node": "^8.0.0",
