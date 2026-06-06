@@ -10,7 +10,7 @@ import {
   type StatsUpdate,
   type OnlineCount,
 } from "../services/socket";
-import { showToast } from "../utils/toast";
+import { toast } from "../utils/toast";
 
 // ============================================================
 // useSocket — Auto-connect/disconnect with auth lifecycle
@@ -30,8 +30,13 @@ export function useSocket() {
     if (connected.current) return;
 
     connectSocket()
-      .then(() => { connected.current = true; })
-      .catch((err) => { console.error("Socket connect failed:", err); });
+      .then(() => {
+        connected.current = true;
+      })
+      .catch((err: unknown) => {
+        toast.error("Connection failed. Retrying...");
+        console.error("Socket connect failed:", err);
+      });
 
     return () => {
       disconnectSocket();
@@ -44,14 +49,27 @@ export function useSocket() {
 export function useNotifications() {
   useEffect(() => {
     const unsub = onNotification((n: GameNotification) => {
-      showToast(n.message, n.type === "success" ? "success" : "error");
+      switch (n.type) {
+        case "success":
+          toast.success(n.message);
+          break;
+        case "failure":
+          toast.error(n.message);
+          break;
+        case "info":
+          toast.info(n.message);
+          break;
+        case "system":
+          toast.warning(n.message);
+          break;
+      }
     });
+
     return unsub;
   }, []);
 }
 
 // ── useOnlineCount ──────────────────────────────────────────
-// cbRef pattern: store latest cb in ref, access only inside effect
 export function useOnlineCount(cb: (count: number) => void) {
   const cbRef = useRef(cb);
 
@@ -63,6 +81,7 @@ export function useOnlineCount(cb: (count: number) => void) {
     const unsub = onOnlineCount((o: OnlineCount) => {
       cbRef.current(o.count);
     });
+
     return unsub;
   }, []);
 }
@@ -79,6 +98,7 @@ export function useStatsUpdate(cb: (stats: Record<string, number>) => void) {
     const unsub = onStatsUpdate((s: StatsUpdate) => {
       cbRef.current(s.stats);
     });
+
     return unsub;
   }, []);
 }

@@ -22,20 +22,24 @@ class ToastManager {
   subscribe(listener: ToastListener): () => void {
     this.listeners.add(listener);
     listener(this.toasts);
-    return () => { this.listeners.delete(listener); };
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   private notify() {
-    this.listeners.forEach((l) => l([...this.toasts]));
+    this.listeners.forEach((listener) => listener([...this.toasts]));
   }
 
   show(type: ToastType, message: string, duration = 4000): string {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     this.toasts.push({ id, type, message, duration });
     this.notify();
+
     if (duration > 0) {
       setTimeout(() => this.dismiss(id), duration);
     }
+
     return id;
   }
 
@@ -46,6 +50,12 @@ class ToastManager {
 }
 
 const manager = new ToastManager();
+
+const TOAST_TYPES: ToastType[] = ["success", "error", "warning", "info"];
+
+function isToastType(value: string): value is ToastType {
+  return TOAST_TYPES.includes(value as ToastType);
+}
 
 export const toast = {
   success: (message: string, duration?: number) =>
@@ -58,5 +68,30 @@ export const toast = {
     manager.show("info", message, duration),
   dismiss: (id: string) => manager.dismiss(id),
 };
+
+// Backward-compatible helper
+// showToast("success", "Saved!")
+// showToast("Saved!", "success")
+// showToast("Saved!")
+export function showToast(
+  typeOrMessage: ToastType | string,
+  messageOrType?: string | ToastType,
+  duration = 4000,
+): string {
+  if (isToastType(String(typeOrMessage)) && typeof messageOrType === "string") {
+    return manager.show(typeOrMessage as ToastType, messageOrType, duration);
+  }
+
+  const type: ToastType =
+    typeof messageOrType === "string" && isToastType(messageOrType)
+      ? messageOrType
+      : "info";
+
+  return manager.show(type, String(typeOrMessage), duration);
+}
+
+export function dismissToast(id: string) {
+  manager.dismiss(id);
+}
 
 export { manager as toastManager };

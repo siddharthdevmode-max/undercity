@@ -1,37 +1,13 @@
 import { useState, useEffect } from 'react';
 import '../styles/CookieBanner.css';
+import {
+  getCookieConsent,
+  setCookieConsent,
+} from '../utils/cookieConsent';
 
 // ============================================================
 // COOKIE CONSENT BANNER — GDPR/ePrivacy compliant
 // ============================================================
-
-type ConsentState = {
-  essential:  true;
-  functional: boolean;
-  analytics:  boolean;
-  decided:    boolean;
-  timestamp:  string;
-};
-
-const CONSENT_KEY = 'uc_cookie_consent';
-
-export function getCookieConsent(): ConsentState | null {
-  try {
-    const s = localStorage.getItem(CONSENT_KEY);
-    return s ? (JSON.parse(s) as ConsentState) : null;
-  } catch { return null; }
-}
-
-export function setCookieConsent(functional: boolean, analytics: boolean): void {
-  const consent: ConsentState = {
-    essential: true,
-    functional,
-    analytics,
-    decided:   true,
-    timestamp: new Date().toISOString(),
-  };
-  localStorage.setItem(CONSENT_KEY, JSON.stringify(consent));
-}
 
 export default function CookieBanner() {
   const [visible,     setVisible]     = useState(false);
