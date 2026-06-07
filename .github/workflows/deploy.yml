@@ -43,20 +43,20 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
@@ -64,7 +64,7 @@ jobs:
             type=sha,prefix=sha-,format=short
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context:    ./backend
           push:       true
@@ -209,10 +209,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -304,7 +304,7 @@ jobs:
       - name: Notify success
         if: needs.smoke-fullstack.result == 'success'
         continue-on-error: true
-        uses: slackapi/slack-github-action@v1.26.0
+        uses: slackapi/slack-github-action@v3.0.3
         with:
           payload: |
             {"text": "UNDERCITY DEPLOYED\nBackend + Frontend live\nCommit: ${{ github.event.workflow_run.head_sha }}\nBy: ${{ github.actor }}"}
@@ -315,7 +315,7 @@ jobs:
       - name: Notify failure
         if: needs.smoke-fullstack.result != 'success'
         continue-on-error: true
-        uses: slackapi/slack-github-action@v1.26.0
+        uses: slackapi/slack-github-action@v3.0.3
         with:
           payload: |
             {"text": "UNDERCITY DEPLOY FAILED\nCommit: ${{ github.event.workflow_run.head_sha }}\nBy: ${{ github.actor }}\nCheck production NOW"}
