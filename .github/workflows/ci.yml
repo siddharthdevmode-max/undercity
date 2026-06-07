@@ -72,6 +72,7 @@ jobs:
     permissions:
       security-events: write
       contents: read
+      actions: read
     container:
       image: semgrep/semgrep:latest
     steps:
@@ -351,7 +352,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: 🔍 Trivy — Container scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: undercity-backend:scan
           format: sarif
@@ -365,7 +366,7 @@ jobs:
           TRIVY_JAVA_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-java-db,public.ecr.aws/aquasecurity/trivy-java-db
 
       - name: 🔍 Trivy — Filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         if: always()
         with:
           scan-type: fs
