@@ -262,13 +262,17 @@ jobs:
       - name: 📦 Bundle size guard
         working-directory: frontend
         run: |
-          BUNDLE_SIZE=$(du -sk dist/ | cut -f1)
-          echo "📦 Bundle size: ${BUNDLE_SIZE}KB"
-          if [ "$BUNDLE_SIZE" -gt 10240 ]; then
-            echo "❌ Bundle too large: ${BUNDLE_SIZE}KB (limit: 10240KB)"
+          JS_SIZE=$(find dist/assets -name "*.js" -not -name "*.map" -exec du -ck {} + | tail -1 | cut -f1)
+          CSS_SIZE=$(find dist/assets -name "*.css" -exec du -ck {} + | tail -1 | cut -f1)
+          JS_SIZE=${JS_SIZE:-0}
+          CSS_SIZE=${CSS_SIZE:-0}
+          TOTAL=$((JS_SIZE + CSS_SIZE))
+          echo "📦 JS: ${JS_SIZE}KB | CSS: ${CSS_SIZE}KB | Total: ${TOTAL}KB"
+          if [ "$TOTAL" -gt 5120 ]; then
+            echo "❌ JS+CSS bundle too large: ${TOTAL}KB (limit: 5120KB)"
             exit 1
           fi
-          echo "✅ Bundle size OK: ${BUNDLE_SIZE}KB"
+          echo "✅ Bundle size OK: ${TOTAL}KB"
 
   trivy-scan:
     name: 🐳 Container Scan

@@ -6,10 +6,10 @@ import { resolve } from 'path';
 // VITE CONFIG
 // - Path aliases for clean imports
 // - Manual chunk splitting for optimal caching
-// - Source maps in production for error tracking
+// - Sourcemaps disabled in production (enabled via VITE_SOURCEMAP env)
 // ============================================================
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
 
   resolve: {
@@ -26,24 +26,22 @@ export default defineConfig({
   },
 
   build: {
-    // Target modern browsers
     target: 'es2020',
 
-    // Source maps for production error tracking
-    sourcemap: true,
+    // Sourcemaps only when explicitly requested
+    // Set VITE_SOURCEMAP=true locally if you need them
+    sourcemap: process.env.VITE_SOURCEMAP === 'true',
 
-    // Warn if any chunk exceeds 500kb
     chunkSizeWarningLimit: 500,
 
     rollupOptions: {
       output: {
-        // Manual chunk splitting — function form required for Vite 8
-        // Each vendor chunk cached independently by the browser
-        // Change game code → users don't re-download React/Firebase
         manualChunks(id) {
-          if (id.includes('node_modules/react') ||
-              id.includes('node_modules/react-dom') ||
-              id.includes('node_modules/react-router-dom')) {
+          if (
+            id.includes('node_modules/react') ||
+            id.includes('node_modules/react-dom') ||
+            id.includes('node_modules/react-router-dom')
+          ) {
             return 'vendor-react';
           }
           if (id.includes('node_modules/firebase')) {
@@ -51,10 +49,9 @@ export default defineConfig({
           }
         },
 
-        // Consistent naming for cache busting
-        chunkFileNames: 'assets/[name]-[hash].js',
-        entryFileNames: 'assets/[name]-[hash].js',
-        assetFileNames: 'assets/[name]-[hash].[ext]',
+        chunkFileNames:  'assets/[name]-[hash].js',
+        entryFileNames:  'assets/[name]-[hash].js',
+        assetFileNames:  'assets/[name]-[hash].[ext]',
       },
     },
   },
@@ -69,4 +66,4 @@ export default defineConfig({
     port: 4173,
     strictPort: true,
   },
-});
+}));
