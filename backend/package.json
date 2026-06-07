@@ -18,6 +18,7 @@
     "lint:fix": "eslint --max-warnings 0 src --fix"
   },
   "dependencies": {
+    "@lemonsqueezy/lemonsqueezy.js": "^4.0.0",
     "@sentry/node": "^8.0.0",
     "bullmq": "^5.0.0",
     "compression": "^1.8.1",
