@@ -5,34 +5,50 @@
 
 title = "Undercity Gitleaks Config"
 
-# Use all built-in gitleaks rules as the baseline
 [extend]
 useDefault = true
 
 # ── Allowlist ────────────────────────────────────────────
-# Files / patterns that should never trigger a leak alert
 [allowlist]
 description = "Global allowlist for Undercity"
 
 paths = [
-  '''node_modules/.*''',
+  # Build artifacts (compiled JS contains expected public keys)
   '''dist/.*''',
   '''build/.*''',
+  '''.*\.next/.*''',
   '''coverage/.*''',
-  '''\.next/.*''',
+
+  # Dependencies
+  '''node_modules/.*''',
+
+  # Local env files (already gitignored, never pushed)
+  '''.*\.env$''',
+  '''.*\.env\..*''',
+  '''!.*\.env\.example$''',
+
+  # Lock files
   '''package-lock\.json''',
   '''pnpm-lock\.yaml''',
   '''yarn\.lock''',
+
+  # Test files (often have placeholder credentials)
   '''.*\.test\.ts$''',
   '''.*\.test\.tsx$''',
   '''.*\.spec\.ts$''',
   '''__tests__/.*''',
+
+  # Documentation
   '''docs/.*''',
   '''.*\.md$''',
+
+  # Generated artifacts
+  '''.*\.sarif$''',
+  '''.*\.lock$''',
 ]
 
 regexes = [
-  # Test placeholders are safe — never real keys
+  # Test placeholders (never real keys)
   '''sk_test_placeholder''',
   '''pk_test_placeholder''',
   '''whsec_test_placeholder''',
@@ -42,16 +58,15 @@ regexes = [
   '''dev-salt-change-in-production-minimum-32-chars''',
   '''dev-fingerprint-salt-change-in-prod''',
 
-  # Cloudflare Turnstile test keys (publicly documented test bypass)
+  # Cloudflare Turnstile public test keys
   '''1x0000000000000000000000000000000AA''',
   '''2x0000000000000000000000000000000AA''',
   '''3x0000000000000000000000000000000FF''',
 
-  # Firebase Web API keys are public by design (protected via referrer + Firebase rules)
+  # Firebase Web API keys are PUBLIC by design
   # https://firebase.google.com/docs/projects/api-keys
+  # Protected via HTTP referrer restrictions + Firebase Security Rules
   '''AIzaSy[A-Za-z0-9_-]{33}''',
 ]
 
-commits = [
-  # Add commit SHAs here to ignore historical findings
-]
+commits = []
