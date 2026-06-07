@@ -377,3 +377,30 @@ export function calcLevelProgress(xp: number): number {
   const progress        = xp - currentLevelXp;
   return Math.min(100, Math.max(0, Math.round((progress / range) * 100)));
 }
+
+// ============================================================
+// REWARD SANITY CAP
+// Absolute server-side ceiling regardless of engine output.
+// Protects economy if crime data is corrupted or bugged.
+// Tier 5 max is $10M — we cap at 2x that as a safety net.
+// Log any hit so we know immediately if the engine is broken.
+// ============================================================
+
+export const MAX_SINGLE_CRIME_REWARD = 20_000_000;
+
+export function applySanityCap(
+  result:  OutcomeResult,
+  crimeId: string,
+  log:     (msg: string, meta: Record<string, unknown>) => void
+): OutcomeResult {
+  if (result.reward_money > MAX_SINGLE_CRIME_REWARD) {
+    log("🚨 Crime reward sanity cap triggered", {
+      crimeId,
+      rawReward: result.reward_money,
+      cappedAt:  MAX_SINGLE_CRIME_REWARD,
+      outcome:   result.outcome,
+    });
+    return { ...result, reward_money: MAX_SINGLE_CRIME_REWARD };
+  }
+  return result;
+}

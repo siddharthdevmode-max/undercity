@@ -1,5 +1,5 @@
 import { getAuth } from "firebase/auth";
-import type { User } from "../types";
+import type { User, UserTier } from "../types";
 import { ApiError } from "../utils/apiError";
 import { getVisitorId } from "./fingerprint";
 
@@ -13,16 +13,35 @@ interface RawUser {
   level: number;
   money: number;
   points: number;
+
+  // Stats
   nerve: number;
   max_nerve: number;
   life: number;
   max_life: number;
+  energy: number;
+  max_energy: number;
+  happiness: number;
+
+  // Status timers
   jail_until: string | null;
+  hospital_until: string | null;
   federal_jail_until: string | null;
   last_crime_at: string | null;
+  last_seen_at: string | null;
+
+  // Progression
   onboarding_completed: boolean;
+
+  // Roles
   is_admin?: boolean;
   is_developer?: boolean;
+  is_moderator?: boolean;
+
+  // Tier
+  user_tier?: UserTier;
+  tier_expires_at?: string | null;
+
   created_at: string;
 }
 
@@ -35,16 +54,30 @@ function transformUser(raw: RawUser): User {
     level: raw.level,
     money: raw.money,
     points: raw.points,
+
     nerve: raw.nerve,
     maxNerve: raw.max_nerve,
     life: raw.life,
     maxLife: raw.max_life,
+    energy: raw.energy ?? 100,
+    maxEnergy: raw.max_energy ?? 100,
+    happiness: raw.happiness ?? 50,
+
     jailUntil: raw.jail_until,
+    hospitalUntil: raw.hospital_until ?? null,
     federalJailUntil: raw.federal_jail_until,
     lastCrimeAt: raw.last_crime_at,
+    lastSeenAt: raw.last_seen_at ?? null,
+
     onboardingCompleted: raw.onboarding_completed ?? false,
+
     isAdmin:     raw.is_admin     ?? false,
     isDeveloper: raw.is_developer ?? false,
+    isModerator: raw.is_moderator ?? false,
+
+    userTier:      raw.user_tier      ?? 'player',
+    tierExpiresAt: raw.tier_expires_at ?? null,
+
     createdAt: raw.created_at,
   };
 }

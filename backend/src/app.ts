@@ -147,13 +147,20 @@ app.use("/api/v1/mfa",       mfaRoutes);
 app.use("/api/v1/support",   supportRoutes);
 app.use("/api/v1/payments",  paymentRoutes);
 
-// Honeypot — must be last
+// Honeypot — must be last real route
 app.use("/api/v1", honeypotRoutes);
 app.use("/api",    honeypotRoutes);
 
-// ── Error handlers — must be absolute last ────────────────
-Sentry.setupExpressErrorHandler(app);
+// ── Error handlers ────────────────────────────────────────
+// ORDER IS CRITICAL — DO NOT CHANGE:
+// 1. notFoundHandler  — turns unmatched routes into 404 AppErrors
+// 2. Sentry           — captures all errors including 404s
+// 3. errorHandler     — formats and sends the response
+//
+// Previous order had Sentry before notFoundHandler which meant
+// Sentry never saw 404s and some AppErrors were double-handled.
 app.use(notFoundHandler);
+Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);
 
 // ── Exports ───────────────────────────────────────────────

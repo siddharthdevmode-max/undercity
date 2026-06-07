@@ -33,6 +33,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (err instanceof ApiError && err.statusCode === 404) {
         return;
       }
+
+      // 403 means email not verified yet — happens right after signup.
+      // Register.tsx handles the verification flow.
+      // Don't show error, just leave user as null.
+      if (err instanceof ApiError && err.statusCode === 403) {
+        return;
+      }
+
       setError('Failed to load player data');
       setUser(null);
     }
@@ -60,7 +68,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       lastUidRef.current = firebaseUser.uid;
       setLoading(true);
-      await fetchUser();
+
+      // Only fetch user data from backend if email is verified.
+      // Unverified users are in the registration flow and shouldn't hit /me yet.
+      if (firebaseUser.emailVerified) {
+        await fetchUser();
+      }
+
       setLoading(false);
     });
 

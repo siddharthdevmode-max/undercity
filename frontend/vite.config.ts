@@ -2,13 +2,6 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
-// ============================================================
-// VITE CONFIG
-// - Path aliases for clean imports
-// - Manual chunk splitting for optimal caching
-// - Sourcemaps disabled in production by default
-// ============================================================
-
 export default defineConfig(() => ({
   plugins: [react()],
 
@@ -25,14 +18,27 @@ export default defineConfig(() => ({
     },
   },
 
+  server: {
+    port: 5173,
+    strictPort: true,
+    open: false,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:80',
+        changeOrigin: true,
+      },
+      '/socket.io': {
+        target: 'http://localhost:80',
+        changeOrigin: true,
+        ws: true,
+      },
+    },
+  },
+
   build: {
     target: 'es2020',
-
-    // Sourcemaps only when explicitly enabled
     sourcemap: process.env.VITE_SOURCEMAP === 'true',
-
     chunkSizeWarningLimit: 500,
-
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -43,23 +49,15 @@ export default defineConfig(() => ({
           ) {
             return 'vendor-react';
           }
-
           if (id.includes('node_modules/firebase')) {
             return 'vendor-firebase';
           }
         },
-
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash].[ext]',
       },
     },
-  },
-
-  server: {
-    port: 5173,
-    strictPort: true,
-    open: false,
   },
 
   preview: {

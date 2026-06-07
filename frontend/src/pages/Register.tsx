@@ -1,8 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import {
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  signOut,
+} from "firebase/auth";
+import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import { auth } from '../firebase';
-import { authAPI, checkUsernameAvailable } from '../services/api';
+import { checkUsernameAvailable } from '../services/api';
 import { getFriendlyError } from '../utils/firebaseErrors';
 import { useAuth } from '../hooks/useAuth';
 import Header from '../components/Header';
@@ -11,6 +16,9 @@ import '../styles/Landing.css';
 import '../styles/Register.css';
 
 type UsernameStatus = 'idle' | 'checking' | 'available' | 'taken' | 'invalid';
+type RegisterStage  = 'form' | 'verify-email';
+
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string;
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -44,9 +52,14 @@ export default function Register() {
   const [agreeTerms, setAgreeTerms]           = useState(false);
   const [error, setError]                     = useState('');
   const [loading, setLoading]                 = useState(false);
+  const [stage, setStage]                     = useState<RegisterStage>('form');
+  const [resendCooldown, setResendCooldown]   = useState(0);
   const [usernameStatus, setUsernameStatus]   = useState<UsernameStatus>('idle');
   const [usernameMessage, setUsernameMessage] = useState('');
+  const [turnstileToken, setTurnstileToken]   = useState<string | null>(null);
+
   const usernameRef                           = useRef<HTMLInputElement>(null);
+  const turnstileRef                          = useRef<TurnstileInstance | null>(null);
   const navigate                              = useNavigate();
   const { user, setUser }                     = useAuth();
   const strength                              = getPasswordStrength(password);
@@ -56,11 +69,24 @@ export default function Register() {
   useEffect(() => { if (user) navigate('/onboarding'); }, [user, navigate]);
   useEffect(() => { usernameRef.current?.focus(); }, []);
 
+  // ── Resend verification cooldown timer ──────────────────
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendCooldown]);
+
+  // ── Username availability check (debounced) ─────────────
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (!username) {
         setUsernameStatus('idle');
         setUsernameMessage('');
+        return;
+      }
+      if (username.length < 3) {
+        setUsernameStatus('invalid');
+        setUsernameMessage('Min 3 characters');
         return;
       }
       setUsernameStatus('checking');
@@ -80,18 +106,77 @@ export default function Register() {
     return () => clearTimeout(timer);
   }, [username]);
 
+  // ── Submit ──────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!username.trim())               return setError('Username is required.');
-    if (usernameStatus !== 'available') return setError('Please choose an available username.');
-    if (!isValidEmail(email))           return setError('Please enter a valid email address.');
-    if (password !== confirmPassword)   return setError('Passwords do not match.');
-    if (password.length < 6)           return setError('Password must be at least 6 characters.');
-    if (!agreeTerms)                    return setError('You must agree to the terms.');
+
+    if (!username.trim())                  return setError('Username is required.');
+    if (usernameStatus !== 'available')    return setError('Please choose an available username.');
+    if (!isValidEmail(email))              return setError('Please enter a valid email address.');
+    if (password !== confirmPassword)      return setError('Passwords do not match.');
+    if (password.length < 6)               return setError('Password must be at least 6 characters.');
+    if (!agreeTerms)                       return setError('You must agree to the terms.');
+    if (TURNSTILE_SITE_KEY && !turnstileToken) {
+      return setError('Please complete the security check.');
+    }
+
     setLoading(true);
     try {
+      // 1. Create Firebase account
       await createUserWithEmailAndPassword(auth, email, password);
+
+      // 2. Send verification email
+      if (auth.currentUser) {
+        await sendEmailVerification(auth.currentUser, {
+          url: `${window.location.origin}/login`,
+        });
+      }
+
+      // 3. Move to "check your email" screen
+      setStage('verify-email');
+      setResendCooldown(60);
+    } catch (err: unknown) {
+      setError(getFriendlyError(err));
+      // Reset Turnstile on error so user can try again
+      turnstileRef.current?.reset();
+      setTurnstileToken(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Resend verification email ───────────────────────────
+  const handleResend = async () => {
+    if (resendCooldown > 0 || !auth.currentUser) return;
+    setError('');
+    try {
+      await sendEmailVerification(auth.currentUser, {
+        url: `${window.location.origin}/login`,
+      });
+      setResendCooldown(60);
+    } catch (err: unknown) {
+      setError(getFriendlyError(err));
+    }
+  };
+
+  // ── Continue to game after email verified ───────────────
+  const handleContinue = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      // Force token refresh so backend gets email_verified=true
+      await auth.currentUser?.reload();
+      const refreshed = auth.currentUser;
+
+      if (!refreshed?.emailVerified) {
+        setError('Email not verified yet. Check your inbox and click the link.');
+        setLoading(false);
+        return;
+      }
+
+      // Now sync with backend (will create DB record)
+      const { authAPI } = await import('../services/api');
       const newUser = await authAPI.sync(username);
       setUser(newUser);
       navigate('/onboarding');
@@ -102,6 +187,105 @@ export default function Register() {
     }
   };
 
+  // ── Go back to form (cancel registration) ───────────────
+  const handleBackToForm = async () => {
+    try {
+      await signOut(auth);
+    } catch { /* ignore */ }
+    setStage('form');
+    setError('');
+    setTurnstileToken(null);
+    turnstileRef.current?.reset();
+  };
+
+  // ── Render: Email Verification Screen ───────────────────
+  if (stage === 'verify-email') {
+    return (
+      <div className="landing-page">
+        <Header />
+        <section className="about-section">
+          <div className="about-content">
+            <div className="about-text register-modern-wrapper">
+
+              <span className="hero-eyebrow">ALMOST THERE</span>
+              <h1 className="auth-title">
+                CHECK YOUR<br />
+                <span className="accent">EMAIL INBOX</span>
+              </h1>
+              <div className="divider">
+                <span className="line" />
+                <span className="diamond">◆</span>
+                <span className="line" />
+              </div>
+
+              <p className="auth-supporting">
+                We sent a verification link to:<br />
+                <strong>{email}</strong>
+              </p>
+
+              <p className="auth-supporting" style={{ marginTop: '1rem' }}>
+                Click the link in your email, then come back and press
+                the button below to enter the city.
+              </p>
+
+              <button
+                onClick={handleContinue}
+                className="cta-button"
+                disabled={loading}
+                style={{ marginTop: '1.5rem' }}
+              >
+                {loading
+                  ? <><span className="spinner" />CHECKING...</>
+                  : <>I&apos;VE VERIFIED — ENTER CITY <span className="arrow">→</span></>}
+              </button>
+
+              <button
+                onClick={handleResend}
+                className="cta-button"
+                disabled={resendCooldown > 0}
+                style={{
+                  marginTop: '0.75rem',
+                  background: 'transparent',
+                  border: '1px solid currentColor',
+                }}
+              >
+                {resendCooldown > 0
+                  ? `RESEND IN ${resendCooldown}s`
+                  : 'RESEND EMAIL'}
+              </button>
+
+              <button
+                onClick={handleBackToForm}
+                className="register-login"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  marginTop: '1rem',
+                  cursor: 'pointer',
+                  color: 'inherit',
+                  textDecoration: 'underline',
+                }}
+              >
+                Use a different email
+              </button>
+
+              {error && (
+                <p role="alert" aria-live="polite" className="register-error">
+                  {error}
+                </p>
+              )}
+            </div>
+
+            <div className="about-image">
+              <img src={hero} alt="Undercity skyline" />
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  // ── Render: Registration Form ───────────────────────────
   return (
     <div className="landing-page">
       <Header />
@@ -219,10 +403,26 @@ export default function Register() {
                   disabled={loading}
                 />
                 <span>
-                  I agree to the <a href="#terms">Terms</a> and{' '}
-                  <a href="#privacy">Privacy Policy</a>
+                  I agree to the <a href="/legal/terms">Terms</a> and{' '}
+                  <a href="/legal/privacy">Privacy Policy</a>
                 </span>
               </label>
+
+              {TURNSTILE_SITE_KEY && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <Turnstile
+                    ref={turnstileRef}
+                    siteKey={TURNSTILE_SITE_KEY}
+                    onSuccess={setTurnstileToken}
+                    onExpire={() => setTurnstileToken(null)}
+                    onError={() => setTurnstileToken(null)}
+                    options={{
+                      theme: 'dark',
+                      size:  'normal',
+                    }}
+                  />
+                </div>
+              )}
 
               <button type="submit" className="cta-button" disabled={loading}>
                 {loading
@@ -243,7 +443,7 @@ export default function Register() {
               </div>
               <div className="auth-step">
                 <span className="step-num">02</span>
-                <span className="step-text">Enter the city</span>
+                <span className="step-text">Verify your email</span>
               </div>
               <div className="auth-step">
                 <span className="step-num">03</span>

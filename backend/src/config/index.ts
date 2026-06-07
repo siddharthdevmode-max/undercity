@@ -59,6 +59,31 @@ const isTest        = nodeEnv === "test";
 // ---- Config Builder -----------------------------------------
 
 function buildConfig() {
+  // ── ALLOWED_ORIGINS guard ──────────────────────────────
+  // In production, if ALLOWED_ORIGINS is not set we crash at
+  // startup rather than silently blocking all CORS requests.
+  const allowedOrigins = isProduction
+    ? (() => {
+        const list = optionalList("ALLOWED_ORIGINS");
+        if (list.length === 0) {
+          throw new Error(
+            "[Config] ALLOWED_ORIGINS is required in production. " +
+            "Set it to a comma-separated list of allowed origins, " +
+            "e.g. https://undercity.online,https://www.undercity.online"
+          );
+        }
+        return list;
+      })()
+    : ["http://localhost:5173", "http://localhost:3000"];
+
+  // ── fingerprintSalt guard ─────────────────────────────
+  // In production this MUST be a secret random value.
+  // Using the dev fallback in prod means fingerprints are
+  // predictable and the anti-cheat layer is compromised.
+  const fingerprintSalt = isProduction
+    ? required("FINGERPRINT_SALT")
+    : optional("FINGERPRINT_SALT", "dev-fingerprint-salt-change-in-prod");
+
   return {
     port:           optionalInt("PORT", 5000),
     nodeEnv,
@@ -81,9 +106,7 @@ function buildConfig() {
     devUids:       optionalList("DEV_UIDS"),
     moderatorUids: optionalList("MODERATOR_UIDS"),
 
-    allowedOrigins: isProduction
-      ? optionalList("ALLOWED_ORIGINS")
-      : ["http://localhost:5173", "http://localhost:3000"],
+    allowedOrigins,
 
     logLevel: optional("LOG_LEVEL", isProduction ? "info" : "debug") as
       | "error"
@@ -120,7 +143,9 @@ function buildConfig() {
 
     blockedCountries: optionalList("BLOCKED_COUNTRIES"),
     cspReportUri:     optionalSecret("CSP_REPORT_URI"),
-    fingerprintSalt:  optional("FINGERPRINT_SALT", "dev-fingerprint-salt-change-in-prod"),
+
+    // Required in production — protects anti-cheat fingerprinting
+    fingerprintSalt,
 
     rateLimit: {
       windowMs:        optionalInt("RATE_LIMIT_WINDOW_MS",      60000),

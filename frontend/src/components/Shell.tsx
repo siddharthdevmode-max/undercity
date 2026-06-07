@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 import { userEvents } from '../utils/userEvents';
 import { toast } from '../utils/toast';
 import Icon from './ui/Icon';
+import { useSocket } from '../hooks/useSocket';
 
 interface Props { children: React.ReactNode; }
 
@@ -66,6 +67,7 @@ const NAV_SECTIONS = [
 
 export default function Shell({ children }: Props) {
   const { user: authUser, loading } = useAuth();
+  useSocket();
   const navigate = useNavigate();
   const location = useLocation();
   const auth     = getAuth();

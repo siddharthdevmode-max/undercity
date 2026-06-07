@@ -34,6 +34,11 @@ const alertQueue: AlertPayload[] = [];
 let isProcessing = false;
 const QUEUE_INTERVAL_MS = 1_000;
 
+// ── Interval ref stored so shutdown can clear it ──────────
+// Without this, the setInterval keeps the Node process alive
+// and prevents clean exit after gracefulShutdown completes.
+let queueInterval: ReturnType<typeof setInterval> | null = null;
+
 function isDuplicate(payload: AlertPayload): boolean {
   if (!payload.dedupeKey) return false;
   const lastSent = dedupeMap.get(payload.dedupeKey);
@@ -143,7 +148,17 @@ async function processQueue(): Promise<void> {
   }
 }
 
-setInterval(processQueue, QUEUE_INTERVAL_MS);
+// Start the queue processor and store the ref
+queueInterval = setInterval(processQueue, QUEUE_INTERVAL_MS);
+
+// ── Exported so gracefulShutdown can call this ────────────
+export function stopAlertQueue(): void {
+  if (queueInterval) {
+    clearInterval(queueInterval);
+    queueInterval = null;
+    logger.info("✅ Alert queue stopped");
+  }
+}
 
 export function sendAlert(payload: AlertPayload): void {
   const forceAlerts = process.env.FORCE_ALERTS === "true";
@@ -286,7 +301,6 @@ export const Alerts = {
       "maintenance-toggle"
     ),
 
-  // ── NEW — was missing, caused TS errors everywhere ────────
   systemError: (
     title:    string,
     message:  string,
@@ -298,5 +312,59 @@ export const Alerts = {
       severity: severity === "high" ? "critical" : severity === "medium" ? "warning" : "info",
       dedupeKey: `system-error:${title}`,
     }),
+
+  // ── Game tick monitoring ───────────────────────────────
+  // Fires when a tick takes longer than 30s — your plan requires this
+  gameTickSlow: (durationMs: number) =>
+    alertCritical(
+      "Game Tick Slow",
+      `Game tick took ${durationMs}ms — expected <30000ms`,
+      { durationMs, threshold: 30000, action: "Check DB load and Redis health" },
+      "game-tick-slow"
+    ),
+
+  // ── Game tick died completely ──────────────────────────
+  gameTickFailed: (error: string) =>
+    alertCritical(
+      "Game Tick Failed",
+      "Game tick threw an unhandled error and may have stopped",
+      { error, action: "Restart server immediately" },
+      "game-tick-failed"
+    ),
+
+  // ── Backup monitoring ──────────────────────────────────
+  backupFailed: (error: string) =>
+    alertCritical(
+      "Database Backup Failed",
+      "Scheduled backup did not complete successfully",
+      { error, action: "Run manual backup immediately" },
+      "backup-failed"
+    ),
+
+  backupSucceeded: (fileSizeKb: number, durationMs: number) =>
+    alertInfo(
+      "Database Backup Succeeded",
+      "Scheduled backup completed successfully",
+      { fileSizeKb, durationMs },
+      "backup-succeeded"
+    ),
+
+  // ── Memory pressure ────────────────────────────────────
+  highMemory: (usedMb: number, totalMb: number, percentUsed: number) =>
+    alertCritical(
+      "High Memory Usage",
+      `Server memory at ${percentUsed}% — risk of OOM`,
+      { usedMb, totalMb, percentUsed, action: "Investigate memory leaks or scale up" },
+      "high-memory"
+    ),
+
+  // ── Disk pressure ─────────────────────────────────────
+  highDisk: (usedGb: number, totalGb: number, percentUsed: number) =>
+    alertCritical(
+      "High Disk Usage",
+      `Disk at ${percentUsed}% — risk of write failures`,
+      { usedGb, totalGb, percentUsed, action: "Clear logs or expand disk" },
+      "high-disk"
+    ),
 
 } as const;

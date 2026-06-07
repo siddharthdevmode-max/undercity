@@ -77,6 +77,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    ports:
+      - "5000:5000"
     networks:
       - frontend_net
       - backend_net

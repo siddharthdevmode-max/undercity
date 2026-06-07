@@ -3,6 +3,7 @@ import { pool }             from "../config/database";
 import { redis }            from "../config/redis";
 import { SocketNotify }     from "../config/socket";
 import { config }           from "../config";
+import { Alerts }           from "../utils/alerts";
 import { regenNerveByTier } from "./nerveService";
 
 // ============================================================
@@ -17,34 +18,22 @@ import { regenNerveByTier } from "./nerveService";
 //   This survives server restarts, crashes, and deploys cleanly.
 //
 // REGEN SCHEDULE:
-//   Energy:    +1 every 5  minutes (global timer — tier energy benefits coming later)
+//   Energy:    +1 every 5  minutes (global timer)
 //   Nerve:     TIER-AWARE (per-user timestamp via nerveService)
-//              player/citizen  = 1 nerve / 5 min
-//              contributor     = 1 nerve / 3 min
 //   Life:      +2 every 3  minutes
 //   Happiness: -1 every 15 minutes (decay if no activity)
 //
-// NERVE CHANGE (v2):
-//   Nerve regen NO LONGER uses a global Redis timer.
-//   nerveService.regenNerveByTier() uses per-user last_nerve_update
-//   timestamps in the DB. The tick just calls it every cycle (60s),
-//   and the service itself decides who is due for regen.
-//
 // CIRCUIT BREAKER:
 //   3 consecutive DB failures → tick pauses for 5 minutes
-//   Prevents hammering a struggling DB
 // ============================================================
 
-// ── Constants ──────────────────────────────────────────────
+const TICK_INTERVAL_MS   = config.game.tickIntervalMs;
+const SLOW_TICK_THRESHOLD_MS = 30_000; // Alert if tick > 30s
 
-const TICK_INTERVAL_MS   = config.game.tickIntervalMs; // default 60_000
+const ENERGY_REGEN_MS    = (config.game.energyRegenSec ?? 300) * 1_000;
+const LIFE_REGEN_MS      = 3  * 60 * 1_000;
+const HAPPINESS_DECAY_MS = 15 * 60 * 1_000;
 
-// Regen intervals in milliseconds (for non-nerve systems)
-const ENERGY_REGEN_MS    = (config.game.energyRegenSec  ?? 300)  * 1_000; // 5 min
-const LIFE_REGEN_MS      = 3  * 60 * 1_000;                                // 3 min
-const HAPPINESS_DECAY_MS = 15 * 60 * 1_000;                                // 15 min
-
-// Redis keys for last-run timestamps
 const REDIS_KEY = {
   energyLastRun:    "gametick:energy:lastrun",
   lifeLastRun:      "gametick:life:lastrun",
@@ -53,20 +42,15 @@ const REDIS_KEY = {
   lastTickAt:       "gametick:lasttick",
 } as const;
 
-// Circuit breaker state
 const CIRCUIT = {
   failures:        0,
   maxFailures:     3,
   pauseUntil:      0,
-  pauseDurationMs: 5 * 60 * 1_000, // 5 minutes
+  pauseDurationMs: 5 * 60 * 1_000,
 };
-
-// ── Tick state ─────────────────────────────────────────────
 
 let tickInterval: NodeJS.Timeout | null = null;
 let isRunning                           = false;
-
-// ── Circuit breaker ────────────────────────────────────────
 
 function recordSuccess(): void {
   CIRCUIT.failures = 0;
@@ -98,8 +82,6 @@ function isCircuitOpen(): boolean {
   return false;
 }
 
-// ── Redis time helpers ─────────────────────────────────────
-
 async function getLastRun(key: string): Promise<number> {
   try {
     const val = await redis.get(key);
@@ -121,8 +103,6 @@ async function isDue(key: string, intervalMs: number): Promise<boolean> {
   const lastRun = await getLastRun(key);
   return Date.now() - lastRun >= intervalMs;
 }
-
-// ── Regen jobs ─────────────────────────────────────────────
 
 async function regenEnergy(): Promise<{ updated: number }> {
   if (!(await isDue(REDIS_KEY.energyLastRun, ENERGY_REGEN_MS))) {
@@ -190,9 +170,6 @@ async function getOnlineCount(): Promise<number> {
   return parseInt(result.rows[0]?.count ?? "0", 10);
 }
 
-// ── Tier expiry check ──────────────────────────────────────
-// Downgrade expired citizens/contributors back to player
-
 async function checkTierExpiry(): Promise<{ downgraded: number }> {
   const result = await pool.query(`
     UPDATE users
@@ -222,8 +199,6 @@ async function checkTierExpiry(): Promise<{ downgraded: number }> {
   return { downgraded: count };
 }
 
-// ── Tick metrics ───────────────────────────────────────────
-
 export interface TickResult {
   tickNumber:     number;
   durationMs:     number;
@@ -235,8 +210,6 @@ export interface TickResult {
   onlineCount:    number;
   ranAt:          string;
 }
-
-// ── Main tick ──────────────────────────────────────────────
 
 export async function runGameTick(): Promise<TickResult | null> {
   if (isRunning) {
@@ -263,14 +236,15 @@ export async function runGameTick(): Promise<TickResult | null> {
   try {
     logger.debug(`⏱️ Game tick #${tickNumber} started`);
 
-    const [energyR, nerveR, lifeR, happinessR, onlineR, tierR] = await Promise.allSettled([
-      regenEnergy(),
-      regenNerveByTier(),       // ← NEW: tier-aware nerve regen
-      regenLife(),
-      decayHappiness(),
-      getOnlineCount(),
-      checkTierExpiry(),        // ← NEW: auto-downgrade expired tiers
-    ]);
+    const [energyR, nerveR, lifeR, happinessR, onlineR, tierR] =
+      await Promise.allSettled([
+        regenEnergy(),
+        regenNerveByTier(),
+        regenLife(),
+        decayHappiness(),
+        getOnlineCount(),
+        checkTierExpiry(),
+      ]);
 
     const energy    = energyR.status    === "fulfilled" ? energyR.value    : { updated: 0 };
     const nerve     = nerveR.status     === "fulfilled" ? nerveR.value     : { player: 0, citizen: 0, contributor: 0, total: 0 };
@@ -279,7 +253,6 @@ export async function runGameTick(): Promise<TickResult | null> {
     const online    = onlineR.status    === "fulfilled" ? onlineR.value    : 0;
     const tierExp   = tierR.status      === "fulfilled" ? tierR.value      : { downgraded: 0 };
 
-    // Log sub-job errors
     if (energyR.status    === "rejected") logger.error("⚡ Energy regen failed",     { error: energyR.reason?.message });
     if (nerveR.status     === "rejected") logger.error("🧠 Nerve regen failed",      { error: nerveR.reason?.message });
     if (lifeR.status      === "rejected") logger.error("❤️  Life regen failed",      { error: lifeR.reason?.message });
@@ -287,7 +260,6 @@ export async function runGameTick(): Promise<TickResult | null> {
     if (onlineR.status    === "rejected") logger.error("👥 Online count failed",     { error: onlineR.reason?.message });
     if (tierR.status      === "rejected") logger.error("⏰ Tier expiry check failed", { error: tierR.reason?.message });
 
-    // Broadcast online count
     SocketNotify.onlineCount(online);
 
     const durationMs = Date.now() - startMs;
@@ -299,13 +271,25 @@ export async function runGameTick(): Promise<TickResult | null> {
       nerve,
       life,
       happiness,
-      tierExpiry: tierExp,
+      tierExpiry:  tierExp,
       onlineCount: online,
       ranAt:       new Date().toISOString(),
     };
 
-    if (durationMs > TICK_INTERVAL_MS * 0.5) {
-      logger.warn(`⚠️ Game tick #${tickNumber} took ${durationMs}ms (>${TICK_INTERVAL_MS * 0.5}ms threshold)`, result);
+    // ── Slow tick detection ────────────────────────────
+    // Fires Discord/Slack alert if tick exceeds 30s threshold
+    if (durationMs > SLOW_TICK_THRESHOLD_MS) {
+      logger.warn(
+        `⚠️ Game tick #${tickNumber} SLOW: ${durationMs}ms (threshold: ${SLOW_TICK_THRESHOLD_MS}ms)`,
+        result
+      );
+      // Alert fires async — does not block tick completion
+      Alerts.gameTickSlow(durationMs);
+    } else if (durationMs > TICK_INTERVAL_MS * 0.5) {
+      logger.warn(
+        `⚠️ Game tick #${tickNumber} took ${durationMs}ms (>${TICK_INTERVAL_MS * 0.5}ms threshold)`,
+        result
+      );
     } else {
       logger.debug(`✅ Game tick #${tickNumber} complete`, result);
     }
@@ -319,14 +303,17 @@ export async function runGameTick(): Promise<TickResult | null> {
 
     logger.error(`❌ Game tick #${tickNumber} failed`, { error: message, durationMs });
     recordFailure(`tick #${tickNumber}: ${message}`);
+
+    // ── Tick failure alert ─────────────────────────────
+    // Fires Discord/Slack so you know the game engine is broken
+    Alerts.gameTickFailed(message);
+
     return null;
 
   } finally {
     isRunning = false;
   }
 }
-
-// ── Start / Stop ───────────────────────────────────────────
 
 export function startGameTick(): void {
   if (tickInterval) {
@@ -351,11 +338,12 @@ export function startGameTick(): void {
   if (tickInterval.unref) tickInterval.unref();
 
   logger.info(`✅ Game tick started`, {
-    intervalMs:    TICK_INTERVAL_MS,
-    energyRegenMs: ENERGY_REGEN_MS,
-    nerveRegen:    "tier-aware (per-user timestamp)",
-    lifeRegenMs:   LIFE_REGEN_MS,
-    bootDelayMs:   bootDelay,
+    intervalMs:       TICK_INTERVAL_MS,
+    slowThresholdMs:  SLOW_TICK_THRESHOLD_MS,
+    energyRegenMs:    ENERGY_REGEN_MS,
+    nerveRegen:       "tier-aware (per-user timestamp)",
+    lifeRegenMs:      LIFE_REGEN_MS,
+    bootDelayMs:      bootDelay,
   });
 }
 
@@ -367,24 +355,21 @@ export function stopGameTick(): void {
   }
 }
 
-// ── Health / debug info ────────────────────────────────────
-
 export async function getTickInfo(): Promise<{
-  isRunning:     boolean;
-  circuitOpen:   boolean;
-  tickCount:     number;
-  lastTickAt:    string | null;
-  lastRunTimes:  Record<string, string | null>;
+  isRunning:    boolean;
+  circuitOpen:  boolean;
+  tickCount:    number;
+  lastTickAt:   string | null;
+  lastRunTimes: Record<string, string | null>;
 }> {
   try {
-    const [count, lastAt, energyLast, lifeLast, happyLast] =
-      await Promise.all([
-        redis.get(REDIS_KEY.tickCount),
-        redis.get(REDIS_KEY.lastTickAt),
-        redis.get(REDIS_KEY.energyLastRun),
-        redis.get(REDIS_KEY.lifeLastRun),
-        redis.get(REDIS_KEY.happinessLastRun),
-      ]);
+    const [count, lastAt, energyLast, lifeLast, happyLast] = await Promise.all([
+      redis.get(REDIS_KEY.tickCount),
+      redis.get(REDIS_KEY.lastTickAt),
+      redis.get(REDIS_KEY.energyLastRun),
+      redis.get(REDIS_KEY.lifeLastRun),
+      redis.get(REDIS_KEY.happinessLastRun),
+    ]);
 
     const toIso = (ms: string | null) =>
       ms ? new Date(parseInt(ms, 10)).toISOString() : null;

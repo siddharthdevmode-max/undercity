@@ -1,7 +1,7 @@
 // ============================================================
 // GRACEFUL SHUTDOWN — UNDERCITY
 // Tracks in-flight requests.
-// Order: stop accepting → drain → queues → game tick → DB → Redis
+// Order: stop accepting → drain → queues → game tick → DB → Redis → alerts
 // ============================================================
 
 import { Server, IncomingMessage, ServerResponse } from "http";
@@ -155,6 +155,16 @@ async function shutdown(signal: string, server: Server): Promise<void> {
     logger.error("Failed to close Redis", {
       error: err instanceof Error ? err.message : String(err),
     });
+  }
+
+  // ── Step 8: Alert queue ───────────────────────────────
+  // Must be last — we want all previous alerts to have been
+  // dispatched before we kill the interval that sends them.
+  try {
+    const { stopAlertQueue } = await import("./alerts");
+    stopAlertQueue();
+  } catch {
+    logger.debug("Alert queue not initialized — skipping");
   }
 
   logger.info("✅ Graceful shutdown complete");

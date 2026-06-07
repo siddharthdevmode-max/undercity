@@ -1,3 +1,5 @@
+export type UserTier = 'player' | 'citizen' | 'contributor';
+
 export interface User {
   id: number;
   firebaseUid: string;
@@ -8,20 +10,33 @@ export interface User {
   money: number;
   points: number;
 
+  // Stats
   nerve: number;
   maxNerve: number;
   life: number;
   maxLife: number;
+  energy: number;
+  maxEnergy: number;
+  happiness: number;
 
+  // Status timers
   jailUntil: string | null;
+  hospitalUntil: string | null;
   federalJailUntil: string | null;
   lastCrimeAt: string | null;
+  lastSeenAt: string | null;
 
+  // Progression
   onboardingCompleted: boolean;
 
-  // Roles (UAC immunity + admin panel access)
+  // Roles
   isAdmin: boolean;
   isDeveloper: boolean;
+  isModerator: boolean;
+
+  // Tier
+  userTier: UserTier;
+  tierExpiresAt: string | null;
 
   createdAt: string;
 }

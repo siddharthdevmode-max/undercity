@@ -1,10 +1,9 @@
 import { io, Socket } from "socket.io-client";
 import { getAuth } from "firebase/auth";
 
-// SOCKET.IO CLIENT - UNDERCITY REAL-TIME
-
-const SOCKET_URL = import.meta.env.VITE_API_URL?.replace("/api", "")
-  || "http://localhost:5000";
+// In dev: Vite proxy handles /socket.io → localhost:80 → nginx → backend
+// In prod: same origin, nginx routes /socket.io to backend
+const SOCKET_URL = window.location.origin;
 
 let socket: Socket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -33,7 +32,9 @@ export async function connectSocket(): Promise<Socket> {
   socket.on("disconnect", (reason) => {
     console.warn("[Socket] Disconnected:", reason);
     if (reason === "io server disconnect") {
-      reconnectTimer = setTimeout(() => { connectSocket().catch(console.error); }, 5000);
+      reconnectTimer = setTimeout(() => {
+        connectSocket().catch(console.error);
+      }, 5000);
     }
   });
 

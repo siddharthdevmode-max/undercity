@@ -23,6 +23,7 @@ const EMAIL_VERIFY_EXEMPT_SUFFIXES = [
   "/resend-verification",
   "/logout",
   "/mfa/verify",
+  "/challenge",
 ];
 
 // IP logging: at most once per hour per uid+ip pair
