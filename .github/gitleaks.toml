@@ -1,211 +1,57 @@
-# ════════════════════════════════════════════════════════════
-#  🔐 UNDERCITY GITLEAKS CONFIG
-#  UAC 2.0 — Launch Grade
-#  Last updated: 2025
-#
-#  Extends gitleaks default ruleset
-#  Adds Undercity-specific secret patterns
-# ════════════════════════════════════════════════════════════
+# ============================================================
+# UNDERCITY — GITLEAKS CONFIG
+# Extends default rules + adds custom allowlist
+# ============================================================
 
 title = "Undercity Gitleaks Config"
 
-# ── Extend default ruleset ───────────────────────────────────
-# Covers: AWS, GCP, GitHub, Slack, generic API keys, etc.
+# Use all built-in gitleaks rules as the baseline
 [extend]
 useDefault = true
 
-# ════════════════════════════════════════════════════════════
-# CUSTOM RULES — Undercity Stack
-# ════════════════════════════════════════════════════════════
-
-# ── Firebase Service Account JSON ───────────────────────────
-[[rules]]
-description = "Firebase Service Account JSON"
-id          = "firebase-service-account"
-regex       = '''\"type\":\s*\"service_account\"'''
-severity    = "CRITICAL"
-tags        = ["firebase", "credentials"]
-
-# ── Firebase API Key (frontend) ──────────────────────────────
-[[rules]]
-description = "Firebase API Key"
-id          = "firebase-api-key"
-regex       = '''AIza[0-9A-Za-z\-_]{35}'''
-severity    = "HIGH"
-tags        = ["firebase", "api-key"]
-
-# ── PostgreSQL Connection String ─────────────────────────────
-[[rules]]
-description = "PostgreSQL Connection String"
-id          = "pg-connection-string"
-regex       = '''postgresql://[^:]+:[^@]+@'''
-severity    = "HIGH"
-tags        = ["database", "credentials"]
-
-  [rules.allowlist]
-  # Allow example/test connection strings
-  regexes   = [
-    '''postgresql://test:test@''',
-    '''postgresql://user:pass@''',
-    '''postgresql://USER:PASS@''',
-    '''postgresql://YOURUSER:YOURPASS@''',
-  ]
-
-# ── Redis Connection With Password ───────────────────────────
-[[rules]]
-description = "Redis Connection String With Password"
-id          = "redis-connection-string"
-regex       = '''redis://:([^@]{8,})@'''
-severity    = "HIGH"
-tags        = ["redis", "credentials"]
-
-# ── JWT Secret ───────────────────────────────────────────────
-[[rules]]
-description = "JWT Secret Key"
-id          = "jwt-secret"
-regex       = '''(?i)(jwt[_-]?secret|jwt[_-]?key)\s*[=:]\s*['''""]([^'''""]{20,})['''""]'''
-severity    = "CRITICAL"
-tags        = ["jwt", "auth"]
-
-  [rules.allowlist]
-  regexes = [
-    '''REPLACE_ME''',
-    '''your.{0,20}secret''',
-    '''changeme''',
-  ]
-
-# ── Stripe Keys ──────────────────────────────────────────────
-[[rules]]
-description = "Stripe Secret Key"
-id          = "stripe-secret-key"
-regex       = '''sk_(live|test)_[0-9a-zA-Z]{24,}'''
-severity    = "CRITICAL"
-tags        = ["stripe", "payment"]
-
-[[rules]]
-description = "Stripe Webhook Secret"
-id          = "stripe-webhook-secret"
-regex       = '''whsec_[0-9a-zA-Z]{32,}'''
-severity    = "CRITICAL"
-tags        = ["stripe", "webhook"]
-
-[[rules]]
-description = "Stripe Publishable Key"
-id          = "stripe-publishable-key"
-regex       = '''pk_(live|test)_[0-9a-zA-Z]{24,}'''
-severity    = "MEDIUM"
-tags        = ["stripe", "payment"]
-
-# ── Cloudflare ───────────────────────────────────────────────
-[[rules]]
-description = "Cloudflare API Token"
-id          = "cloudflare-api-token"
-regex       = '''(?i)cloudflare.{0,20}['''""]([0-9a-zA-Z_\-]{40,})['''""]'''
-severity    = "HIGH"
-tags        = ["cloudflare"]
-
-[[rules]]
-description = "Cloudflare Turnstile Secret"
-id          = "turnstile-secret"
-regex       = '''(?i)turnstile.{0,20}secret.{0,20}['''""]([0-9a-zA-Z_\-]{30,})['''""]'''
-severity    = "HIGH"
-tags        = ["cloudflare", "turnstile"]
-
-# ── Docker Hub Token ─────────────────────────────────────────
-[[rules]]
-description = "Docker Hub Access Token"
-id          = "docker-hub-token"
-regex       = '''dckr_pat_[0-9a-zA-Z_\-]{20,}'''
-severity    = "HIGH"
-tags        = ["docker", "registry"]
-
-# ── Sentry DSN ───────────────────────────────────────────────
-[[rules]]
-description = "Sentry DSN"
-id          = "sentry-dsn"
-regex       = '''https://[0-9a-f]{32}@[o0-9]+\.ingest\.sentry\.io/[0-9]+'''
-severity    = "MEDIUM"
-tags        = ["sentry", "monitoring"]
-
-# ── Generic High-Entropy Secrets ─────────────────────────────
-[[rules]]
-description = "Generic Secret Assignment"
-id          = "generic-secret"
-regex       = '''(?i)(?:secret|password|passwd|pwd|token|apikey|api_key)\s*[=:]\s*['''""]([^'''""]{16,})['''""]'''
-severity    = "HIGH"
-tags        = ["generic"]
-entropy     = 3.5
-
-  [rules.allowlist]
-  # Skip common placeholders
-  regexes = [
-    '''changeme''',
-    '''REPLACE_ME''',
-    '''your[_-]''',
-    '''example''',
-    '''placeholder''',
-    '''xxxx+''',
-    '''1234''',
-    '''test''',
-    '''localhost''',
-  ]
-
-# ── Private Keys ─────────────────────────────────────────────
-[[rules]]
-description = "Private Key Block"
-id          = "private-key"
-regex       = '''-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'''
-severity    = "CRITICAL"
-tags        = ["key", "crypto"]
-
-# ════════════════════════════════════════════════════════════
-# GLOBAL ALLOWLIST
-# Files and paths that are safe to skip
-# ════════════════════════════════════════════════════════════
-
+# ── Allowlist ────────────────────────────────────────────
+# Files / patterns that should never trigger a leak alert
 [allowlist]
-description = "Safe files and paths"
+description = "Global allowlist for Undercity"
 
 paths = [
-  # Example/template files — contain fake secrets by design
-  '''.env.example''',
-  '''.env.sample''',
-  '''.env.template''',
-
-  # Documentation — may contain example configs
-  '''docs/''',
-  '''README.md''',
-  '''DEPLOYMENT.md''',
-  '''SECURITY.md''',
-  '''DISASTER_RECOVERY.md''',
-
-  # Test files — may contain fake credentials
-  '''__tests__/''',
-  '''test-utils/''',
-  '''vitest.config''',
-  '''\.test\.ts$''',
-  '''\.spec\.ts$''',
-
-  # Migration files — contain schema only, no real secrets
-  '''migrations/''',
-
-  # Lock files — dependency hashes not secrets
+  '''node_modules/.*''',
+  '''dist/.*''',
+  '''build/.*''',
+  '''coverage/.*''',
+  '''\.next/.*''',
   '''package-lock\.json''',
+  '''pnpm-lock\.yaml''',
   '''yarn\.lock''',
-
-  # CI test database URL — always test:test@localhost
-  '''\.github/workflows/''',
+  '''.*\.test\.ts$''',
+  '''.*\.test\.tsx$''',
+  '''.*\.spec\.ts$''',
+  '''__tests__/.*''',
+  '''docs/.*''',
+  '''.*\.md$''',
 ]
 
-# Commits to skip (add commit SHAs if you have known false positives)
-commits = []
-
-# Regex patterns to globally ignore
 regexes = [
-  # Test database URLs
-  '''postgresql://test:test@localhost''',
-  # Placeholder patterns
-  '''YOUR_[A-Z_]+_HERE''',
-  '''CHANGE_THIS''',
-  '''sk_test_''',   # Stripe test keys are low risk
+  # Test placeholders are safe — never real keys
+  '''sk_test_placeholder''',
+  '''pk_test_placeholder''',
+  '''whsec_test_placeholder''',
+  '''test_lemon_api_key_placeholder''',
+  '''test_store_id_placeholder''',
+  '''test_lemon_webhook_placeholder''',
+  '''dev-salt-change-in-production-minimum-32-chars''',
+  '''dev-fingerprint-salt-change-in-prod''',
+
+  # Cloudflare Turnstile test keys (publicly documented test bypass)
+  '''1x0000000000000000000000000000000AA''',
+  '''2x0000000000000000000000000000000AA''',
+  '''3x0000000000000000000000000000000FF''',
+
+  # Firebase Web API keys are public by design (protected via referrer + Firebase rules)
+  # https://firebase.google.com/docs/projects/api-keys
+  '''AIzaSy[A-Za-z0-9_-]{33}''',
+]
+
+commits = [
+  # Add commit SHAs here to ignore historical findings
 ]

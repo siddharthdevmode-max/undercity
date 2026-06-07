@@ -1,11 +1,29 @@
 #!/bin/sh
 
-# Run lint-staged
+# ============================================================
+# UNDERCITY — PRE-COMMIT HOOK
+# Runs lint-staged + optional gitleaks scan on staged changes
+# ============================================================
+
+# 1. Run lint-staged (formats, lints, type-checks staged files)
 npx lint-staged
 
-# Run gitleaks if installed (optional — skip gracefully if not found)
+# 2. Run gitleaks if installed (scans staged content for secrets)
 if command -v gitleaks > /dev/null 2>&1; then
-  gitleaks detect --staged --config .github/gitleaks.toml
+  # Use 'protect' (newer API) with fallback to 'detect' for old versions
+  if gitleaks protect --help > /dev/null 2>&1; then
+    gitleaks protect --staged --verbose --config .github/gitleaks.toml || {
+      echo "❌ gitleaks found secrets in staged changes — commit blocked"
+      exit 1
+    }
+  else
+    # Fallback for ancient gitleaks versions
+    gitleaks detect --verbose --config .github/gitleaks.toml || {
+      echo "❌ gitleaks found secrets — commit blocked"
+      exit 1
+    }
+  fi
 else
   echo "⚠️  gitleaks not installed — skipping secret scan"
+  echo "    Install: https://github.com/gitleaks/gitleaks"
 fi
