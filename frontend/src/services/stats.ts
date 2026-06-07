@@ -1,32 +1,48 @@
 export interface LiveStats {
-  onlineNow: number;
-  last3Hours: number;
+  onlineNow:   number;
+  last3Hours:  number;
   last24Hours: number;
-  attacks24h: number;
-  crimes24h: number;
-  casino24h: number;
+  attacks24h:  number;
+  crimes24h:   number;
+  casino24h:   number;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+// ── API base ───────────────────────────────────────────────
+// Uses same relative path convention as api.ts
+// Vite proxy handles /api in dev, VITE_API_URL in prod
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "/api";
 
-const FALLBACK: LiveStats = {
-  onlineNow:   47,
-  last3Hours:  312,
-  last24Hours: 1847,
-  attacks24h:  234,
-  crimes24h:   1492,
-  casino24h:   89,
+// ── Zero fallback ──────────────────────────────────────────
+// Show real zeros rather than fake numbers.
+// Landing page shows "0 online" before server warms up.
+// Honest > inflated.
+const ZERO_STATS: LiveStats = {
+  onlineNow:   0,
+  last3Hours:  0,
+  last24Hours: 0,
+  attacks24h:  0,
+  crimes24h:   0,
+  casino24h:   0,
 };
 
 export async function getLiveStats(): Promise<LiveStats> {
   try {
-    const res = await fetch(`${API_BASE_URL}/stats/live`);
+    const res = await fetch(`${API_BASE_URL}/stats/live`, {
+      signal: AbortSignal.timeout(5_000), // 5s timeout
+    });
     if (res.ok) {
       const data = await res.json() as Partial<LiveStats>;
-      return { ...FALLBACK, ...data };
+      return {
+        onlineNow:   data.onlineNow   ?? 0,
+        last3Hours:  data.last3Hours  ?? 0,
+        last24Hours: data.last24Hours ?? 0,
+        attacks24h:  data.attacks24h  ?? 0,
+        crimes24h:   data.crimes24h   ?? 0,
+        casino24h:   data.casino24h   ?? 0,
+      };
     }
   } catch {
-    // fallback on error
+    // Network error or timeout — return zeros
   }
-  return FALLBACK;
+  return ZERO_STATS;
 }

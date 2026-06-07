@@ -10,7 +10,7 @@ const resend = process.env.RESEND_API_KEY
   ? new Resend(process.env.RESEND_API_KEY)
   : null;
 
-const FROM_EMAIL = process.env.EMAIL_FROM || "noreply@undercity.gg";
+const FROM_EMAIL = process.env.EMAIL_FROM || "noreply@undercity.online";
 const GAME_NAME  = "Undercity";
 
 if (!resend) {
@@ -136,7 +136,7 @@ function welcomeHtml(username: string): string {
       You've entered the Undercity. Start as a nobody.<br/>
       Hustle, fight, and steal your way to the top.
     </p>
-    <a href="https://undercity.gg/home"
+    <a href="https://undercity.online/home"
        style="display:inline-block;background:#e63946;color:#fff;padding:12px 32px;border-radius:4px;text-decoration:none;font-weight:bold;margin-top:20px;">
       ENTER THE CITY →
     </a>
@@ -152,7 +152,7 @@ function securityAlertHtml(username: string, event: string, ip?: string): string
       ${ip ? `<br/><span style="color:#666;font-size:12px;">IP: ${ip}</span>` : ""}
     </div>
     <p style="color:#ccc;">If this wasn't you, secure your account immediately.</p>
-    <a href="https://undercity.gg/settings"
+    <a href="https://undercity.online/settings"
        style="display:inline-block;background:#e63946;color:#fff;padding:12px 32px;border-radius:4px;text-decoration:none;font-weight:bold;">
       SECURE MY ACCOUNT →
     </a>
@@ -168,7 +168,7 @@ function purchaseHtml(username: string, points: number, packName: string, amount
       <p style="margin:4px 0;color:#e63946;font-size:24px;font-weight:bold;">+${points} Points</p>
       <p style="margin:0;color:#666;">$${(amountCents / 100).toFixed(2)} USD</p>
     </div>
-    <a href="https://undercity.gg/home"
+    <a href="https://undercity.online/home"
        style="display:inline-block;background:#e63946;color:#fff;padding:12px 32px;border-radius:4px;text-decoration:none;font-weight:bold;">
       PLAY NOW →
     </a>
@@ -218,7 +218,7 @@ function supportReplyHtml(username: string, ticketId: string, message: string): 
     <div style="background:#1a1a1a;border:1px solid #333;border-radius:4px;padding:20px;margin:20px 0;">
       ${message}
     </div>
-    <a href="https://undercity.gg/support"
+    <a href="https://undercity.online/support"
        style="display:inline-block;background:#e63946;color:#fff;padding:12px 32px;border-radius:4px;text-decoration:none;font-weight:bold;">
       VIEW TICKET →
     </a>

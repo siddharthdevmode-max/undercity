@@ -1,35 +1,54 @@
+// ============================================================
+// ANALYTICS — UNDERCITY
+// PostHog: privacy-first, GDPR compliant
+// Only initializes after cookie consent is granted.
+// All methods are no-ops if not initialized.
+// ============================================================
+
 import posthog from "posthog-js";
 
-// POSTHOG ANALYTICS - UNDERCITY
-// Privacy: GDPR compliant, respects cookie consent
-
-const POSTHOG_KEY  = import.meta.env.VITE_POSTHOG_KEY  || "";
-const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST || "https://app.posthog.com";
+const POSTHOG_KEY  = import.meta.env.VITE_POSTHOG_KEY  as string | undefined;
+const POSTHOG_HOST = (import.meta.env.VITE_POSTHOG_HOST as string | undefined)
+  ?? "https://app.posthog.com";
 
 let initialized = false;
 
+// ── Init — called from CookieBanner on consent ────────────
 export function initAnalytics(cookiesAccepted: boolean): void {
   if (!POSTHOG_KEY || initialized) return;
 
   posthog.init(POSTHOG_KEY, {
-    api_host:          POSTHOG_HOST,
-    capture_pageview:  true,
-    capture_pageleave: true,
-    persistence:       cookiesAccepted ? "localStorage+cookie" : "memory",
-    autocapture:       false,
-    disable_session_recording: true,
+    api_host:                  POSTHOG_HOST,
+    capture_pageview:          true,
+    capture_pageleave:         true,
+    persistence:               cookiesAccepted ? "localStorage+cookie" : "memory",
+    autocapture:               false,         // manual events only
+    disable_session_recording: true,          // no video recording
+    respect_dnt:               true,          // honor Do Not Track
+    sanitize_properties:       (props) => {
+      // Strip any PII that might accidentally leak
+      delete props['$ip'];
+      delete props['$user_id'];
+      return props;
+    },
   });
 
   initialized = true;
+
+  if (!cookiesAccepted) {
+    posthog.opt_out_capturing();
+  }
 }
 
+// ── Page tracking ─────────────────────────────────────────
 export function trackPageView(path: string): void {
   if (!initialized) return;
   posthog.capture("$pageview", { path });
 }
 
+// ── Game events ───────────────────────────────────────────
 export function trackEvent(
-  event: string,
+  event:       string,
   properties?: Record<string, unknown>
 ): void {
   if (!initialized) return;
@@ -37,17 +56,24 @@ export function trackEvent(
 }
 
 export function trackGameAction(
-  action: string,
+  action:      string,
   properties?: Record<string, unknown>
 ): void {
   trackEvent(`game_${action}`, properties);
 }
 
-export function identifyUser(uid: string, properties?: Record<string, unknown>): void {
+// ── User identity ─────────────────────────────────────────
+// Call after login with anonymized ID only — never email/username
+export function identifyUser(
+  uid:         string,
+  properties?: Record<string, unknown>
+): void {
   if (!initialized) return;
-  posthog.identify(uid, properties);
+  // Use hashed/anonymous ID — never raw firebase UID
+  posthog.identify(`user_${uid.slice(0, 8)}`, properties);
 }
 
+// ── Session management ────────────────────────────────────
 export function resetAnalytics(): void {
   if (!initialized) return;
   posthog.reset();

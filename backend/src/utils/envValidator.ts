@@ -106,6 +106,8 @@ const envSchema = z.object({
   EMAIL_FROM:     optionalEnv(z.string().min(5)),
   EMAIL_PROVIDER: optionalEnv(z.enum(["console", "sendgrid", "resend"])),
   EMAIL_API_KEY:  optionalEnv(z.string()),
+  // Resend is our email provider — separate from generic EMAIL_API_KEY
+  RESEND_API_KEY: optionalEnv(z.string()),
 
   // ── Feature Flags ─────────────────────────────────────
   FEATURE_MAINTENANCE:  optionalEnv(boolString),
@@ -200,6 +202,9 @@ export function validateEnv(): void {
     }
     if (!env.LEMONSQUEEZY_API_KEY) {
       logger.warn("⚠️  LEMONSQUEEZY_API_KEY not set — payments disabled (add in Phase 3)");
+    }
+    if (!process.env.RESEND_API_KEY?.trim()) {
+      logger.warn("⚠️  RESEND_API_KEY not set — transactional emails disabled");
     }
   }
 

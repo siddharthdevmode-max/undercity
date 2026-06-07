@@ -13,6 +13,7 @@ import { UnauthorizedError, NotFoundError } from "../utils/errors";
 import { recordFingerprint, checkMultiAccount } from "../services/fingerprintEngine";
 import { analyzeBehavior, analyzePostCrime }    from "../services/behaviorEngine";
 import { flagUser }          from "../services/trustEngine";
+import { SocketNotify }     from "../config/socket";
 import {
   assertCanAttempt,
   assertCrimeRequirements,
@@ -238,6 +239,26 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
       uid:     firebaseUid.substring(0, 8),
       crime:   crime.crime_key,
       outcome: outcome.outcome,
+    });
+
+    // Push live stat update to player via WebSocket
+    // Fires after res.json so HTTP response is not delayed
+    SocketNotify.statUpdate(firebaseUid, {
+      money:    stats.money,
+      nerve:    stats.nerve,
+      maxNerve: stats.maxNerve,
+      life:     stats.life,
+      maxLife:  stats.maxLife,
+      points:   stats.points,
+    });
+
+    // Also send crime result notification via WebSocket
+    SocketNotify.crimeResult(firebaseUid, {
+      success:  outcome.outcome === "success" || outcome.outcome === "special",
+      reward:   outcome.reward_money,
+      message:  outcome.message,
+      crime:    crime.name,
+      xpGained: outcome.xp_gained,
     });
 
     res.json({

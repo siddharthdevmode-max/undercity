@@ -1,42 +1,61 @@
+// ============================================================
+// EXPRESS APP — UNDERCITY
+// Providers that live here: AuthProvider, BrowserRouter
+// Providers that live in main.tsx: QueryClient, Theme
+// Do NOT add QueryClientProvider or ThemeProvider here.
+// ============================================================
+
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
-import ProtectedRoute from './components/ProtectedRoute';
-import AdminRoute from './components/AdminRoute';
-import ErrorBoundary from './components/ErrorBoundary';
-import SkipNav from './components/SkipNav';
-import Landing from './pages/Landing';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import Legal from './pages/Legal';
-import Home from './pages/Home';
-import Crimes from './pages/Crimes';
-import Admin from './pages/Admin';
-import City from './pages/City';
-import Gym from './pages/Gym';
-import Job from './pages/Job';
-import Company from './pages/Company';
-import Properties from './pages/Properties';
-import Inventory from './pages/Inventory';
-import Travel from './pages/Travel';
-import Missions from './pages/Missions';
-import Casino from './pages/Casino';
-import BlackMarket from './pages/BlackMarket';
-import Hospital from './pages/Hospital';
-import Jail from './pages/Jail';
-import FederalJail from './pages/FederalJail';
-import Gang from './pages/Gang';
-import LinkedGangs from './pages/LinkedGangs';
-import GangWars from './pages/GangWars';
-import Forum from './pages/Forum';
-import Events from './pages/Events';
-import Newspaper from './pages/Newspaper';
-import Calendar from './pages/Calendar';
-import Onboarding from './pages/Onboarding';
+import { AuthProvider }                 from './context/AuthContext';
+import ProtectedRoute                   from './components/ProtectedRoute';
+import AdminRoute                       from './components/AdminRoute';
+import ErrorBoundary                    from './components/ErrorBoundary';
+import SkipNav                          from './components/SkipNav';
+import { ToastContainer }               from './components/ui/Toast';
+import { PageTransition }               from './components/ui/PageTransition';
+import { useNotifications }             from './hooks/useSocket';
+
+import Landing              from './pages/Landing';
+import Login                from './pages/Login';
+import Register             from './pages/Register';
+import Legal                from './pages/Legal';
+import Home                 from './pages/Home';
+import Crimes               from './pages/Crimes';
+import Admin                from './pages/Admin';
+import City                 from './pages/City';
+import Gym                  from './pages/Gym';
+import Job                  from './pages/Job';
+import Company              from './pages/Company';
+import Properties           from './pages/Properties';
+import Inventory            from './pages/Inventory';
+import Travel               from './pages/Travel';
+import Missions             from './pages/Missions';
+import Casino               from './pages/Casino';
+import BlackMarket          from './pages/BlackMarket';
+import Hospital             from './pages/Hospital';
+import Jail                 from './pages/Jail';
+import FederalJail          from './pages/FederalJail';
+import Gang                 from './pages/Gang';
+import LinkedGangs          from './pages/LinkedGangs';
+import GangWars             from './pages/GangWars';
+import Forum                from './pages/Forum';
+import Events               from './pages/Events';
+import Newspaper            from './pages/Newspaper';
+import Calendar             from './pages/Calendar';
+import Onboarding           from './pages/Onboarding';
 import DevOnboardingPreview from './pages/DevOnboardingPreview';
-import NotFound from './pages/NotFound';
-import { ToastContainer } from './components/ui/Toast';
-import { PageTransition } from './components/ui/PageTransition';
+import NotFound             from './pages/NotFound';
+
 import './App.css';
+
+// ── Notification bridge ───────────────────────────────────
+// Must be inside AuthProvider so useAuth() works.
+// Consumes server-pushed Socket.io notifications
+// and routes them to the toast system automatically.
+function NotificationBridge() {
+  useNotifications();
+  return null;
+}
 
 function App() {
   return (
@@ -44,13 +63,14 @@ function App() {
       <AuthProvider>
         <BrowserRouter>
           <SkipNav />
+          <NotificationBridge />
           <PageTransition>
             <Routes>
               {/* ── Public ── */}
-              <Route path="/"              element={<Landing />} />
-              <Route path="/login"         element={<Login />} />
-              <Route path="/register"      element={<Register />} />
-              <Route path="/legal/:page"   element={<Legal />} />
+              <Route path="/"            element={<Landing />} />
+              <Route path="/login"       element={<Login />} />
+              <Route path="/register"    element={<Register />} />
+              <Route path="/legal/:page" element={<Legal />} />
 
               {/* ── Game (protected) ── */}
               <Route path="/home"         element={<ProtectedRoute><Home /></ProtectedRoute>} />
@@ -64,7 +84,7 @@ function App() {
               <Route path="/travel"       element={<ProtectedRoute><Travel /></ProtectedRoute>} />
               <Route path="/missions"     element={<ProtectedRoute><Missions /></ProtectedRoute>} />
               <Route path="/casino"       element={<ProtectedRoute><Casino /></ProtectedRoute>} />
-              <Route path="/black-market"  element={<ProtectedRoute><BlackMarket /></ProtectedRoute>} />
+              <Route path="/black-market" element={<ProtectedRoute><BlackMarket /></ProtectedRoute>} />
               <Route path="/hospital"     element={<ProtectedRoute><Hospital /></ProtectedRoute>} />
               <Route path="/jail"         element={<ProtectedRoute><Jail /></ProtectedRoute>} />
               <Route path="/federal-jail" element={<ProtectedRoute><FederalJail /></ProtectedRoute>} />

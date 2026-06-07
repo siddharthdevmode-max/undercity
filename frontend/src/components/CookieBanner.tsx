@@ -4,9 +4,12 @@ import {
   getCookieConsent,
   setCookieConsent,
 } from '../utils/cookieConsent';
+import { initAnalytics, optInAnalytics, optOutAnalytics } from '../services/analytics';
 
 // ============================================================
 // COOKIE CONSENT BANNER — GDPR/ePrivacy compliant
+// PostHog initialized here — after user makes consent decision.
+// Never initializes before consent is given.
 // ============================================================
 
 export default function CookieBanner() {
@@ -18,25 +21,38 @@ export default function CookieBanner() {
   useEffect(() => {
     const consent = getCookieConsent();
     if (!consent?.decided) {
+      // Show banner after short delay so page loads first
       const t = setTimeout(() => setVisible(true), 800);
       return () => clearTimeout(t);
     }
+    // Already decided — init analytics with stored preference
+    initAnalytics(consent.analytics ?? false);
   }, []);
 
   if (!visible) return null;
 
   const handleAcceptAll = () => {
     setCookieConsent(true, true);
+    initAnalytics(true);
+    optInAnalytics();
     setVisible(false);
   };
 
   const handleEssentialOnly = () => {
     setCookieConsent(false, false);
+    initAnalytics(false);
+    optOutAnalytics();
     setVisible(false);
   };
 
   const handleSavePrefs = () => {
     setCookieConsent(functional, analytics);
+    initAnalytics(analytics);
+    if (analytics) {
+      optInAnalytics();
+    } else {
+      optOutAnalytics();
+    }
     setVisible(false);
   };
 
@@ -88,7 +104,7 @@ export default function CookieBanner() {
           <div className="cb-detail-row">
             <div className="cb-detail-info">
               <span className="cb-detail-name">Analytics</span>
-              <span className="cb-detail-sub">Usage statistics (not active yet)</span>
+              <span className="cb-detail-sub">Anonymous usage statistics via PostHog</span>
             </div>
             <label className="cb-toggle">
               <input

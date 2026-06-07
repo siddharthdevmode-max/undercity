@@ -6,7 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 import { userEvents } from '../utils/userEvents';
 import { toast } from '../utils/toast';
 import Icon from './ui/Icon';
-import { useSocket } from '../hooks/useSocket';
+import { useSocket, useStatsUpdate } from '../hooks/useSocket';
 
 interface Props { children: React.ReactNode; }
 
@@ -68,6 +68,7 @@ const NAV_SECTIONS = [
 export default function Shell({ children }: Props) {
   const { user: authUser, loading } = useAuth();
   useSocket();
+
   const navigate = useNavigate();
   const location = useLocation();
   const auth     = getAuth();
@@ -84,6 +85,20 @@ export default function Shell({ children }: Props) {
   });
 
   const [now, setNow] = useState(() => Date.now());
+
+  // Consume WebSocket stat pushes from server
+  // Fires after crime attempts, game tick events, etc.
+  useStatsUpdate((serverStats) => {
+    setStats((prev) => ({
+      money:    serverStats['money']    ?? prev.money,
+      life:     serverStats['life']     ?? prev.life,
+      maxLife:  serverStats['maxLife']  ?? prev.maxLife,
+      nerve:    serverStats['nerve']    ?? prev.nerve,
+      maxNerve: serverStats['maxNerve'] ?? prev.maxNerve,
+      level:    serverStats['level']    ?? prev.level,
+      points:   serverStats['points']   ?? prev.points,
+    }));
+  });
   useEffect(() => {
     const inJail = authUser?.jailUntil || authUser?.federalJailUntil;
     if (!inJail) return;
