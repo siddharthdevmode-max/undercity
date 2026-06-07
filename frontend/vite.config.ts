@@ -6,30 +6,29 @@ import { resolve } from 'path';
 // VITE CONFIG
 // - Path aliases for clean imports
 // - Manual chunk splitting for optimal caching
-// - Sourcemaps disabled in production (enabled via VITE_SOURCEMAP env)
+// - Sourcemaps disabled in production by default
 // ============================================================
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(() => ({
   plugins: [react()],
 
   resolve: {
     alias: {
-      '@':           resolve(__dirname, './src'),
+      '@': resolve(__dirname, './src'),
       '@components': resolve(__dirname, './src/components'),
-      '@pages':      resolve(__dirname, './src/pages'),
-      '@hooks':      resolve(__dirname, './src/hooks'),
-      '@services':   resolve(__dirname, './src/services'),
-      '@utils':      resolve(__dirname, './src/utils'),
-      '@styles':     resolve(__dirname, './src/styles'),
-      '@context':    resolve(__dirname, './src/context'),
+      '@pages': resolve(__dirname, './src/pages'),
+      '@hooks': resolve(__dirname, './src/hooks'),
+      '@services': resolve(__dirname, './src/services'),
+      '@utils': resolve(__dirname, './src/utils'),
+      '@styles': resolve(__dirname, './src/styles'),
+      '@context': resolve(__dirname, './src/context'),
     },
   },
 
   build: {
     target: 'es2020',
 
-    // Sourcemaps only when explicitly requested
-    // Set VITE_SOURCEMAP=true locally if you need them
+    // Sourcemaps only when explicitly enabled
     sourcemap: process.env.VITE_SOURCEMAP === 'true',
 
     chunkSizeWarningLimit: 500,
@@ -44,14 +43,15 @@ export default defineConfig(({ mode }) => ({
           ) {
             return 'vendor-react';
           }
+
           if (id.includes('node_modules/firebase')) {
             return 'vendor-firebase';
           }
         },
 
-        chunkFileNames:  'assets/[name]-[hash].js',
-        entryFileNames:  'assets/[name]-[hash].js',
-        assetFileNames:  'assets/[name]-[hash].[ext]',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]',
       },
     },
   },
