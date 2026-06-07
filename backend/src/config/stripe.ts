@@ -1,23 +1,23 @@
-import Stripe from "stripe";
+// ============================================================
+// PAYMENTS CONFIG — UNDERCITY
+// ============================================================
+// Stripe removed (Indian solo dev limitation).
+// Lemon Squeezy integration planned for Phase 3 (Sept 2026).
+//
+// This file kept as a placeholder so legacy imports don't break.
+// Will be renamed to lemonsqueezy.ts in Phase 3.
+// ============================================================
+
 import { logger } from "../utils/logger";
 
-// ============================================================
-// STRIPE CONFIG — UNDERCITY PAYMENTS
-// ============================================================
-
-if (!process.env.STRIPE_SECRET_KEY) {
-  logger.warn("⚠️  STRIPE_SECRET_KEY not set — payments disabled");
+if (!process.env.LEMONSQUEEZY_API_KEY) {
+  logger.debug("Payments disabled — LEMONSQUEEZY_API_KEY not set (expected in Phase 0-2)");
 }
 
-// Use InstanceType to get the correct type from the Stripe constructor
-type StripeInstance = InstanceType<typeof Stripe>;
+// Stub for legacy imports — always null until Phase 3
+export const stripe = null;
 
-export const stripe: StripeInstance | null = process.env.STRIPE_SECRET_KEY
-  ? new Stripe(process.env.STRIPE_SECRET_KEY, {
-      typescript: true,
-    })
-  : null;
-
+// Point packs — pricing structure stays the same for Lemon Squeezy
 export const POINT_PACKS = [
   {
     id:       "starter",
@@ -25,7 +25,7 @@ export const POINT_PACKS = [
     points:   100,
     bonus:    0,
     priceUsd: 499,
-    priceId:  process.env.STRIPE_PRICE_STARTER || "",
+    priceId:  "",
     popular:  false,
   },
   {
@@ -34,7 +34,7 @@ export const POINT_PACKS = [
     points:   500,
     bonus:    50,
     priceUsd: 1999,
-    priceId:  process.env.STRIPE_PRICE_HUSTLER || "",
+    priceId:  "",
     popular:  true,
   },
   {
@@ -43,7 +43,7 @@ export const POINT_PACKS = [
     points:   1200,
     bonus:    200,
     priceUsd: 3999,
-    priceId:  process.env.STRIPE_PRICE_KINGPIN || "",
+    priceId:  "",
     popular:  false,
   },
   {
@@ -52,7 +52,7 @@ export const POINT_PACKS = [
     points:   2500,
     bonus:    500,
     priceUsd: 6999,
-    priceId:  process.env.STRIPE_PRICE_OVERLORD || "",
+    priceId:  "",
     popular:  false,
   },
 ] as const;

@@ -59,10 +59,10 @@ const TEST_DEFAULTS: Record<string, string> = {
   FINGERPRINT_SALT:       "test-fingerprint-salt-not-real",
   ALLOWED_ORIGINS:        "http://localhost:3000",
 
-  // Stripe (test mode keys — safe to commit)
-  STRIPE_SECRET_KEY:      "sk_test_placeholder",
-  STRIPE_WEBHOOK_SECRET:  "whsec_test_placeholder",
-  STRIPE_PUBLISHABLE_KEY: "pk_test_placeholder",
+  // Payments — Lemon Squeezy placeholders (Phase 3)
+  LEMONSQUEEZY_API_KEY:        "test_lemon_api_key_placeholder",
+  LEMONSQUEEZY_STORE_ID:       "test_store_id_placeholder",
+  LEMONSQUEEZY_WEBHOOK_SECRET: "test_lemon_webhook_placeholder",
 
   // Game config
   GAME_TICK_MS:           "60000",

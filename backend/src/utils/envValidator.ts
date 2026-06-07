@@ -8,6 +8,10 @@
 // IMPORTANT:
 // Empty strings from .env (e.g. SENTRY_DSN=) are treated as
 // "unset" for optional variables, not as invalid values.
+//
+// PAYMENTS:
+// Stripe support removed (Indian solo dev limitation).
+// Lemon Squeezy will be integrated in Phase 3 (Sept 2026).
 // ============================================================
 
 import { z }          from "zod";
@@ -66,10 +70,11 @@ const envSchema = z.object({
   SENTRY_RELEASE:            optionalEnv(z.string()),
   SENTRY_TRACES_SAMPLE_RATE: optionalEnv(z.string()),
 
-  // ── Stripe ────────────────────────────────────────────
-  STRIPE_SECRET_KEY:      optionalEnv(z.string()),
-  STRIPE_WEBHOOK_SECRET:  optionalEnv(z.string()),
-  STRIPE_PUBLISHABLE_KEY: optionalEnv(z.string()),
+  // ── Payments (Lemon Squeezy — Phase 3) ────────────────
+  // TODO: Add in Phase 3 (September 2026)
+  LEMONSQUEEZY_API_KEY:        optionalEnv(z.string()),
+  LEMONSQUEEZY_STORE_ID:       optionalEnv(z.string()),
+  LEMONSQUEEZY_WEBHOOK_SECRET: optionalEnv(z.string()),
 
   // ── Alerts ────────────────────────────────────────────
   DISCORD_ALERT_WEBHOOK: optionalEnv(urlString),
@@ -116,14 +121,14 @@ const envSchema = z.object({
 });
 
 // ─── Production-only required fields ─────────────────────
+// NOTE: Payment provider keys removed for now.
+// Will be added back in Phase 3 (Lemon Squeezy integration).
 
 const PROD_REQUIRED: Array<keyof z.infer<typeof envSchema>> = [
   "DATABASE_URL",
   "ALLOWED_ORIGINS",
   "TURNSTILE_SECRET_KEY",
   "FINGERPRINT_SALT",
-  "STRIPE_SECRET_KEY",
-  "STRIPE_WEBHOOK_SECRET",
 ];
 
 // ─── Validator ────────────────────────────────────────────
@@ -193,6 +198,9 @@ export function validateEnv(): void {
     if (!env.FINGERPRINT_SALT) {
       logger.warn("⚠️  FINGERPRINT_SALT not set — fingerprinting will use insecure default");
     }
+    if (!env.LEMONSQUEEZY_API_KEY) {
+      logger.warn("⚠️  LEMONSQUEEZY_API_KEY not set — payments disabled (add in Phase 3)");
+    }
   }
 
   // ── Dev/staging warnings ──────────────────────────────
@@ -208,6 +216,7 @@ export function validateEnv(): void {
     firebase:     isTest ? "skipped" : "configured",
     sentry:       !!env.SENTRY_DSN,
     alerts:       !!(env.DISCORD_ALERT_WEBHOOK || env.SLACK_ALERT_WEBHOOK),
+    payments:     !!env.LEMONSQUEEZY_API_KEY,
     maintenance:  env.FEATURE_MAINTENANCE === "true",
     apiDocs:      env.FEATURE_API_DOCS === "true",
   });
