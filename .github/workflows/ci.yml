@@ -172,8 +172,9 @@ jobs:
         working-directory: backend
         run: >
           npx --no-install license-checker
+          --production
           --onlyAllow
-          'MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0;MPL-2.0'
+          'MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0;MPL-2.0;CC-BY-3.0;(BSD-3-Clause OR GPL-2.0);(MIT AND CC-BY-3.0)'
           --excludePrivatePackages
 
       - name: 🗄️ Run migrations
@@ -243,8 +244,9 @@ jobs:
         working-directory: frontend
         run: >
           npx license-checker
+          --production
           --onlyAllow
-          'MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0;MPL-2.0'
+          'MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0;MPL-2.0;CC-BY-3.0;(BSD-3-Clause OR GPL-2.0);(MIT AND CC-BY-3.0)'
           --excludePrivatePackages
 
       - name: 🧪 Run tests
