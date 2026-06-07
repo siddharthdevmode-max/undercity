@@ -30,12 +30,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: 📥 Checkout (full history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: 🔍 Gitleaks — Full history scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -46,10 +46,10 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 🔎 Dependency Review
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@v5
         with:
           fail-on-severity: high
           deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
@@ -64,7 +64,7 @@ jobs:
       security-events: write
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 🛡️ Semgrep Scan
         uses: returntocorp/semgrep-action@v1
@@ -80,7 +80,7 @@ jobs:
           generateSarif: "1"
 
       - name: 📤 Upload Semgrep results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: semgrep.sarif
@@ -97,16 +97,16 @@ jobs:
       contents: read
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 🔬 Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
           queries: security-extended,security-and-quality
 
       - name: 🔬 Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: /language:javascript-typescript
 
@@ -143,10 +143,10 @@ jobs:
 
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 🟢 Setup Node ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -193,7 +193,7 @@ jobs:
         run: npm run test:coverage
 
       - name: 📊 Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           directory: backend/coverage
           flags: backend
@@ -214,10 +214,10 @@ jobs:
 
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 🟢 Setup Node ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -278,13 +278,13 @@ jobs:
 
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 🐳 Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: 🐳 Build image for scanning
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./backend
           push: false
@@ -317,14 +317,14 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: 📤 Upload container scan results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: trivy-container.sarif
           category: trivy-container
 
       - name: 📤 Upload filesystem scan results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: trivy-fs.sarif
@@ -358,7 +358,7 @@ jobs:
 
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 🚀 Deploy via SSH
         id: deploy
@@ -442,7 +442,7 @@ jobs:
       - name: ✅ Notify — Deploy success
         if: success()
         continue-on-error: true
-        uses: slackapi/slack-github-action@v1.26.0
+        uses: slackapi/slack-github-action@v3.0.3
         with:
           payload: |
             {
@@ -455,7 +455,7 @@ jobs:
       - name: ❌ Notify — Deploy failed
         if: failure()
         continue-on-error: true
-        uses: slackapi/slack-github-action@v1.26.0
+        uses: slackapi/slack-github-action@v3.0.3
         with:
           payload: |
             {
@@ -547,7 +547,7 @@ jobs:
       - name: ❌ Notify — Smoke tests failed
         if: failure()
         continue-on-error: true
-        uses: slackapi/slack-github-action@v1.26.0
+        uses: slackapi/slack-github-action@v3.0.3
         with:
           payload: |
             {
@@ -560,7 +560,7 @@ jobs:
       - name: ✅ Notify — All smoke tests passed
         if: success()
         continue-on-error: true
-        uses: slackapi/slack-github-action@v1.26.0
+        uses: slackapi/slack-github-action@v3.0.3
         with:
           payload: |
             {
