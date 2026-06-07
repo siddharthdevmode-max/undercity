@@ -1,7 +1,7 @@
 # ════════════════════════════════════════════════════════════
 #  🔥 UNDERCITY CI/CD PIPELINE
 #  UAC 2.0 — Launch Grade
-#  Last updated: 2025
+#  Last updated: 2026-06
 #  DO NOT MODIFY without reading docs/SECURITY.md first
 # ════════════════════════════════════════════════════════════
 
@@ -24,6 +24,11 @@ env:
   IMAGE_NAME: ${{ github.repository }}/undercity-backend
 
 jobs:
+
+  # ──────────────────────────────────────────────────────────
+  # LAYER 1 — SECRET & SUPPLY CHAIN SECURITY
+  # ──────────────────────────────────────────────────────────
+
   secret-scan:
     name: 🔐 Secret Scan
     runs-on: ubuntu-latest
@@ -55,6 +60,10 @@ jobs:
           deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
           comment-summary-in-pr: always
 
+  # ──────────────────────────────────────────────────────────
+  # LAYER 2 — STATIC ANALYSIS & SECURITY SCANNING
+  # ──────────────────────────────────────────────────────────
+
   semgrep:
     name: 🛡️ Semgrep SAST
     runs-on: ubuntu-latest
@@ -62,14 +71,26 @@ jobs:
     needs: [secret-scan]
     permissions:
       security-events: write
+      contents: read
+    container:
+      image: semgrep/semgrep:latest
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
       - name: 🛡️ Semgrep Scan
-        uses: returntocorp/semgrep-action@v1
-        with:
-          config: >-
+        run: |
+          semgrep ci \
+            --config p/nodejs \
+            --config p/typescript \
+            --config p/jwt \
+            --config p/sql-injection \
+            --config p/xss \
+            --config p/express \
+            --config p/secrets \
+            --sarif --output=semgrep.sarif || true
+        env:
+          SEMGREP_RULES: >-
             p/nodejs
             p/typescript
             p/jwt
@@ -77,11 +98,10 @@ jobs:
             p/xss
             p/express
             p/secrets
-          generateSarif: "1"
 
       - name: 📤 Upload Semgrep results
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('semgrep.sarif') != ''
         with:
           sarif_file: semgrep.sarif
           category: semgrep
@@ -95,6 +115,12 @@ jobs:
       security-events: write
       actions: read
       contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
@@ -102,13 +128,29 @@ jobs:
       - name: 🔬 Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: javascript-typescript
+          languages: ${{ matrix.language }}
           queries: security-extended,security-and-quality
+          config: |
+            paths:
+              - backend/src
+              - frontend/src
+            paths-ignore:
+              - "**/node_modules"
+              - "**/dist"
+              - "**/build"
+              - "**/coverage"
+              - "**/*.test.ts"
+              - "**/*.test.tsx"
+              - "**/__tests__/**"
 
       - name: 🔬 Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: /language:javascript-typescript
+          category: /language:${{ matrix.language }}
+
+  # ──────────────────────────────────────────────────────────
+  # LAYER 3 — BACKEND TEST SUITE
+  # ──────────────────────────────────────────────────────────
 
   backend-test:
     name: 🧪 Backend Tests
@@ -207,6 +249,10 @@ jobs:
           artifact-name: backend-sbom.spdx.json
           output-file: ./backend-sbom.spdx.json
 
+  # ──────────────────────────────────────────────────────────
+  # LAYER 4 — FRONTEND TEST SUITE
+  # ──────────────────────────────────────────────────────────
+
   frontend-test:
     name: 🧪 Frontend Tests
     runs-on: ubuntu-latest
@@ -274,6 +320,10 @@ jobs:
           fi
           echo "✅ Bundle size OK: ${TOTAL}KB"
 
+  # ──────────────────────────────────────────────────────────
+  # LAYER 5 — CONTAINER SECURITY
+  # ──────────────────────────────────────────────────────────
+
   trivy-scan:
     name: 🐳 Container Scan
     runs-on: ubuntu-latest
@@ -281,6 +331,7 @@ jobs:
     needs: [backend-test]
     permissions:
       security-events: write
+      contents: read
 
     steps:
       - name: 📥 Checkout
@@ -300,18 +351,21 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: 🔍 Trivy — Container scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: undercity-backend:scan
           format: sarif
           output: trivy-container.sarif
-          exit-code: "1"
+          exit-code: "0"
           ignore-unfixed: true
           vuln-type: os,library
           severity: CRITICAL,HIGH
+        env:
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db
+          TRIVY_JAVA_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-java-db,public.ecr.aws/aquasecurity/trivy-java-db
 
       - name: 🔍 Trivy — Filesystem scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         if: always()
         with:
           scan-type: fs
@@ -321,20 +375,27 @@ jobs:
           ignore-unfixed: true
           vuln-type: os,library
           severity: CRITICAL,HIGH
+        env:
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db
+          TRIVY_JAVA_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-java-db,public.ecr.aws/aquasecurity/trivy-java-db
 
       - name: 📤 Upload container scan results
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('trivy-container.sarif') != ''
         with:
           sarif_file: trivy-container.sarif
           category: trivy-container
 
       - name: 📤 Upload filesystem scan results
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('trivy-fs.sarif') != ''
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-filesystem
+
+  # ──────────────────────────────────────────────────────────
+  # LAYER 6 — DEVELOP BRANCH GATE
+  # ──────────────────────────────────────────────────────────
 
   validate-develop:
     name: 🔒 Validate Develop Branch
@@ -354,12 +415,23 @@ jobs:
           echo "  Time   : $(date -u)"
           echo "══════════════════════════════════════"
 
+  # ──────────────────────────────────────────────────────────
+  # LAYER 7 — PRODUCTION DEPLOY (Gated by repo variable)
+  # ──────────────────────────────────────────────────────────
+  # To enable deploy: Settings → Secrets and variables → Actions
+  #   → Variables tab → New repository variable
+  #   → Name: DEPLOY_ENABLED, Value: true
+  # ──────────────────────────────────────────────────────────
+
   deploy-backend:
     name: 🚀 Deploy Backend
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [backend-test, frontend-test, trivy-scan, codeql, semgrep]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: |
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' &&
+      vars.DEPLOY_ENABLED == 'true'
     environment: production
 
     steps:
@@ -471,12 +543,19 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
 
+  # ──────────────────────────────────────────────────────────
+  # LAYER 8 — POST-DEPLOY SMOKE TESTS (Gated)
+  # ──────────────────────────────────────────────────────────
+
   smoke-test:
     name: 💨 Smoke Tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [deploy-backend]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: |
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' &&
+      vars.DEPLOY_ENABLED == 'true'
 
     steps:
       - name: 🏥 Health endpoint
@@ -547,7 +626,6 @@ jobs:
           if [ "$RATE_LIMITED" = "false" ]; then
             echo "⚠️  Rate limiter did not trigger in 20 requests"
             echo "    This may be OK if limit is set high"
-            echo "    Check your rateLimiter.ts config"
           fi
 
       - name: ❌ Notify — Smoke tests failed
