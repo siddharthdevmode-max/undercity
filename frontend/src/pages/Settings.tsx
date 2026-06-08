@@ -49,7 +49,7 @@ export default function Settings() {
 
   const handleViewData = async () => {
     try {
-      const data = await apiCall('/v1/gdpr/my-data');
+      const data = await apiCall('/gdpr/my-data');
       const url  = URL.createObjectURL(
         new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
       );
@@ -67,7 +67,7 @@ export default function Settings() {
     }
     setDeleting(true);
     try {
-      await apiCall('/v1/gdpr/delete-account', {
+      await apiCall('/gdpr/delete-account', {
         method: 'DELETE',
         body:   JSON.stringify({ confirmPhrase: 'DELETE MY ACCOUNT' }),
       });
