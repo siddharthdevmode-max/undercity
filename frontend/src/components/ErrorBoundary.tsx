@@ -1,10 +1,12 @@
 import { Component } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
+import * as Sentry from '@sentry/react';
 import '../styles/ErrorBoundary.css';
 
 // ============================================================
 // ERROR BOUNDARY
-// Catches React rendering errors and shows fallback UI
+// Catches React rendering errors and shows fallback UI.
+// Reports to Sentry in production automatically.
 // ============================================================
 
 interface Props {
@@ -30,10 +32,17 @@ class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     this.setState({ errorInfo });
+
     if (import.meta.env.DEV) {
       console.error('💥 ErrorBoundary caught:', error, errorInfo);
     }
-    // TODO: Sentry.captureException(error, { extra: errorInfo });
+
+    // Report to Sentry — Sentry.init() is a no-op if DSN not set
+    Sentry.captureException(error, {
+      extra: {
+        componentStack: errorInfo.componentStack,
+      },
+    });
   }
 
   handleReset = (): void => {

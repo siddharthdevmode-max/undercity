@@ -5,14 +5,16 @@ import { useAuth } from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { getAuth, signOut } from 'firebase/auth';
 import { toast } from '../utils/toast';
+import { apiCall } from '../services/api';
 
 export default function Settings() {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const auth = getAuth();
-  const [deleting, setDeleting] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [confirmText, setConfirmText] = useState('');
+  const { user }  = useAuth();
+  const navigate  = useNavigate();
+  const auth      = getAuth();
+  const [deleting,           setDeleting]           = useState(false);
+  const [showDeleteConfirm,  setShowDeleteConfirm]  = useState(false);
+  const [confirmText,        setConfirmText]        = useState('');
+  const [exportingData,      setExportingData]      = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -23,6 +25,41 @@ export default function Settings() {
     }
   };
 
+  // FIX: GDPR export needs auth token — cannot use plain <a> href
+  // apiCall() injects the Firebase Bearer token automatically
+  const handleExportData = async () => {
+    setExportingData(true);
+    try {
+      const blob = await apiCall<Blob>('/v1/gdpr/export', {
+        headers: { Accept: 'application/json' },
+      });
+      const url      = URL.createObjectURL(new Blob([JSON.stringify(blob, null, 2)], { type: 'application/json' }));
+      const anchor   = document.createElement('a');
+      anchor.href    = url;
+      anchor.download = `undercity-data-${user?.username ?? 'export'}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success('Data export downloaded.');
+    } catch {
+      toast.error('Export failed. Please try again.');
+    } finally {
+      setExportingData(false);
+    }
+  };
+
+  const handleViewData = async () => {
+    try {
+      const data = await apiCall('/v1/gdpr/my-data');
+      const url  = URL.createObjectURL(
+        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      );
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch {
+      toast.error('Failed to fetch your data. Please try again.');
+    }
+  };
+
   const handleDeleteAccount = async () => {
     if (confirmText !== 'DELETE MY ACCOUNT') {
       toast.error('Type exactly: DELETE MY ACCOUNT');
@@ -30,20 +67,10 @@ export default function Settings() {
     }
     setDeleting(true);
     try {
-      // Call GDPR delete endpoint
-      const token = await auth.currentUser?.getIdToken();
-      const res = await fetch('/api/v1/gdpr/delete-account', {
-        method:  'DELETE',
-        headers: {
-          'Content-Type':  'application/json',
-          'Authorization': `Bearer ${token ?? ''}`,
-        },
-        body: JSON.stringify({ confirmPhrase: 'DELETE MY ACCOUNT' }),
+      await apiCall('/v1/gdpr/delete-account', {
+        method: 'DELETE',
+        body:   JSON.stringify({ confirmPhrase: 'DELETE MY ACCOUNT' }),
       });
-      if (!res.ok) {
-        const err = await res.json() as { message?: string };
-        throw new Error(err.message ?? 'Delete failed');
-      }
       await signOut(auth);
       toast.success('Account deleted. Your data will be purged within 30 days.');
       navigate('/');
@@ -54,9 +81,20 @@ export default function Settings() {
     }
   };
 
+  const S = {
+    page:   { maxWidth: 560, margin: '0 auto', padding: '2rem 1rem' },
+    card:   { background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 8, padding: '1.5rem', marginBottom: '1rem' },
+    danger: { background: 'var(--color-surface)', border: '1px solid var(--color-error)', borderRadius: 8, padding: '1.5rem' },
+    label:  { fontSize: '0.85rem', color: 'var(--color-muted)', letterSpacing: '0.1em', margin: '0 0 1rem' as const },
+    row:    { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } as const,
+    muted:  { color: 'var(--color-muted)', fontSize: '0.9rem' },
+    btn:    { background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 6, padding: '0.6rem 1.25rem', color: 'var(--color-text)', cursor: 'pointer', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.5rem' } as const,
+    link:   { background: 'none', border: 'none', color: 'var(--color-accent)', fontSize: '0.9rem', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: '0.4rem', textDecoration: 'none' } as const,
+  };
+
   return (
     <Shell>
-      <div style={{ maxWidth: 560, margin: '0 auto', padding: '2rem 1rem' }}>
+      <div style={S.page}>
 
         <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '2rem' }}>
           <Icon name="admin" size={24} className="icon-accent" />
@@ -64,85 +102,57 @@ export default function Settings() {
         </h1>
 
         {/* Account Info */}
-        <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 8, padding: '1.5rem', marginBottom: '1rem' }}>
-          <h3 style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--color-muted)', letterSpacing: '0.1em' }}>
-            ACCOUNT INFO
-          </h3>
+        <div style={S.card}>
+          <h3 style={S.label}>ACCOUNT INFO</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: 'var(--color-muted)', fontSize: '0.9rem' }}>Username</span>
-              <span style={{ fontWeight: 600 }}>{user?.username}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: 'var(--color-muted)', fontSize: '0.9rem' }}>Email</span>
-              <span>{user?.email}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: 'var(--color-muted)', fontSize: '0.9rem' }}>Level</span>
-              <span>{user?.level}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: 'var(--color-muted)', fontSize: '0.9rem' }}>Tier</span>
-              <span style={{ textTransform: 'capitalize' }}>{user?.userTier ?? 'player'}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: 'var(--color-muted)', fontSize: '0.9rem' }}>Member since</span>
-              <span>{user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'}</span>
-            </div>
+            {([
+              ['Username',     user?.username],
+              ['Email',        user?.email],
+              ['Level',        user?.level],
+              ['Tier',         user?.userTier ?? 'player'],
+              ['Member since', user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'],
+            ] as [string, string | number | undefined][]).map(([k, v]) => (
+              <div key={k} style={S.row}>
+                <span style={S.muted}>{k}</span>
+                <span style={{ fontWeight: 600, textTransform: k === 'Tier' ? 'capitalize' : 'none' }}>{v}</span>
+              </div>
+            ))}
           </div>
         </div>
 
         {/* GDPR */}
-        <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 8, padding: '1.5rem', marginBottom: '1rem' }}>
-          <h3 style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--color-muted)', letterSpacing: '0.1em' }}>
-            YOUR DATA
-          </h3>
+        <div style={S.card}>
+          <h3 style={S.label}>YOUR DATA</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <a
-              href="/api/v1/gdpr/export"
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: 'var(--color-accent)', fontSize: '0.9rem', textDecoration: 'none' }}
+            {/* FIX: Use buttons + apiCall instead of raw <a> tags */}
+            <button
+              onClick={handleExportData}
+              disabled={exportingData}
+              style={S.link}
             >
-              <Icon name="download" size={14} /> Download my data (GDPR Art. 20)
-            </a>
-            <a
-              href="/api/v1/gdpr/my-data"
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: 'var(--color-accent)', fontSize: '0.9rem', textDecoration: 'none' }}
+              <Icon name="download" size={14} />
+              {exportingData ? 'Preparing export...' : 'Download my data (GDPR Art. 20)'}
+            </button>
+            <button
+              onClick={handleViewData}
+              style={S.link}
             >
-              <Icon name="info" size={14} /> View data we hold (GDPR Art. 15)
-            </a>
+              <Icon name="info" size={14} />
+              View data we hold (GDPR Art. 15)
+            </button>
           </div>
         </div>
 
         {/* Session */}
-        <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 8, padding: '1.5rem', marginBottom: '1rem' }}>
-          <h3 style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--color-muted)', letterSpacing: '0.1em' }}>
-            SESSION
-          </h3>
-          <button
-            onClick={handleLogout}
-            style={{
-              background:   'transparent',
-              border:       '1px solid var(--color-border)',
-              borderRadius: 6,
-              padding:      '0.6rem 1.25rem',
-              color:        'var(--color-text)',
-              cursor:       'pointer',
-              fontSize:     '0.9rem',
-              display:      'flex',
-              alignItems:   'center',
-              gap:          '0.5rem',
-            }}
-          >
+        <div style={S.card}>
+          <h3 style={S.label}>SESSION</h3>
+          <button onClick={handleLogout} style={S.btn}>
             <Icon name="logout" size={16} /> Log Out
           </button>
         </div>
 
         {/* Danger zone */}
-        <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-error)', borderRadius: 8, padding: '1.5rem' }}>
+        <div style={S.danger}>
           <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', color: 'var(--color-error)', letterSpacing: '0.1em' }}>
             DANGER ZONE
           </h3>
@@ -153,15 +163,7 @@ export default function Settings() {
           {!showDeleteConfirm ? (
             <button
               onClick={() => setShowDeleteConfirm(true)}
-              style={{
-                background:   'transparent',
-                border:       '1px solid var(--color-error)',
-                borderRadius: 6,
-                padding:      '0.6rem 1.25rem',
-                color:        'var(--color-error)',
-                cursor:       'pointer',
-                fontSize:     '0.9rem',
-              }}
+              style={{ ...S.btn, border: '1px solid var(--color-error)', color: 'var(--color-error)' }}
             >
               Delete Account
             </button>
@@ -175,14 +177,7 @@ export default function Settings() {
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
                 placeholder="DELETE MY ACCOUNT"
-                style={{
-                  background:   'var(--color-bg)',
-                  border:       '1px solid var(--color-error)',
-                  borderRadius: 6,
-                  padding:      '0.6rem 1rem',
-                  color:        'var(--color-text)',
-                  fontSize:     '0.9rem',
-                }}
+                style={{ background: 'var(--color-bg)', border: '1px solid var(--color-error)', borderRadius: 6, padding: '0.6rem 1rem', color: 'var(--color-text)', fontSize: '0.9rem' }}
               />
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button
@@ -203,15 +198,7 @@ export default function Settings() {
                 </button>
                 <button
                   onClick={() => { setShowDeleteConfirm(false); setConfirmText(''); }}
-                  style={{
-                    background:   'transparent',
-                    border:       '1px solid var(--color-border)',
-                    borderRadius: 6,
-                    padding:      '0.6rem 1.25rem',
-                    color:        'var(--color-muted)',
-                    cursor:       'pointer',
-                    fontSize:     '0.9rem',
-                  }}
+                  style={{ ...S.btn, color: 'var(--color-muted)' }}
                 >
                   Cancel
                 </button>
