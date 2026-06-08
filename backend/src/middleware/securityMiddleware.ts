@@ -2,7 +2,6 @@ import { Express, Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import compression from "compression";
 import morgan from "morgan";
-import crypto from "crypto";
 import { config } from "../config";
 import { logger } from "../utils/logger";
 
@@ -17,12 +16,19 @@ export function setupSecurityMiddleware(app: Express): void {
     defaultSrc: ["'self'"],
     styleSrc:   ["'self'", "'unsafe-inline'"],
     imgSrc:     ["'self'", "data:", "https:"],
-    connectSrc: ["'self'", "https://api.undercity.online"],
-    fontSrc:    ["'self'"],
-    objectSrc:  ["'none'"],
-    mediaSrc:   ["'none'"],
-    frameSrc:   ["'none'"],
-    scriptSrc:  ["'self'"],
+    connectSrc: [
+      "'self'",
+      "https://api.undercity.online",
+      // WebSocket connections require wss:// explicitly in CSP.
+      // Socket.IO uses wss:// in production — without this the
+      // browser blocks the upgrade and falls back to long-polling.
+      "wss://api.undercity.online",
+    ],
+    fontSrc:   ["'self'"],
+    objectSrc: ["'none'"],
+    mediaSrc:  ["'none'"],
+    frameSrc:  ["'none'"],
+    scriptSrc: ["'self'"],
   };
 
   if (config.cspReportUri) {
@@ -38,12 +44,6 @@ export function setupSecurityMiddleware(app: Express): void {
       crossOriginEmbedderPolicy: false,
     })
   );
-
-  app.use((_req: Request, res: Response, next: NextFunction) => {
-    const nonce = crypto.randomBytes(16).toString("base64");
-    (res.locals as Record<string, unknown>)["nonce"] = nonce;
-    next();
-  });
 
   if (config.isProduction) {
     app.use(

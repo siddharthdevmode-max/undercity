@@ -130,12 +130,10 @@ function buildConfig() {
     },
 
     // Payments — Lemon Squeezy (Phase 3)
-    // Kept as 'stripe' key for backward compatibility with existing imports.
-    // Will be renamed in Phase 3 refactor.
-    stripe: {
-      secretKey:      optionalSecret("LEMONSQUEEZY_API_KEY"),
-      webhookSecret:  optionalSecret("LEMONSQUEEZY_WEBHOOK_SECRET"),
-      publishableKey: optionalSecret("LEMONSQUEEZY_STORE_ID"),
+    lemonSqueezy: {
+      apiKey:        optionalSecret("LEMONSQUEEZY_API_KEY"),
+      webhookSecret: optionalSecret("LEMONSQUEEZY_WEBHOOK_SECRET"),
+      storeId:       optionalSecret("LEMONSQUEEZY_STORE_ID"),
     },
 
     discordAlertWebhook: optionalSecret("DISCORD_ALERT_WEBHOOK"),

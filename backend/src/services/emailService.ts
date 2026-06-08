@@ -81,34 +81,34 @@ export async function sendEmail(job: EmailJob): Promise<boolean> {
   }
 }
 
-// ── Stripe webhook processor (exported for workers.ts) ────
-export async function processStripeWebhook(job: PaymentWebhookJob): Promise<void> {
-  logger.info("💳 Processing Stripe webhook", {
-    eventId:   job.stripeEventId,
-    eventType: job.stripeEventType,
+// ── Payment webhook processor (exported for workers.ts) ────
+export async function processPaymentWebhook(job: PaymentWebhookJob): Promise<void> {
+  logger.info("💳 Processing Payment webhook", {
+    eventId:   job.paymentEventId,
+    eventType: job.paymentEventType,
   });
 
-  // TODO: implement full Stripe webhook handling
+  // TODO: implement full Payment webhook handling
   // For now: log and acknowledge — prevents worker crash
-  switch (job.stripeEventType) {
+  switch (job.paymentEventType) {
     case "checkout.session.completed":
-      logger.info("💳 Checkout session completed", { eventId: job.stripeEventId });
+      logger.info("💳 Checkout session completed", { eventId: job.paymentEventId });
       break;
     case "customer.subscription.created":
     case "customer.subscription.updated":
       logger.info("💳 Subscription event", {
-        type:    job.stripeEventType,
-        eventId: job.stripeEventId,
+        type:    job.paymentEventType,
+        eventId: job.paymentEventId,
       });
       break;
     case "customer.subscription.deleted":
-      logger.info("💳 Subscription cancelled", { eventId: job.stripeEventId });
+      logger.info("💳 Subscription cancelled", { eventId: job.paymentEventId });
       break;
     case "invoice.payment_failed":
-      logger.warn("💳 Invoice payment failed", { eventId: job.stripeEventId });
+      logger.warn("💳 Invoice payment failed", { eventId: job.paymentEventId });
       break;
     default:
-      logger.debug("💳 Unhandled Stripe event", { type: job.stripeEventType });
+      logger.debug("💳 Unhandled Stripe event", { type: job.paymentEventType });
   }
 }
 

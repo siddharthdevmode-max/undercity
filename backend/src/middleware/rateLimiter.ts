@@ -141,16 +141,18 @@ export const mfaLimiter = makeLimiter("mfa", {
   message: "Too many MFA attempts. Please wait."
 });
 
+// ─── IP Blacklist ─────────────────────────────────────────
+
 export const ipBlacklist = async (
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
+  // Redis not connected in test mode — skip entirely
+  if (config.isTest) { next(); return; }
+
   const raw = req.ip ?? "";
-  if (!raw) {
-    next();
-    return;
-  }
+  if (!raw) { next(); return; }
 
   const ip = raw.replace(/^::ffff:/, "");
 
@@ -171,15 +173,20 @@ export const ipBlacklist = async (
   }
 };
 
+// ─── Brute Force Protection ───────────────────────────────
+
 export const bruteForceProtection = async (
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
+  // Redis not connected in test mode — skip entirely
+  if (config.isTest) { next(); return; }
+
   const ip = (req.ip ?? "unknown").replace(/^::ffff:/, "");
   const failKey = `brute:fail:${ip}`;
   const lockKey = `brute:lock:${ip}`;
-  const WINDOW = 15 * 60;
+  const WINDOW  = 15 * 60;
   const LOCKOUT = 60 * 60;
   const MAX_FAIL = 10;
 

@@ -12,6 +12,7 @@ import {
   AppError,
   ValidationError,
   ConflictError,
+  NotFoundError,
   CrimeCooldownError,
   MaintenanceError,
   RateLimitError,
@@ -157,12 +158,13 @@ export const errorHandler = (
 };
 
 // ─── 404 Handler ──────────────────────────────────────────
+// MUST call next(err) — not res.json() directly.
+// This ensures Sentry sees 404s in the error pipeline.
 
-export const notFoundHandler = (req: Request, res: Response): void => {
-  res.status(404).json({
-    message:   `Cannot ${req.method} ${req.path}`,
-    code:      "NOT_FOUND",
-    errorCode: "ERR_10001",
-    requestId: req.requestId,
-  });
+export const notFoundHandler = (
+  req:  Request,
+  _res: Response,
+  next: NextFunction
+): void => {
+  next(new NotFoundError(`Cannot ${req.method} ${req.path}`));
 };

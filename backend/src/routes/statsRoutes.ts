@@ -90,11 +90,15 @@ router.get(
            WHERE last_seen_at > NOW() - INTERVAL '24 hours'
              AND deleted_at   IS NULL`
         ),
-        // crimes24h: total crime attempts in last 24h
+        // crimes24h: number of unique players who committed a crime in last 24h.
+        // Using last_crime_at as proxy — accurate and not inflated.
+        // A dedicated crime_attempts_log table can replace this post-launch
+        // if granular per-crime stats are needed.
         pool.query(
-          `SELECT COALESCE(SUM(attempts), 0)::int AS n
-           FROM user_crime_progress
-           WHERE updated_at > NOW() - INTERVAL '24 hours'`
+          `SELECT COUNT(*)::int AS n
+           FROM users
+           WHERE last_crime_at > NOW() - INTERVAL '24 hours'
+             AND deleted_at IS NULL`
         ),
         // attacks24h and casino24h: add queries here when tables exist
       ]);

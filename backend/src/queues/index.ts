@@ -262,15 +262,15 @@ export async function queueEmailBulk(jobs: EmailJob[]): Promise<void> {
 // ── Payment webhook helper ─────────────────────────────────
 
 export interface PaymentWebhookJob {
-  stripeEventId:   string;
-  stripeEventType: string;
+  paymentEventId:   string;
+  paymentEventType: string;
   payload:         string; // raw Stripe event JSON
   receivedAt:      string; // ISO timestamp
 }
 
 export async function queuePaymentWebhook(job: PaymentWebhookJob): Promise<void> {
-  await paymentWebhookQueue.add("stripe-webhook", job, {
+  await paymentWebhookQueue.add("payment-webhook-job", job, {
     // Deduplicate by Stripe event ID — safe to re-deliver
-    jobId: `stripe:${job.stripeEventId}`,
+    jobId: `payment:${job.paymentEventId}`,
   });
 }

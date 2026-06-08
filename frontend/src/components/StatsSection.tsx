@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import StatCard from './StatCard';
-import { getLiveStats } from '../services/stats';
+import StatCard  from './StatCard';
+import Icon      from './ui/Icon';
+import { getLiveStats }  from '../services/stats';
 import type { LiveStats } from '../services/stats';
 import '../styles/StatsSection.css';
 
 const REFRESH_MS = 5 * 60 * 1000;
 
-// Pre-launch placeholder — replaced by live data after launch
-const PLACEHOLDER: LiveStats = {
-  onlineNow:   142,
-  last3Hours:  389,
-  last24Hours: 1204,
-  attacks24h:  3871,
-  crimes24h:   18432,
-  casino24h:   956,
+// Zero stats — honest before launch
+const ZERO_STATS: LiveStats = {
+  onlineNow:   0,
+  last3Hours:  0,
+  last24Hours: 0,
+  attacks24h:  0,
+  crimes24h:   0,
+  casino24h:   0,
 };
 
 export default function StatsSection() {
@@ -29,8 +30,7 @@ export default function StatsSection() {
         const data = await getLiveStats();
         if (!cancelled) { setStats(data); setIsLive(true); }
       } catch {
-        // API not up yet — show placeholder silently
-        if (!cancelled) setStats(PLACEHOLDER);
+        if (!cancelled) setStats(ZERO_STATS);
       }
     };
     load();
@@ -53,14 +53,27 @@ export default function StatsSection() {
     return () => obs.disconnect();
   }, []);
 
-  const s = stats ?? PLACEHOLDER;
+  const s = stats ?? ZERO_STATS;
 
   return (
     <section className="stats-section" ref={sectionRef}>
       <div className="stats-inner">
-        <span className="stats-eyebrow">
-          {isLive ? '🟢 LIVE ACTIVITY · UPDATES EVERY 5 MIN' : '⏳ LAUNCHING SOON · PREVIEW STATS'}
-        </span>
+
+        {/* Eyebrow with SVG icon instead of emoji */}
+        <div className="stats-eyebrow-row">
+          {isLive ? (
+            <>
+              <Icon name="live" size={12} className="stats-live-icon" />
+              <span className="stats-eyebrow">LIVE ACTIVITY · UPDATES EVERY 5 MIN</span>
+            </>
+          ) : (
+            <>
+              <Icon name="soon" size={12} className="stats-soon-icon" />
+              <span className="stats-eyebrow">LAUNCHING DEC 15, 2026 · REGISTER NOW</span>
+            </>
+          )}
+        </div>
+
         <h2 className="stats-heading">THE UNDERCITY NEVER SLEEPS</h2>
         <div className="stats-divider">
           <span className="line" />
@@ -73,11 +86,18 @@ export default function StatsSection() {
           <StatCard value={s.last3Hours}  label="LAST 3 HOURS"  sublabel="Active recently"          start={visible} delay={100} />
           <StatCard value={s.last24Hours} label="LAST 24 HOURS" sublabel="Logins today"             start={visible} delay={200} />
         </div>
-        <div className="stats-grid" style={{ marginTop: '1rem' }}>
+        <div className="stats-grid">
           <StatCard value={s.attacks24h} label="ATTACKS" sublabel="Player vs player"    start={visible} delay={300} />
           <StatCard value={s.crimes24h}  label="CRIMES"  sublabel="Heists, mugs, scams" start={visible} delay={400} />
-          <StatCard value={s.casino24h}  label="CASINO"  sublabel="PvP card matches"    start={visible} delay={500} />
+          <StatCard value={s.casino24h}  label="CASINO"  sublabel="High stakes games"   start={visible} delay={500} />
         </div>
+
+        {!isLive && (
+          <p className="stats-prelaunch">
+            Stats will go live on December 15, 2026.{' '}
+            <a href="/register" className="stats-prelaunch-link">Register early to secure your name.</a>
+          </p>
+        )}
       </div>
     </section>
   );

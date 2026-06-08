@@ -319,6 +319,14 @@ export async function manualTrustAdjust(
   const isHardBanned   = clamped === 0;
 
   try {
+    // Read old score BEFORE update so audit log has real before/after values
+    const oldRow = await pool.query<{ trust_score: number }>(
+      `SELECT trust_score FROM users
+       WHERE firebase_uid = $1 AND deleted_at IS NULL LIMIT 1`,
+      [firebaseUid]
+    );
+    const oldScore = oldRow.rows[0]?.trust_score ?? 100;
+
     await pool.query(
       `UPDATE users
        SET    trust_score      = $1,
@@ -335,8 +343,8 @@ export async function manualTrustAdjust(
     await pool.query(
       `INSERT INTO trust_recovery_log
          (firebase_uid, old_score, new_score, reason)
-       VALUES ($1, (SELECT trust_score FROM users WHERE firebase_uid = $1 LIMIT 1), $2, $3)`,
-      [firebaseUid, clamped, `ADMIN_ADJUST by ${adminUid.substring(0, 8)}: ${reason}`]
+       VALUES ($1, $2, $3, $4)`,
+      [firebaseUid, oldScore, clamped, `ADMIN_ADJUST by ${adminUid.substring(0, 8)}: ${reason}`]
     );
 
     logger.info("🔧 Manual trust adjustment", {

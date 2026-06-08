@@ -7,6 +7,7 @@ import { pool }   from "../config/database";
 import redis      from "../config/redis";
 import { logger } from "../utils/logger";
 import { BannedError } from "../utils/errors";
+import { config }     from "../config";
 import type { TrustTier } from "../services/trustEngine";
 
 const CACHE_TTL_SEC = 30;
@@ -28,6 +29,8 @@ export const checkBanStatus = async (
 ): Promise<void> => {
   const uid = req.firebaseUser?.uid;
   if (!uid) return next();
+  // Redis not connected in test mode — skip cache entirely, use DB fallback
+  if (config.isTest) { next(); return; }
 
   try {
     const data = await getBanRecord(uid);

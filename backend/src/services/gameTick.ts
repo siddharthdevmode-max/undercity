@@ -50,7 +50,10 @@ const CIRCUIT = {
 };
 
 let tickInterval: NodeJS.Timeout | null = null;
-let isRunning                           = false;
+let isRunning = false;
+// TODO: Replace in-memory lock with Redlock before scaling to multiple processes.
+// Current guard works correctly for single-process deploy (Phase 6 Hetzner CX32).
+// See: https://github.com/mike-marcacci/node-redlock
 
 function recordSuccess(): void {
   CIRCUIT.failures = 0;

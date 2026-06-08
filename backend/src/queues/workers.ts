@@ -100,6 +100,7 @@ attachWorkerEvents(trustRecoveryWorker, "trust-recovery");
 export const backupWorker = new Worker(
   "database-backup",
   async (job: Job) => {
+    if (config.isTest) throw new Error("Backup worker disabled in test mode");
     logger.info("💾 Database backup job started", { jobId: job.id });
 
     const dbUrl = config.databaseUrl;
@@ -302,28 +303,28 @@ attachWorkerEvents(emailWorker, "email");
 export const paymentWebhookWorker = new Worker(
   "payment-webhook",
   async (job: Job<PaymentWebhookJob>) => {
-    const { stripeEventId, stripeEventType } = job.data;
+    const { paymentEventId, paymentEventType } = job.data;
 
     logger.info("💳 Payment webhook job started", {
       jobId:           job.id,
-      stripeEventId,
-      stripeEventType,
+      paymentEventId,
+      paymentEventType,
     });
 
     await job.updateProgress(10);
 
     // Dynamically import to avoid circular deps
-    const { processStripeWebhook } = await import("../services/emailService");
-    await processStripeWebhook(job.data);
+    const { processPaymentWebhook } = await import("../services/emailService");
+    await processPaymentWebhook(job.data);
 
     await job.updateProgress(100);
 
     logger.info("✅ Payment webhook processed", {
       jobId: job.id,
-      stripeEventId,
+      paymentEventId,
     });
 
-    return { processed: true, stripeEventId };
+    return { processed: true, paymentEventId };
   },
   {
     connection:  { ...bullmqConnection },
