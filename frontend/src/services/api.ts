@@ -112,10 +112,17 @@ async function getChallengeToken(firebaseToken: string): Promise<string> {
   return data.token;
 }
 
-export async function apiCall(
+// ── Generic apiCall ────────────────────────────────────────
+// T defaults to unknown so existing call sites without a type
+// argument continue to work exactly as before.
+// Typed call sites (admin.ts, crimes.ts) pass T explicitly
+// via the return type annotation on the arrow function —
+// TypeScript infers T from the declared Promise<T> return type.
+
+export async function apiCall<T = unknown>(
   endpoint: string,
   options:  RequestInit = {}
-): Promise<unknown> {
+): Promise<T> {
   const auth = getAuth();
   const user = auth.currentUser;
 
@@ -157,13 +164,16 @@ export async function apiCall(
     );
   }
 
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
-export async function publicCall(
+// ── Generic publicCall ─────────────────────────────────────
+// Same pattern — no auth token, for public endpoints.
+
+export async function publicCall<T = unknown>(
   endpoint: string,
   options:  RequestInit = {}
-): Promise<unknown> {
+): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
@@ -183,7 +193,7 @@ export async function publicCall(
     );
   }
 
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
 export const authAPI = {
@@ -210,7 +220,7 @@ export const authAPI = {
 export async function checkUsernameAvailable(
   username: string
 ): Promise<{ available: boolean; reason?: string }> {
-  return publicCall(
+  return publicCall<{ available: boolean; reason?: string }>(
     `/auth/check-username/${encodeURIComponent(username)}`
-  ) as Promise<{ available: boolean; reason?: string }>;
+  );
 }
