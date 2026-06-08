@@ -82,6 +82,13 @@ export default function Onboarding() {
     setCompleting(true);
     try {
       await authAPI.completeOnboarding();
+      // Referral code stored for post-launch processing
+      // TODO Phase 3: send referralCode to backend when referral system ships
+      if (referralCode.trim()) {
+        try {
+          sessionStorage.setItem("undercity_referral", referralCode.trim());
+        } catch { /* private mode */ }
+      }
       try { sessionStorage.removeItem(OB_STORAGE_KEY); } catch { /* ignore */ }
       await refreshUser();
       navigate("/home", { replace: true });

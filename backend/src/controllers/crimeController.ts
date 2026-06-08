@@ -13,7 +13,7 @@ import { UnauthorizedError, NotFoundError } from "../utils/errors";
 import { recordFingerprint, checkMultiAccount } from "../services/fingerprintEngine";
 import { analyzeBehavior, analyzePostCrime }    from "../services/behaviorEngine";
 import { flagUser }          from "../services/trustEngine";
-import { SocketNotify }     from "../config/socket";
+import { SocketNotify }      from "../config/socket";
 import {
   assertCanAttempt,
   assertCrimeRequirements,
@@ -105,19 +105,19 @@ export const getCrimes = async (req: Request, res: Response): Promise<void> => {
 
     res.json({
       user: {
-        id:              toNumber(user.id),
-        username:        user.username,
-        level:           playerLevel,
-        money:           toNumber(user.money),
-        points:          toNumber(user.points),
-        nerve:           toNumber(user.nerve),
+        id:               toNumber(user.id),
+        username:         user.username,
+        level:            playerLevel,
+        money:            toNumber(user.money),
+        points:           toNumber(user.points),
+        nerve:            toNumber(user.nerve),
         maxNerve,
-        life:            toNumber(user.life),
+        life:             toNumber(user.life),
         maxLife,
-        jailUntil:       user.jail_until,
+        jailUntil:        user.jail_until,
         federalJailUntil: user.federal_jail_until,
-        inJail:          isFutureDate(user.jail_until),
-        inFederalJail:   isFutureDate(user.federal_jail_until),
+        inJail:           isFutureDate(user.jail_until),
+        inFederalJail:    isFutureDate(user.federal_jail_until),
       },
       crimes,
     });
@@ -133,50 +133,47 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
   const log    = getRequestLogger(req.requestId);
   const client: PoolClient = await pool.connect();
 
+  // ── Anti-cheat: fire BEFORE transaction ───────────────
+  // These are non-transactional by design — they write to
+  // separate tracking tables and must not be rolled back
+  // if the crime transaction fails. They are best-effort.
+  const firebaseUid = req.firebaseUser?.uid;
+  if (!firebaseUid) throw new UnauthorizedError();
+
+  const visitorId = req.headers["x-fp-visitor"] as string | undefined;
+  const ipAddress = req.ip;
+  const userAgent = req.headers["user-agent"] as string | undefined;
+  const { crimeKey } = req.body as { crimeKey: string };
+
+  // Fire all anti-cheat checks before transaction — intentionally non-blocking
+  recordFingerprint(firebaseUid, ipAddress, userAgent, visitorId).catch(
+    (e: Error) => log.warn("Fingerprint record failed", { error: e.message })
+  );
+
+  analyzeBehavior(firebaseUid, ipAddress, userAgent).catch(
+    (e: Error) => log.warn("Behavior analysis failed", { error: e.message })
+  );
+
+  checkMultiAccount(firebaseUid, ipAddress, userAgent, visitorId)
+    .then(({ otherAccountsCount, otherUids }) => {
+      if (otherAccountsCount > 0) {
+        log.warn("🚨 Multi-account detected", {
+          uid:           firebaseUid.substring(0, 8),
+          otherAccounts: otherAccountsCount,
+          otherUids:     otherUids.map((u) => u.substring(0, 8)),
+        });
+        flagUser({
+          firebaseUid,
+          violationType: "IMPOSSIBLE_ACTION",
+          details:       { reason: "Multi-account detected", otherAccountsCount },
+          ipAddress,
+          userAgent,
+        }).catch(() => {});
+      }
+    })
+    .catch((e: Error) => log.warn("Multi-account check failed", { error: e.message }));
+
   try {
-    const firebaseUid = req.firebaseUser?.uid;
-    if (!firebaseUid) throw new UnauthorizedError();
-
-    const { crimeKey } = req.body as { crimeKey: string };
-
-    const trustInfo = req.trustInfo ?? {
-      isShadowBanned: false,
-      trustScore:     100,
-      tier:           "CLEAN" as const,
-      isHardBanned:   false,
-    };
-
-    const visitorId = req.headers["x-fp-visitor"] as string | undefined;
-    const ipAddress = req.ip;
-    const userAgent = req.headers["user-agent"] as string | undefined;
-
-    recordFingerprint(firebaseUid, ipAddress, userAgent, visitorId).catch(
-      (e: Error) => log.warn("Fingerprint record failed", { error: e.message })
-    );
-
-    analyzeBehavior(firebaseUid, ipAddress, userAgent).catch(
-      (e: Error) => log.warn("Behavior analysis failed", { error: e.message })
-    );
-
-    checkMultiAccount(firebaseUid, ipAddress, userAgent, visitorId)
-      .then(({ otherAccountsCount, otherUids }) => {
-        if (otherAccountsCount > 0) {
-          log.warn("🚨 Multi-account detected", {
-            uid:           firebaseUid.substring(0, 8),
-            otherAccounts: otherAccountsCount,
-            otherUids:     otherUids.map((u) => u.substring(0, 8)),
-          });
-          flagUser({
-            firebaseUid,
-            violationType: "IMPOSSIBLE_ACTION",
-            details:       { reason: "Multi-account detected", otherAccountsCount },
-            ipAddress,
-            userAgent,
-          }).catch(() => {});
-        }
-      })
-      .catch((e: Error) => log.warn("Multi-account check failed", { error: e.message }));
-
     await client.query("BEGIN");
 
     const user = await getUserByFirebaseUid(client, firebaseUid);
@@ -184,6 +181,13 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
       await client.query("ROLLBACK");
       throw new NotFoundError("User");
     }
+
+    const trustInfo = req.trustInfo ?? {
+      isShadowBanned: false,
+      trustScore:     100,
+      tier:           "CLEAN" as const,
+      isHardBanned:   false,
+    };
 
     assertCanAttempt(user);
 
@@ -241,27 +245,8 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
       outcome: outcome.outcome,
     });
 
-    // Push live stat update to player via WebSocket
-    // Fires after res.json so HTTP response is not delayed
-    SocketNotify.statUpdate(firebaseUid, {
-      money:    stats.money,
-      nerve:    stats.nerve,
-      maxNerve: stats.maxNerve,
-      life:     stats.life,
-      maxLife:  stats.maxLife,
-      points:   stats.points,
-    });
-
-    // Also send crime result notification via WebSocket
-    SocketNotify.crimeResult(firebaseUid, {
-      success:  outcome.outcome === "success" || outcome.outcome === "special",
-      reward:   outcome.reward_money,
-      message:  outcome.message,
-      crime:    crime.name,
-      xpGained: outcome.xp_gained,
-    });
-
-    res.json({
+    // ── Build response first ───────────────────────────
+    const responseBody = {
       outcome: outcome.outcome,
       message: outcome.message,
       crime: {
@@ -314,7 +299,31 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
         jailUntil:        stats.jailUntil ? stats.jailUntil.toISOString() : null,
         federalJailUntil: stats.federalJailUntil ? stats.federalJailUntil.toISOString() : null,
       },
+    };
+
+    // ── Send HTTP response first ───────────────────────
+    res.json(responseBody);
+
+    // ── WebSocket fires AFTER res.json ─────────────────
+    // Player sees the HTTP result immediately.
+    // Socket pushes update to any other open tabs/devices.
+    SocketNotify.statUpdate(firebaseUid, {
+      money:    stats.money,
+      nerve:    stats.nerve,
+      maxNerve: stats.maxNerve,
+      life:     stats.life,
+      maxLife:  stats.maxLife,
+      points:   stats.points,
     });
+
+    SocketNotify.crimeResult(firebaseUid, {
+      success:  outcome.outcome === "success" || outcome.outcome === "special",
+      reward:   outcome.reward_money,
+      message:  outcome.message,
+      crime:    crime.name,
+      xpGained: outcome.xp_gained,
+    });
+
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
     throw error;

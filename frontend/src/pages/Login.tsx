@@ -80,9 +80,15 @@ export default function Login() {
         stayLoggedIn ? browserLocalPersistence : browserSessionPersistence
       );
       await signInWithEmailAndPassword(auth, email, password);
-      const loggedInUser = await authAPI.sync();
+      // Returning user — use me() not sync()
+      // sync() is for registration only
+      // AuthContext onAuthStateChanged will also call me() but we
+      // setUser here directly to avoid the loading flash
+      const loggedInUser = await authAPI.me();
       setUser(loggedInUser);
       setAttempts(0);
+      // Client-side UX only — not a security control.
+      // Real brute force protection is in backend bruteForceProtection middleware.
       localStorage.removeItem('login_lockout');
       navigate('/home');
     } catch (err: unknown) {

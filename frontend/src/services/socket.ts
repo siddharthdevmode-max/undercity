@@ -1,12 +1,24 @@
 import { io, Socket } from "socket.io-client";
 import { getAuth } from "firebase/auth";
 
-// In dev: Vite proxy handles /socket.io → localhost:80 → nginx → backend
-// In prod: same origin, nginx routes /socket.io to backend
 const SOCKET_URL = window.location.origin;
 
 let socket: Socket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ── Pending listener registry ──────────────────────────────
+// Listeners registered before socket connects are queued here
+// and attached when the socket is created.
+
+type ListenerEntry = { event: string; cb: (...args: unknown[]) => void };
+const pendingListeners: ListenerEntry[] = [];
+
+function attachPendingListeners(): void {
+  if (!socket) return;
+  for (const { event, cb } of pendingListeners) {
+    socket.on(event, cb);
+  }
+}
 
 export async function connectSocket(): Promise<Socket> {
   if (socket?.connected) return socket;
@@ -24,13 +36,14 @@ export async function connectSocket(): Promise<Socket> {
     reconnectionDelay:    2000,
   });
 
+  // Attach any listeners registered before connect
+  attachPendingListeners();
+
   socket.on("connect", () => {
-    console.info("[Socket] Connected:", socket?.id);
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   });
 
   socket.on("disconnect", (reason) => {
-    console.warn("[Socket] Disconnected:", reason);
     if (reason === "io server disconnect") {
       reconnectTimer = setTimeout(() => {
         connectSocket().catch(console.error);
@@ -48,9 +61,30 @@ export async function connectSocket(): Promise<Socket> {
 export function disconnectSocket(): void {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (socket) { socket.disconnect(); socket = null; }
+  // Clear pending listeners on logout so they don't pile up
+  pendingListeners.length = 0;
 }
 
 export function getSocket(): Socket | null { return socket; }
+
+// ── Safe event registration ────────────────────────────────
+// If socket exists: attach immediately
+// If not: queue for when socket connects
+
+function safeOn(event: string, cb: (...args: unknown[]) => void): () => void {
+  if (socket) {
+    socket.on(event, cb);
+  } else {
+    pendingListeners.push({ event, cb });
+  }
+  return () => {
+    socket?.off(event, cb);
+    const idx = pendingListeners.findIndex(
+      (e) => e.event === event && e.cb === cb
+    );
+    if (idx !== -1) pendingListeners.splice(idx, 1);
+  };
+}
 
 export interface GameNotification {
   type:    "success" | "failure" | "system" | "info";
@@ -71,18 +105,15 @@ export interface OnlineCount {
 }
 
 export function onNotification(cb: (n: GameNotification) => void): () => void {
-  socket?.on("notification", cb);
-  return () => { socket?.off("notification", cb); };
+  return safeOn("notification", cb as (...args: unknown[]) => void);
 }
 
 export function onStatsUpdate(cb: (s: StatsUpdate) => void): () => void {
-  socket?.on("stats:update", cb);
-  return () => { socket?.off("stats:update", cb); };
+  return safeOn("stats:update", cb as (...args: unknown[]) => void);
 }
 
 export function onOnlineCount(cb: (o: OnlineCount) => void): () => void {
-  socket?.on("stats:online", cb);
-  return () => { socket?.off("stats:online", cb); };
+  return safeOn("stats:online", cb as (...args: unknown[]) => void);
 }
 
 export function joinGame(): void { socket?.emit("join:game"); }

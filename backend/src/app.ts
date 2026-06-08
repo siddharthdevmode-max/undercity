@@ -3,10 +3,10 @@
 // Pure Express app factory. No boot logic, no process.exit,
 // no DB/Redis connections. Safe to import in tests.
 // Boot logic lives in server.ts.
+// Sentry init lives in server.ts (after validateEnv).
 // ============================================================
 
-import { initSentry, Sentry } from "./config/sentry";
-initSentry();
+import { Sentry } from "./config/sentry";
 
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
@@ -114,16 +114,11 @@ setupApiDocs(app);
 
 // ── Routes ─────────────────────────────────────────────────
 
-// Health — mounted on both paths, always available
-// /api/v1/health = canonical
-// /api/health    = legacy alias (kept for tests + infra probes)
 app.use("/api/v1/health", healthRoutes);
 app.use("/api/health",    healthRoutes);
 
-// Brute force protection on auth
 app.use("/api/v1/auth", bruteForceProtection);
 
-// Maintenance gate — always skips health routes
 app.use((req: Request, _res: Response, next: NextFunction) => {
   if (
     req.path.startsWith("/api/health") ||
@@ -147,18 +142,10 @@ app.use("/api/v1/mfa",       mfaRoutes);
 app.use("/api/v1/support",   supportRoutes);
 app.use("/api/v1/payments",  paymentRoutes);
 
-// Honeypot — must be last real route
 app.use("/api/v1", honeypotRoutes);
 app.use("/api",    honeypotRoutes);
 
 // ── Error handlers ────────────────────────────────────────
-// ORDER IS CRITICAL — DO NOT CHANGE:
-// 1. notFoundHandler  — turns unmatched routes into 404 AppErrors
-// 2. Sentry           — captures all errors including 404s
-// 3. errorHandler     — formats and sends the response
-//
-// Previous order had Sentry before notFoundHandler which meant
-// Sentry never saw 404s and some AppErrors were double-handled.
 app.use(notFoundHandler);
 Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);

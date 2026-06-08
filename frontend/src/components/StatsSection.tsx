@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import StatCard  from './StatCard';
-import Icon      from './ui/Icon';
+import StatCard   from './StatCard';
+import Countdown  from './Countdown';
+import Icon       from './ui/Icon';
 import { getLiveStats }  from '../services/stats';
 import type { LiveStats } from '../services/stats';
 import '../styles/StatsSection.css';
@@ -56,7 +57,7 @@ export default function StatsSection() {
   const s = stats ?? ZERO_STATS;
 
   return (
-    <section className="stats-section" ref={sectionRef}>
+    <section id="stats" className="stats-section" ref={sectionRef}>
       <div className="stats-inner">
 
         {/* Eyebrow with SVG icon instead of emoji */}
@@ -93,10 +94,15 @@ export default function StatsSection() {
         </div>
 
         {!isLive && (
-          <p className="stats-prelaunch">
-            Stats will go live on December 15, 2026.{' '}
-            <a href="/register" className="stats-prelaunch-link">Register early to secure your name.</a>
-          </p>
+          <>
+            <Countdown targetDate="2026-12-15T00:00:00Z" />
+            <p className="stats-prelaunch">
+              Live stats go live on launch day.{' '}
+              <a href="/register" className="stats-prelaunch-link">
+                Register early to secure your name.
+              </a>
+            </p>
+          </>
         )}
       </div>
     </section>

@@ -5,6 +5,7 @@ import '../styles/Header.css';
 
 export default function Header() {
   const location = useLocation();
+  const isLanding = location.pathname === '/';
   const isAuthPage =
     location.pathname === '/register' ||
     location.pathname === '/login';
@@ -19,6 +20,15 @@ export default function Header() {
             <span className="brand-tagline">RISE. RULE. REIGN.</span>
           </div>
         </Link>
+
+        {isLanding && (
+          <nav className="main-nav">
+            <a href="#preview"  className="nav-link">Game</a>
+            <a href="#about"    className="nav-link">About</a>
+            <a href="#features" className="nav-link">Features</a>
+            <a href="#stats"    className="nav-link">Community</a>
+          </nav>
+        )}
 
         <div className="header-actions">
           <ThemeToggle />

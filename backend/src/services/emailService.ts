@@ -81,38 +81,18 @@ export async function sendEmail(job: EmailJob): Promise<boolean> {
   }
 }
 
-// ── Payment webhook processor (exported for workers.ts) ────
+// ── Payment webhook processor ──────────────────────────────
+// Phase 0-2 STUB: Lemon Squeezy integration in Phase 3.
+// Handles job gracefully so worker doesn't crash.
 export async function processPaymentWebhook(job: PaymentWebhookJob): Promise<void> {
-  logger.info("💳 Processing Payment webhook", {
+  logger.info("💳 Payment webhook received (Phase 3 stub)", {
     eventId:   job.paymentEventId,
     eventType: job.paymentEventType,
   });
-
-  // TODO: implement full Payment webhook handling
-  // For now: log and acknowledge — prevents worker crash
-  switch (job.paymentEventType) {
-    case "checkout.session.completed":
-      logger.info("💳 Checkout session completed", { eventId: job.paymentEventId });
-      break;
-    case "customer.subscription.created":
-    case "customer.subscription.updated":
-      logger.info("💳 Subscription event", {
-        type:    job.paymentEventType,
-        eventId: job.paymentEventId,
-      });
-      break;
-    case "customer.subscription.deleted":
-      logger.info("💳 Subscription cancelled", { eventId: job.paymentEventId });
-      break;
-    case "invoice.payment_failed":
-      logger.warn("💳 Invoice payment failed", { eventId: job.paymentEventId });
-      break;
-    default:
-      logger.debug("💳 Unhandled Stripe event", { type: job.paymentEventType });
-  }
+  // Phase 3: implement Lemon Squeezy event handling here
 }
 
-// ── HTML Templates ────────────────────────────────────────
+// ── HTML Templates ─────────────────────────────────────────
 
 function baseHtml(content: string): string {
   return `<!DOCTYPE html>
@@ -145,7 +125,7 @@ function welcomeHtml(username: string): string {
 
 function securityAlertHtml(username: string, event: string, ip?: string): string {
   return baseHtml(`
-    <h1 style="color:#e63946;">⚠️ Security Alert</h1>
+    <h2 style="color:#e63946;">⚠️ Security Alert</h2>
     <p>Hello <strong>${username}</strong>,</p>
     <div style="background:#1a1a1a;border:1px solid #333;border-radius:4px;padding:20px;margin:20px 0;">
       <strong style="color:#e63946;">${event}</strong>
@@ -182,7 +162,9 @@ function banNoticeHtml(username: string, reason: string, expiresAt?: string): st
     <p style="color:#ccc;">Your account has been restricted.</p>
     <div style="background:#1a1a1a;border:1px solid #e63946;border-radius:4px;padding:20px;margin:20px 0;">
       <strong>Reason:</strong> ${reason}<br/>
-      ${expiresAt ? `<strong>Expires:</strong> ${new Date(expiresAt).toUTCString()}` : "<strong>Duration:</strong> Permanent"}
+      ${expiresAt
+        ? `<strong>Expires:</strong> ${new Date(expiresAt).toUTCString()}`
+        : "<strong>Duration:</strong> Permanent"}
     </div>
     <p style="color:#ccc;">To appeal, contact support.</p>
   `);
@@ -225,11 +207,10 @@ function supportReplyHtml(username: string, ticketId: string, message: string): 
   `);
 }
 
-// ── Legacy EmailService object (backwards compat) ─────────
 export const EmailService = {
-  sendWelcome:        (opts: { to: string; username: string }) =>
+  sendWelcome:         (opts: { to: string; username: string }) =>
     sendEmail({ type: "welcome", ...opts }),
-  sendSecurityAlert:  (opts: { to: string; username: string; event: string; ip?: string }) =>
+  sendSecurityAlert:   (opts: { to: string; username: string; event: string; ip?: string }) =>
     sendEmail({ type: "security_alert", ...opts }),
   sendPurchaseConfirm: (opts: { to: string; username: string; points: number; packName: string; amountCents: number }) =>
     sendEmail({ type: "purchase_confirm", ...opts }),

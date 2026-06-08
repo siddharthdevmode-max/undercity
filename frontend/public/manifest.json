@@ -6,7 +6,7 @@
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#0a0a0f",
-  "theme_color": "#00ff88",
+  "theme_color": "#dc1f2e",
   "categories": ["games", "entertainment"],
   "icons": [
     {

@@ -13,6 +13,12 @@ import { config }          from "./config";
 import { logger }          from "./utils/logger";
 import { Alerts }          from "./utils/alerts";
 
+// ── Sentry MUST init after validateEnv ───────────────────
+// If env is broken, we want validateEnv to crash with a clear
+// message — not Sentry crashing with a confusing SDK error.
+import { initSentry }                              from "./config/sentry";
+initSentry();
+
 import { testDatabaseConnection }            from "./config/database";
 import { connectRedis, testRedisConnection } from "./config/redis";
 import { startGameTick }                     from "./services/gameTick";
@@ -61,8 +67,15 @@ async function boot(): Promise<void> {
     health: `http://localhost:${config.port}/api/v1/health`,
   });
 
-  // ── Game systems (production only) ───────────────────
-  if (config.isProduction) {
+  // ── Game systems ──────────────────────────────────────
+  // Run in production AND staging (not test).
+  // Staging = Hetzner VPS with NODE_ENV=production or ENABLE_GAME_TICK=true.
+  // Never runs in test mode.
+  const shouldRunGameSystems =
+    config.isProduction ||
+    process.env["ENABLE_GAME_TICK"] === "true";
+
+  if (shouldRunGameSystems) {
     try {
       const { setupScheduledJobs } = await import("./queues/scheduler");
       await setupScheduledJobs();
@@ -76,8 +89,8 @@ async function boot(): Promise<void> {
     startGameTick();
     logger.info("Game tick active");
   } else {
-    logger.info("Scheduled jobs skipped (dev)");
-    logger.info("Game tick skipped (dev)");
+    logger.info("Scheduled jobs skipped (dev/test)");
+    logger.info("Game tick skipped (dev/test) — set ENABLE_GAME_TICK=true to enable");
   }
 
   // ── Shutdown handler ──────────────────────────────────

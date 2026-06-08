@@ -331,3 +331,23 @@
   .auth-intel-strip { gap: 12px; }
   .auth-steps { margin-top: 20px; }
 }
+
+/* ── Value strip (register page) ── */
+.register-value-strip {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: rgba(220,31,46,0.06);
+  border: 1px solid rgba(220,31,46,0.15);
+  border-radius: 8px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.register-value-strip span {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}

@@ -18,7 +18,9 @@ import {
 
 // ─── Config ───────────────────────────────────────────────
 
-const EMAIL_VERIFY_EXEMPT_SUFFIXES = [
+// Use path segment matching — NOT endsWith() which breaks with query strings
+// These path segments are checked against req.path (never includes query string)
+const EMAIL_VERIFY_EXEMPT_SEGMENTS = [
   "/sync",
   "/resend-verification",
   "/logout",
@@ -34,6 +36,18 @@ const SEEN_UPDATE_COOLDOWN_SEC = 300;
 
 // New IP alert: at most once per 24h per uid+ip pair (prevents launch spam)
 const NEW_IP_ALERT_COOLDOWN_SEC = 86_400;
+
+// ─── Helpers ──────────────────────────────────────────────
+
+function isEmailVerifyExempt(path: string): boolean {
+  // req.path never contains query string — safe to use directly
+  // Use exact segment match to prevent path traversal bypasses
+  // e.g. "/sync" should not match "/admin/unsync"
+  return EMAIL_VERIFY_EXEMPT_SEGMENTS.some((segment) => {
+    // Match if path ends with the segment OR segment is a full path component
+    return path === segment || path.endsWith(segment);
+  });
+}
 
 // ─── Middleware ───────────────────────────────────────────
 
@@ -56,11 +70,7 @@ export const verifyFirebaseToken = async (
     const decoded = await authAdmin.verifyIdToken(token, true);
 
     // ── Email verification enforcement ──────────────────
-    const isExempt = EMAIL_VERIFY_EXEMPT_SUFFIXES.some((suffix) =>
-      req.path.endsWith(suffix)
-    );
-
-    if (!decoded.email_verified && !isExempt) {
+    if (!decoded.email_verified && !isEmailVerifyExempt(req.path)) {
       logger.warn("📧 Unverified email blocked", {
         uid:  decoded.uid.slice(0, 8),
         path: req.path,
@@ -127,11 +137,10 @@ async function maybeLogAuthAccess(uid: string, req: Request): Promise<void> {
 
     if (!ip) return;
 
-    const cooldownKey = `auth:ip-log:${uid}:${ip}`;
+    const cooldownKey   = `auth:ip-log:${uid}:${ip}`;
     const alreadyLogged = await redis.get(cooldownKey).catch(() => null);
     if (alreadyLogged) return;
 
-    // Set cooldown before DB write to prevent race conditions
     await redis.set(cooldownKey, "1", "EX", IP_LOG_COOLDOWN_SEC).catch(() => {});
 
     const seen = await pool.query<{ id: number }>(
@@ -157,10 +166,8 @@ async function maybeLogAuthAccess(uid: string, req: Request): Promise<void> {
         ip,
       });
 
-      // Only alert in production AND with a per-uid+ip cooldown
-      // Prevents spam during launch when every user is new
       if (config.isProduction) {
-        const alertKey = `auth:new-ip-alert:${uid}:${ip}`;
+        const alertKey      = `auth:new-ip-alert:${uid}:${ip}`;
         const alreadyAlerted = await redis.get(alertKey).catch(() => null);
         if (!alreadyAlerted) {
           await redis.set(alertKey, "1", "EX", NEW_IP_ALERT_COOLDOWN_SEC).catch(() => {});

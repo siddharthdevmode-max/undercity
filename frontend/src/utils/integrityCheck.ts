@@ -153,7 +153,7 @@ export function runIntegrityCheck(): IntegrityReport {
   const WEIGHTS: Record<string, number> = {
     WEBDRIVER_DETECTED:    80,
     AUTOMATION_DETECTED:   80,
-    CONSOLE_TAMPERED:      40,
+    CONSOLE_TAMPERED:       0, // disabled — false positive in production builds
     SUSPICIOUS_USER_AGENT: 60,
     SUSPICIOUS_TIMING:     20,
     DEVTOOLS_OPEN:         10, // low weight — common false positive

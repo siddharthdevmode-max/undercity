@@ -3,15 +3,18 @@
 // ============================================================
 
 import { Request, Response, NextFunction } from "express";
-import { pool }   from "../config/database";
-import redis      from "../config/redis";
-import { logger } from "../utils/logger";
+import { pool }        from "../config/database";
+import redis           from "../config/redis";
+import { logger }      from "../utils/logger";
 import { BannedError } from "../utils/errors";
-import { config }     from "../config";
+import { config }      from "../config";
 import type { TrustTier } from "../services/trustEngine";
 
-const CACHE_TTL_SEC = 30;
-const CACHE_PREFIX  = "ban:";
+// Hard bans: no cache — always hit DB for instant enforcement
+// Shadow/soft bans: 30s cache is acceptable
+const SOFT_CACHE_TTL_SEC   = 30;
+const CACHE_PREFIX         = "ban:";
+const HARD_BAN_CACHE_PREFIX = "hardban:";
 
 interface BanRecord {
   is_hard_banned:   boolean;
@@ -29,7 +32,7 @@ export const checkBanStatus = async (
 ): Promise<void> => {
   const uid = req.firebaseUser?.uid;
   if (!uid) return next();
-  // Redis not connected in test mode — skip cache entirely, use DB fallback
+
   if (config.isTest) { next(); return; }
 
   try {
@@ -53,7 +56,6 @@ export const checkBanStatus = async (
       void clearExpiredSoftBan(uid);
     }
 
-    // ── Fixed: trustInfo now includes tier ────────────────
     const score = data.trust_score ?? 100;
     const tier: TrustTier =
       score >= 70 ? "CLEAN"
@@ -80,12 +82,26 @@ export const checkBanStatus = async (
 };
 
 async function getBanRecord(uid: string): Promise<BanRecord | null> {
-  const cacheKey = `${CACHE_PREFIX}${uid}`;
+  // ── Hard ban: ALWAYS check DB directly, no cache ──────
+  // A 30s cache window on hard bans means banned users can
+  // still act for up to 30s after being banned. Unacceptable.
+  // We use a short 3s cache only to prevent hammering on the
+  // same request, but not the 30s soft ban window.
+  const hardBanCacheKey = `${HARD_BAN_CACHE_PREFIX}${uid}`;
+  const softCacheKey    = `${CACHE_PREFIX}${uid}`;
+
+  // Try soft cache first (30s) for non-hard-ban data
   try {
-    const cached = await redis.get(cacheKey);
-    if (cached !== null) return JSON.parse(cached) as BanRecord;
+    const cached = await redis.get(softCacheKey);
+    if (cached !== null) {
+      const parsed = JSON.parse(cached) as BanRecord;
+      // If cached record says hard banned, re-verify from DB
+      // (in case ban was reversed by admin)
+      if (!parsed.is_hard_banned) return parsed;
+    }
   } catch { /* Redis down — fall through */ }
 
+  // Always hit DB for fresh data
   const result = await pool.query<BanRecord>(
     `SELECT
        is_hard_banned, is_shadow_banned,
@@ -100,16 +116,28 @@ async function getBanRecord(uid: string): Promise<BanRecord | null> {
   if (result.rows.length === 0) return null;
 
   const record = result.rows[0];
-  try {
-    await redis.set(cacheKey, JSON.stringify(record), "EX", CACHE_TTL_SEC);
-  } catch { /* Non-critical */ }
+
+  // Only cache if NOT hard banned (hard bans always need fresh DB check)
+  if (!record.is_hard_banned) {
+    try {
+      await redis.set(softCacheKey, JSON.stringify(record), "EX", SOFT_CACHE_TTL_SEC);
+    } catch { /* Non-critical */ }
+  } else {
+    // Short 3s cache for hard bans just to prevent DB hammering on same request
+    try {
+      await redis.set(hardBanCacheKey, JSON.stringify(record), "EX", 3);
+    } catch { /* Non-critical */ }
+  }
 
   return record;
 }
 
 export async function invalidateBanCache(uid: string): Promise<void> {
   try {
-    await redis.del(`${CACHE_PREFIX}${uid}`);
+    await Promise.all([
+      redis.del(`${CACHE_PREFIX}${uid}`),
+      redis.del(`${HARD_BAN_CACHE_PREFIX}${uid}`),
+    ]);
   } catch { /* Non-critical */ }
 }
 

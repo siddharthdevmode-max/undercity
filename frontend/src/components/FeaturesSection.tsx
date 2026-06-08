@@ -26,7 +26,7 @@ export default function FeaturesSection() {
   }, []);
 
   return (
-    <section className="features-section" ref={sectionRef}>
+    <section id="features" className="features-section" ref={sectionRef}>
       <div className="features-inner">
         <span className="features-eyebrow">THE GAME</span>
         <h2 className="features-heading">MASTER YOUR EMPIRE</h2>

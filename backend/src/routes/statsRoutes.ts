@@ -9,19 +9,13 @@ import { logger }        from "../utils/logger";
 
 // ============================================================
 // STATS ROUTES — /api/stats
-//
-// GET /live    — Live player counts + activity (30s Redis cache)
-// GET /tick    — Game tick info (admin/debug, no cache)
 // ============================================================
 
 const router = Router();
 
-// ── Cache config ───────────────────────────────────────────
-const LIVE_CACHE_KEY = "stats:live:v2";   // v2 — bump when shape changes
-const LIVE_CACHE_TTL = 30;                // seconds
+const LIVE_CACHE_KEY = "stats:live:v2";
+const LIVE_CACHE_TTL = 30;
 
-// ── Fallback stats shape ───────────────────────────────────
-// Returned when DB is unavailable — never returns 500 to frontend
 const EMPTY_STATS = {
   onlineNow:   0,
   last3Hours:  0,
@@ -49,14 +43,15 @@ router.get(
   "/live",
   statsLimiter,
   shortCache,
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (_req, res): Promise<void> => {
 
     // ── 1. Try Redis cache ─────────────────────────────────
     try {
       const cached = await redis.get(LIVE_CACHE_KEY);
       if (cached) {
         const data = JSON.parse(cached) as LiveStats;
-        return res.json({ ...data, _source: "cache" });
+        res.json({ ...data, _source: "cache" });
+        return;
       }
     } catch (err) {
       logger.warn("Stats: Redis cache miss (Redis down)", {
@@ -64,43 +59,27 @@ router.get(
       });
     }
 
-    // ── 2. Query DB — parallel subqueries ─────────────────
-    // Using last_seen_at (not last_crime_at) for online count
-    // last_seen_at is updated by firebaseAuth middleware on every request
-
+    // ── 2. Query DB ────────────────────────────────────────
     let stats: LiveStats;
 
     try {
       const [onlineR, last3R, last24R, crimes24R] = await Promise.all([
         pool.query(
-          `SELECT COUNT(*)::int AS n
-           FROM users
-           WHERE last_seen_at > NOW() - INTERVAL '5 minutes'
-             AND deleted_at   IS NULL`
+          `SELECT COUNT(*)::int AS n FROM users
+           WHERE last_seen_at > NOW() - INTERVAL '5 minutes' AND deleted_at IS NULL`
         ),
         pool.query(
-          `SELECT COUNT(*)::int AS n
-           FROM users
-           WHERE last_seen_at > NOW() - INTERVAL '3 hours'
-             AND deleted_at   IS NULL`
+          `SELECT COUNT(*)::int AS n FROM users
+           WHERE last_seen_at > NOW() - INTERVAL '3 hours' AND deleted_at IS NULL`
         ),
         pool.query(
-          `SELECT COUNT(*)::int AS n
-           FROM users
-           WHERE last_seen_at > NOW() - INTERVAL '24 hours'
-             AND deleted_at   IS NULL`
+          `SELECT COUNT(*)::int AS n FROM users
+           WHERE last_seen_at > NOW() - INTERVAL '24 hours' AND deleted_at IS NULL`
         ),
-        // crimes24h: number of unique players who committed a crime in last 24h.
-        // Using last_crime_at as proxy — accurate and not inflated.
-        // A dedicated crime_attempts_log table can replace this post-launch
-        // if granular per-crime stats are needed.
         pool.query(
-          `SELECT COUNT(*)::int AS n
-           FROM users
-           WHERE last_crime_at > NOW() - INTERVAL '24 hours'
-             AND deleted_at IS NULL`
+          `SELECT COUNT(*)::int AS n FROM users
+           WHERE last_crime_at > NOW() - INTERVAL '24 hours' AND deleted_at IS NULL`
         ),
-        // attacks24h and casino24h: add queries here when tables exist
       ]);
 
       const n = (r: { rows: Array<{ n: number }> }) => r.rows[0]?.n ?? 0;
@@ -110,30 +89,24 @@ router.get(
         last3Hours:  n(last3R),
         last24Hours: n(last24R),
         crimes24h:   n(crimes24R),
-        attacks24h:  0,   // TODO: query combat_log when table exists
-        casino24h:   0,   // TODO: query casino_rounds when table exists
+        attacks24h:  0,
+        casino24h:   0,
         _source:     "db",
       };
 
     } catch (err) {
-      // DB unavailable — return fallback instead of 500
       logger.error("Stats: DB query failed, returning fallback", {
         error: err instanceof Error ? err.message : String(err),
       });
-
-      return res.json(EMPTY_STATS);
+      res.json(EMPTY_STATS);
+      return;
     }
 
     // ── 3. Write to Redis cache ────────────────────────────
     try {
-      await redis.set(
-        LIVE_CACHE_KEY,
-        JSON.stringify(stats),
-        "EX",
-        LIVE_CACHE_TTL
-      );
+      await redis.set(LIVE_CACHE_KEY, JSON.stringify(stats), "EX", LIVE_CACHE_TTL);
     } catch {
-      // Non-fatal — continue without cache
+      // Non-fatal
     }
 
     res.json(stats);
@@ -142,12 +115,11 @@ router.get(
 
 // ============================================================
 // GET /api/stats/tick
-// Game tick debug info — no cache, not rate-limited hard
 // ============================================================
 router.get(
   "/tick",
   statsLimiter,
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (_req, res): Promise<void> => {
     try {
       const info = await getTickInfo();
       res.json({ tick: info, retrievedAt: new Date().toISOString() });

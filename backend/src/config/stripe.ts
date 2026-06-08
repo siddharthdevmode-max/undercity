@@ -1,60 +1,47 @@
 // ============================================================
-// PAYMENTS CONFIG — UNDERCITY
-// ============================================================
+// POINT PACKS CONFIG — UNDERCITY
 // Stripe removed (Indian solo dev limitation).
-// Lemon Squeezy integration planned for Phase 3 (Sept 2026).
-//
-// This file kept as a placeholder so legacy imports don't break.
-// Will be renamed to lemonsqueezy.ts in Phase 3.
+// Lemon Squeezy integration coming in Phase 3 (Sept 2026).
+// This file kept for import compatibility — just exports packs.
 // ============================================================
 
-import { logger } from "../utils/logger";
-
-if (!process.env.LEMONSQUEEZY_API_KEY) {
-  logger.debug("Payments disabled — LEMONSQUEEZY_API_KEY not set (expected in Phase 0-2)");
+export interface PointPack {
+  id:          string;
+  name:        string;
+  points:      number;
+  priceUsd:    number;
+  description: string;
+  popular?:    boolean;
 }
 
-// Stub for legacy imports — always null until Phase 3
-export const stripe = null;
-
-// Point packs — pricing structure stays the same for Lemon Squeezy
-export const POINT_PACKS = [
+export const POINT_PACKS: PointPack[] = [
   {
-    id:       "starter",
-    name:     "Starter Pack",
-    points:   100,
-    bonus:    0,
-    priceUsd: 499,
-    priceId:  "",
-    popular:  false,
+    id:          "pack_starter",
+    name:        "Starter Pack",
+    points:      500,
+    priceUsd:    4.99,
+    description: "500 points to get you started",
   },
   {
-    id:       "hustler",
-    name:     "Hustler Pack",
-    points:   500,
-    bonus:    50,
-    priceUsd: 1999,
-    priceId:  "",
-    popular:  true,
+    id:          "pack_hustler",
+    name:        "Hustler Pack",
+    points:      1200,
+    priceUsd:    9.99,
+    description: "1,200 points — best value for new players",
+    popular:     true,
   },
   {
-    id:       "kingpin",
-    name:     "Kingpin Pack",
-    points:   1200,
-    bonus:    200,
-    priceUsd: 3999,
-    priceId:  "",
-    popular:  false,
+    id:          "pack_gangster",
+    name:        "Gangster Pack",
+    points:      2800,
+    priceUsd:    19.99,
+    description: "2,800 points for serious players",
   },
   {
-    id:       "overlord",
-    name:     "Overlord Pack",
-    points:   2500,
-    bonus:    500,
-    priceUsd: 6999,
-    priceId:  "",
-    popular:  false,
+    id:          "pack_kingpin",
+    name:        "Kingpin Pack",
+    points:      6000,
+    priceUsd:    39.99,
+    description: "6,000 points — maximum value",
   },
-] as const;
-
-export type PointPackId = typeof POINT_PACKS[number]["id"];
+];

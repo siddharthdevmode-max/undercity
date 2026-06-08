@@ -45,7 +45,7 @@ function optionalSecret(key: string): string | undefined {
   return process.env[key]?.trim() || undefined;
 }
 
-// ---- Environment --------------------------------------------
+// ── Environment ───────────────────────────────────────────
 
 const nodeEnv = optional("NODE_ENV", "development") as
   | "production"
@@ -56,12 +56,9 @@ const isProduction  = nodeEnv === "production";
 const isDevelopment = nodeEnv === "development";
 const isTest        = nodeEnv === "test";
 
-// ---- Config Builder -----------------------------------------
+// ── Config Builder ────────────────────────────────────────
 
 function buildConfig() {
-  // ── ALLOWED_ORIGINS guard ──────────────────────────────
-  // In production, if ALLOWED_ORIGINS is not set we crash at
-  // startup rather than silently blocking all CORS requests.
   const allowedOrigins = isProduction
     ? (() => {
         const list = optionalList("ALLOWED_ORIGINS");
@@ -74,12 +71,10 @@ function buildConfig() {
         }
         return list;
       })()
-    : ["http://localhost:5173", "http://localhost:3000"];
+    : optionalList("ALLOWED_ORIGINS").length > 0
+      ? optionalList("ALLOWED_ORIGINS")
+      : ["http://localhost:5173", "http://localhost:3000"];
 
-  // ── fingerprintSalt guard ─────────────────────────────
-  // In production this MUST be a secret random value.
-  // Using the dev fallback in prod means fingerprints are
-  // predictable and the anti-cheat layer is compromised.
   const fingerprintSalt = isProduction
     ? required("FINGERPRINT_SALT")
     : optional("FINGERPRINT_SALT", "dev-fingerprint-salt-change-in-prod");
@@ -99,7 +94,10 @@ function buildConfig() {
       host:     optional("REDIS_HOST", "127.0.0.1"),
       port:     optionalInt("REDIS_PORT", 6379),
       password: optionalSecret("REDIS_PASSWORD"),
-      tls:      isProduction ? optionalBool("REDIS_TLS", true) : false,
+      // TLS defaults to FALSE — explicit opt-in via REDIS_TLS=true
+      // Hetzner private network does not need TLS (same DC)
+      // Managed Redis (Upstash, Redis Cloud) needs TLS=true
+      tls: optionalBool("REDIS_TLS", false),
     },
 
     adminUids:     optionalList("ADMIN_UIDS"),
@@ -129,7 +127,6 @@ function buildConfig() {
         : 1.0,
     },
 
-    // Payments — Lemon Squeezy (Phase 3)
     lemonSqueezy: {
       apiKey:        optionalSecret("LEMONSQUEEZY_API_KEY"),
       webhookSecret: optionalSecret("LEMONSQUEEZY_WEBHOOK_SECRET"),
@@ -142,19 +139,18 @@ function buildConfig() {
     blockedCountries: optionalList("BLOCKED_COUNTRIES"),
     cspReportUri:     optionalSecret("CSP_REPORT_URI"),
 
-    // Required in production — protects anti-cheat fingerprinting
     fingerprintSalt,
 
     rateLimit: {
-      windowMs:        optionalInt("RATE_LIMIT_WINDOW_MS",      60000),
+      windowMs:        optionalInt("RATE_LIMIT_WINDOW_MS",      60_000),
       maxRequests:     optionalInt("RATE_LIMIT_MAX",            100),
-      authWindowMs:    optionalInt("RATE_LIMIT_AUTH_WINDOW_MS", 900000),
+      authWindowMs:    optionalInt("RATE_LIMIT_AUTH_WINDOW_MS", 900_000),
       authMaxRequests: optionalInt("RATE_LIMIT_AUTH_MAX",       10),
     },
 
     game: {
-      tickIntervalMs:   optionalInt("GAME_TICK_MS",         60000),
-      idempotencyTtlMs: optionalInt("IDEMPOTENCY_TTL_MS",   300000),
+      tickIntervalMs:   optionalInt("GAME_TICK_MS",         60_000),
+      idempotencyTtlMs: optionalInt("IDEMPOTENCY_TTL_MS",   300_000),
       maxEnergyDefault: optionalInt("MAX_ENERGY_DEFAULT",   100),
       maxNerveDefault:  optionalInt("MAX_NERVE_DEFAULT",    30),
       energyRegenSec:   optionalInt("ENERGY_REGEN_SEC",     300),

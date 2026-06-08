@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { crimesAPI } from "../services/crimes";
 import { getLiveStats } from "../services/stats";
-import { authAPI } from "../services/api";
+import { useAuth } from "./useAuth";
 import { toast } from "../utils/toast";
 
 // ============================================================
@@ -19,22 +19,11 @@ export const QUERY_KEYS = {
 } as const;
 
 // ── User / Auth ────────────────────────────────────────────
+// Reads from AuthContext — single source of truth.
+// Do NOT call authAPI.me() here — would create two diverging sources.
 export function useCurrentUser() {
-  return useQuery({
-    queryKey:  QUERY_KEYS.user,
-    queryFn:   () => authAPI.me(),
-    staleTime: 60 * 1000, // 1 minute
-    retry:     (failureCount, error) => {
-      // Don't retry 401/404
-      if (
-        error instanceof Error &&
-        (error.message.includes("401") || error.message.includes("404"))
-      ) {
-        return false;
-      }
-      return failureCount < 2;
-    },
-  });
+  const { user, loading, error } = useAuth();
+  return { data: user, isLoading: loading, error };
 }
 
 // ── Crimes ─────────────────────────────────────────────────

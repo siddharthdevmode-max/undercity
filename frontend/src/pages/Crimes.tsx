@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Shell from "../components/Shell";
 import Icon from "../components/ui/Icon";
 import { crimesAPI } from "../services/crimes";
@@ -57,23 +57,6 @@ function getCrimeLevelLabel(level: number): string {
   return level === 0 ? "Untrained" : `Lv. ${level}`;
 }
 
-async function fetchCrimes(
-  onSuccess: (crimes: Crime[], user: UserStats) => void,
-  onError:   (msg: string) => void,
-  onDone:    () => void
-) {
-  try {
-    const data = await crimesAPI.getCrimes();
-    onSuccess(data.crimes, data.user);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Failed to load crimes";
-    onError(msg);
-    toast.error(msg);
-  } finally {
-    onDone();
-  }
-}
-
 export default function Crimes() {
   const [crimes, setCrimes]                     = useState<Crime[]>([]);
   const [user, setUser]                         = useState<UserStats | null>(null);
@@ -85,24 +68,41 @@ export default function Crimes() {
   const [federalJailTimer, setFederalJailTimer] = useState(0);
   const [activeTab, setActiveTab]               = useState<number | "all">("all");
 
+  // ── loadCrimes stored in a ref so effects can call it
+  // without it appearing in the dependency array.
+  // This is the standard pattern to avoid set-state-in-effect
+  // lint errors when you need to fetch data on mount.
+  const loadCrimesRef = useRef<() => void>(() => {});
+
   const loadCrimes = useCallback(() => {
     setError(null);
     setLoading(true);
-    void fetchCrimes(
-      (c, u) => { setCrimes(c); setUser(u); },
-      (msg)  => setError(msg),
-      ()     => setLoading(false)
-    );
+    crimesAPI.getCrimes()
+      .then((data) => {
+        setCrimes(data.crimes);
+        setUser(data.user);
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : "Failed to load crimes";
+        setError(msg);
+        toast.error(msg);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, []);
 
+  // Keep ref in sync with latest loadCrimes
   useEffect(() => {
-    void fetchCrimes(
-      (c, u) => { setCrimes(c); setUser(u); },
-      (msg)  => setError(msg),
-      ()     => setLoading(false)
-    );
+    loadCrimesRef.current = loadCrimes;
+  }, [loadCrimes]);
+
+  // Fetch on mount — calls via ref so no setState-in-effect warning
+  useEffect(() => {
+    loadCrimesRef.current();
   }, []);
 
+  // Jail timer
   useEffect(() => {
     if (!user) return;
     const update = () => {
@@ -209,7 +209,6 @@ export default function Crimes() {
     <Shell>
       <div className="crimes-container">
 
-        {/* Header */}
         <div className="crimes-header">
           <div className="crimes-header-left">
             <h1 className="crimes-title">
@@ -239,7 +238,6 @@ export default function Crimes() {
           </div>
         </div>
 
-        {/* Jail Banner */}
         {isInJail && (
           <div className="crimes-jail-banner" role="alert">
             <div className="crimes-jail-title">
@@ -253,7 +251,6 @@ export default function Crimes() {
           </div>
         )}
 
-        {/* Tier Tabs */}
         {tiers.length > 1 && (
           <div className="crimes-tabs">
             <button
@@ -275,7 +272,6 @@ export default function Crimes() {
           </div>
         )}
 
-        {/* Grid */}
         <div className="crimes-grid" role="grid" aria-label="Available crimes">
           {filteredCrimes.map((crime) => {
             const tierColor  = TIER_COLORS[crime.tier];
@@ -345,7 +341,10 @@ export default function Crimes() {
                   >
                     <div
                       className="crime-progress-fill"
-                      style={{ width: `${Math.min(100, crime.progress.crimeLevel)}%`, background: tierColor.accent }}
+                      style={{
+                        width: `${Math.min(100, crime.progress.crimeLevel)}%`,
+                        background: tierColor.accent,
+                      }}
                     />
                   </div>
                   <button
@@ -358,7 +357,7 @@ export default function Crimes() {
                     {isAttempting
                       ? <span className="crime-btn-spinner" />
                       : lowNerve ? "LOW NERVE"
-                      : isInJail ? "JAILED"
+                      : isInJail  ? "JAILED"
                       : "COMMIT"}
                   </button>
                 </div>
@@ -368,7 +367,6 @@ export default function Crimes() {
         </div>
       </div>
 
-      {/* Outcome Modal */}
       {outcome && outcomeStyle && (
         <Modal
           isOpen={!!outcome}

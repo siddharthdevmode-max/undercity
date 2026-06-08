@@ -24,11 +24,13 @@ export default function Jail() {
   const { user } = useAuth();
   const [now, setNow] = useState(() => Date.now());
 
-  // Tick every second while in jail
+  // Only tick when actually locked — saves one interval when free
+  const hasActiveTimer = !!(user?.jailUntil || user?.federalJailUntil);
   useEffect(() => {
+    if (!hasActiveTimer) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [hasActiveTimer]);
 
   const jailSeconds    = getSecondsRemaining(user?.jailUntil        ?? null, now);
   const fedJailSeconds = getSecondsRemaining(user?.federalJailUntil ?? null, now);

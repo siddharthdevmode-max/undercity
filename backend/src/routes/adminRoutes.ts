@@ -471,7 +471,7 @@ router.post(
 
     const result = await pool.query(
       `UPDATE users
-       SET    money      = GREATEST(0, money + $2),
+       SET    money      = money + $2,
               updated_at = NOW()
        WHERE  firebase_uid = $1
          AND  deleted_at   IS NULL

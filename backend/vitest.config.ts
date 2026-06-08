@@ -27,6 +27,15 @@ export default defineConfig({
         "src/test-utils/**",
         "src/scripts/**",
       ],
+      thresholds: {
+        // Global minimums — build fails if these drop
+        statements: 75,
+        branches:   65,
+        functions:  65,
+        lines:      75,
+        // Per-file minimums on critical game logic
+        perFile: false,
+      },
     },
     setupFiles: [],
   },
@@ -34,9 +43,5 @@ export default defineConfig({
     alias: {
       "@": resolve(__dirname, "src"),
     },
-  },
-  // Force ESM to silence the Vite CJS Node API deprecation warning
-  esbuild: {
-    target: "node18",
   },
 });

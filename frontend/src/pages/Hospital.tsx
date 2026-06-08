@@ -23,10 +23,12 @@ export default function Hospital() {
   const { user } = useAuth();
   const [now, setNow] = useState(() => Date.now());
 
+  // Only tick when actually hospitalized — saves one interval when healthy
   useEffect(() => {
+    if (!user?.hospitalUntil) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [user?.hospitalUntil]);
 
   const hospitalSeconds = getSecondsRemaining(user?.hospitalUntil ?? null, now);
   const isHospitalized  = hospitalSeconds > 0;

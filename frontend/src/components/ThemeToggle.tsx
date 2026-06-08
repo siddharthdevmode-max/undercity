@@ -1,14 +1,15 @@
 import { useTheme } from '../context/ThemeContext';
 import type { Theme } from '../context/ThemeContext';
+import Icon from './ui/Icon';
 import '../styles/ThemeToggle.css';
 
 export default function ThemeToggle() {
   const { theme, setTheme } = useTheme();
 
   const options: { value: Theme; icon: string; label: string }[] = [
-    { value: 'light', icon: '☀', label: 'Light' },
-    { value: 'dark', icon: '🌙', label: 'Dark' },
-    { value: 'grey', icon: '🩶', label: 'Grey' },
+    { value: 'light', icon: 'theme-light', label: 'Light' },
+    { value: 'dark',  icon: 'theme-dark',  label: 'Dark' },
+    { value: 'grey',  icon: 'theme-grey',  label: 'Grey' },
   ];
 
   return (
@@ -22,7 +23,7 @@ export default function ThemeToggle() {
           aria-label={`Switch to ${opt.label} theme`}
           aria-pressed={theme === opt.value}
         >
-          <span aria-hidden>{opt.icon}</span>
+          <Icon name={opt.icon} size={16} />
         </button>
       ))}
     </div>

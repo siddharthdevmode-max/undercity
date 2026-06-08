@@ -175,6 +175,14 @@ export default function Register() {
         return;
       }
 
+      // Force token refresh so backend gets email_verified=true
+      // Without this, cached token may still have email_verified=false
+      await refreshed.getIdToken(true);
+
+      // Force token refresh so backend gets email_verified=true
+      // Without this, cached token may still have email_verified=false
+      await refreshed.getIdToken(true);
+
       // Now sync with backend (will create DB record)
       const { authAPI } = await import('../services/api');
       const newUser = await authAPI.sync(username);
@@ -309,6 +317,11 @@ export default function Register() {
               In Undercity, identity is everything.<br />
               Choose your name carefully — the streets remember.
             </p>
+            <div className="register-value-strip">
+              <span>🎯 25 crimes to master</span>
+              <span>💰 Start with $750 cash</span>
+              <span>⚡ Real-time world</span>
+            </div>
 
             <form onSubmit={handleSubmit} className="register-modern-form" noValidate>
 

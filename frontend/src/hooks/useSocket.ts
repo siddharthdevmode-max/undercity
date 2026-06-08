@@ -3,6 +3,7 @@ import { useAuth } from "./useAuth";
 import {
   connectSocket,
   disconnectSocket,
+  joinGame,
   onNotification,
   onStatsUpdate,
   onOnlineCount,
@@ -32,6 +33,7 @@ export function useSocket() {
     connectSocket()
       .then(() => {
         connected.current = true;
+        joinGame(); // join global game room for broadcasts
       })
       .catch((err: unknown) => {
         toast.error("Connection failed. Retrying...");
