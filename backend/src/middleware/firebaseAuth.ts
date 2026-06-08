@@ -7,7 +7,7 @@
 import { Request, Response, NextFunction } from "express";
 import { authAdmin }  from "../config/firebase";
 import { pool }       from "../config/database";
-import redis          from "../config/redis";
+import { redis }      from "../config/redis";
 import { logger }     from "../utils/logger";
 import { Alerts }     from "../utils/alerts";
 import { config }     from "../config";
@@ -18,8 +18,9 @@ import {
 
 // ─── Config ───────────────────────────────────────────────
 
-// Use path segment matching — NOT endsWith() which breaks with query strings
-// These path segments are checked against req.path (never includes query string)
+// Exact path segments that bypass email verification.
+// These are matched against req.path using exact equality or
+// strict suffix matching (must follow a "/" boundary).
 const EMAIL_VERIFY_EXEMPT_SEGMENTS = [
   "/sync",
   "/resend-verification",
@@ -28,24 +29,22 @@ const EMAIL_VERIFY_EXEMPT_SEGMENTS = [
   "/challenge",
 ];
 
-// IP logging: at most once per hour per uid+ip pair
-const IP_LOG_COOLDOWN_SEC = 3_600;
-
-// last_seen_at: at most once per 5 minutes per user
+const IP_LOG_COOLDOWN_SEC      = 3_600;
 const SEEN_UPDATE_COOLDOWN_SEC = 300;
-
-// New IP alert: at most once per 24h per uid+ip pair (prevents launch spam)
 const NEW_IP_ALERT_COOLDOWN_SEC = 86_400;
 
 // ─── Helpers ──────────────────────────────────────────────
 
 function isEmailVerifyExempt(path: string): boolean {
-  // req.path never contains query string — safe to use directly
-  // Use exact segment match to prevent path traversal bypasses
-  // e.g. "/sync" should not match "/admin/unsync"
   return EMAIL_VERIFY_EXEMPT_SEGMENTS.some((segment) => {
-    // Match if path ends with the segment OR segment is a full path component
-    return path === segment || path.endsWith(segment);
+    if (path === segment) return true;
+    // FIX: must be preceded by "/" boundary to prevent
+    // "/admin/unsync" matching "/sync"
+    if (path.endsWith(segment)) {
+      const precedingChar = path[path.length - segment.length - 1];
+      return precedingChar === "/";
+    }
+    return false;
   });
 }
 
@@ -66,10 +65,8 @@ export const verifyFirebaseToken = async (
     const token = header.slice(7).trim();
     if (!token) throw new UnauthorizedError("Malformed authorization header");
 
-    // checkRevoked: true — blocks revoked sessions immediately
     const decoded = await authAdmin.verifyIdToken(token, true);
 
-    // ── Email verification enforcement ──────────────────
     if (!decoded.email_verified && !isEmailVerifyExempt(req.path)) {
       logger.warn("📧 Unverified email blocked", {
         uid:  decoded.uid.slice(0, 8),
@@ -167,7 +164,7 @@ async function maybeLogAuthAccess(uid: string, req: Request): Promise<void> {
       });
 
       if (config.isProduction) {
-        const alertKey      = `auth:new-ip-alert:${uid}:${ip}`;
+        const alertKey       = `auth:new-ip-alert:${uid}:${ip}`;
         const alreadyAlerted = await redis.get(alertKey).catch(() => null);
         if (!alreadyAlerted) {
           await redis.set(alertKey, "1", "EX", NEW_IP_ALERT_COOLDOWN_SEC).catch(() => {});

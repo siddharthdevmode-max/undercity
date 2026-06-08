@@ -17,8 +17,11 @@ export interface UserRow {
   points:              number | string;
   nerve:               number | string;
   max_nerve:           number | string;
+  energy:              number | string;   // Added
+  max_energy:          number | string;   // Added
   life:                number | string;
   max_life:            number | string;
+  happiness:           number | string;   // Added
   hospital_until:      string | null;
   jail_until:          string | null;
   federal_jail_until:  string | null;
@@ -36,8 +39,6 @@ export interface UserRow {
   tier_granted_by:     string | null;
   last_nerve_update:   string | null;
 }
-
-// ─── Type coercion ────────────────────────────────────────
 
 export function toNumber(value: unknown): number {
   if (value === null || value === undefined) return 0;
@@ -57,8 +58,6 @@ function toDate(value: unknown): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-// ─── DB Queries ───────────────────────────────────────────
-
 export async function getUserByFirebaseUid(
   client:      PoolClient,
   firebaseUid: string
@@ -67,7 +66,8 @@ export async function getUserByFirebaseUid(
     `SELECT
        id, firebase_uid, email, username,
        level, money, points,
-       nerve, max_nerve, life, max_life,
+       nerve, max_nerve, energy, max_energy,
+       life, max_life, happiness,
        hospital_until,
        jail_until, federal_jail_until, last_crime_at,
        is_shadow_banned, is_hard_banned,
@@ -84,31 +84,9 @@ export async function getUserByFirebaseUid(
   return result.rows[0] ?? null;
 }
 
-// ─── Game Formulas ────────────────────────────────────────
-
 export function calcMaxLife(playerLevel: number): number {
   return 100 + (playerLevel - 1) * 25;
 }
-
-// ============================================================
-// NERVE GROWTH CURVE
-//
-// Formula: nerve = 30 + 100 × (1 - e^(-xp / RATE))
-// Cap: 130 for ALL tiers — only regen SPEED differs by tier
-//
-// Target: 10 years of regular grinding to hit 130
-// Regular grinder = ~50 crimes/day × ~150 XP = 7,500 XP/day
-//                 = ~2,737,500 XP/year
-//
-// Rate = 3_500_000 milestones:
-//   Year 1  (~2.7M XP)  → ~68  nerve
-//   Year 3  (~8.2M XP)  → ~93  nerve
-//   Year 5  (~13.7M XP) → ~107 nerve
-//   Year 10 (~27.4M XP) → ~126 nerve
-//   Year 12+ (~35M+ XP) → 130  nerve (endgame)
-//
-// Nerve rounds to nearest 5 for milestone feel.
-// ============================================================
 
 const NERVE_BASE          = 30;
 const NERVE_CAP           = 130;
@@ -117,17 +95,12 @@ const NERVE_CAP_THRESHOLD = 127.5;
 
 export function calcMaxNerve(totalCrimeXp: number): number {
   if (totalCrimeXp <= 0) return NERVE_BASE;
-
   const raw     = NERVE_BASE + (NERVE_CAP - NERVE_BASE) * (1 - Math.exp(-totalCrimeXp / NERVE_RATE));
   const floored = Math.floor(raw);
-
   if (raw >= NERVE_CAP_THRESHOLD) return NERVE_CAP;
-
   const stepped = Math.floor(floored / 5) * 5;
   return Math.min(NERVE_CAP, Math.max(NERVE_BASE, stepped));
 }
-
-// ─── Crime Cooldown ───────────────────────────────────────
 
 export function canAttemptCrime(lastCrimeAt: unknown): boolean {
   const date = toDate(lastCrimeAt);
@@ -141,8 +114,6 @@ export function getCooldownRemaining(lastCrimeAt: unknown): number {
   const remaining = 1000 - (Date.now() - date.getTime());
   return remaining > 0 ? Math.ceil(remaining) : 0;
 }
-
-// ─── Permission Helpers ───────────────────────────────────
 
 export function isImmuneToAntiCheat(
   user: Pick<UserRow, "is_developer" | "is_admin">

@@ -5,9 +5,11 @@ import { CrimeSpecial } from "../models/crimeModels";
 // Silently nerfs cheaters without telling them
 //
 // Tiers:
-//   WATCHED     (40-69) — light nerf (50% money)
-//   SUSPICIOUS  (20-39) — heavy nerf (10% money, 0 points)
+//   CLEAN       (70+)  — no punishment
+//   WATCHED     (40-69) — light nerf (50% money, 50% points, 75% XP)
+//   SUSPICIOUS  (20-39) — heavy nerf (10% money, 0 points, 20% XP)
 //   SHADOW_BANNED (1-19) — 95% forced fail
+//   HARD_BANNED (0)    — safety net zero (should never reach here)
 // ============================================================
 
 export interface CrimeOutcomeForPunish {
@@ -33,9 +35,13 @@ export function applyShadowPunishment(
   // 🛡️ Devs/admins: NEVER get nerfed
   if (isImmune) return outcome;
 
+  // ── CLEAN tier (70+): no punishment ──────────────────────
+  // Explicitly return early — avoids falling through to fallback
+  if (trustScore >= 70) return outcome;
+
   // ── WATCHED tier (40–69): light nerf ──
   // They notice nothing — just slightly less money
-  if (trustScore >= 40 && trustScore < 70) {
+  if (trustScore >= 40) {
     return {
       ...outcome,
       reward_money:  Math.floor(outcome.reward_money * 0.5),
@@ -46,7 +52,7 @@ export function applyShadowPunishment(
 
   // ── SUSPICIOUS tier (20–39): heavy nerf ──
   // Money gutted, no points, reduced XP
-  if (trustScore >= 20 && trustScore < 40) {
+  if (trustScore >= 20) {
     return {
       ...outcome,
       reward_money:  Math.floor(outcome.reward_money * 0.1),
@@ -58,7 +64,7 @@ export function applyShadowPunishment(
 
   // ── SHADOW_BANNED tier (1–19): 95% forced fail ──
   // They think they're playing normally
-  if (trustScore >= 1 && trustScore < 20) {
+  if (trustScore >= 1) {
     const random = Math.random();
 
     // 95% chance: forced fail (not crit_fail)
@@ -96,9 +102,9 @@ export function applyShadowPunishment(
     };
   }
 
-  // trustScore = 0 means hard banned
-  // They should never reach here (banCheck blocks them)
-  // But just in case — zero everything
+  // ── HARD_BANNED fallback (score = 0) ──
+  // Should never reach here — banCheck blocks hard banned users.
+  // Safety net: zero everything in case they slip through.
   return {
     ...outcome,
     outcome:       "fail",

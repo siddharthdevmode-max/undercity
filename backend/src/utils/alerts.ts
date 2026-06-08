@@ -34,9 +34,6 @@ const alertQueue: AlertPayload[] = [];
 let isProcessing = false;
 const QUEUE_INTERVAL_MS = 1_000;
 
-// ── Interval ref stored so shutdown can clear it ──────────
-// Without this, the setInterval keeps the Node process alive
-// and prevents clean exit after gracefulShutdown completes.
 let queueInterval: ReturnType<typeof setInterval> | null = null;
 
 function isDuplicate(payload: AlertPayload): boolean {
@@ -148,10 +145,16 @@ async function processQueue(): Promise<void> {
   }
 }
 
-// Start the queue processor and store the ref
-queueInterval = setInterval(processQueue, QUEUE_INTERVAL_MS);
+// FIX: Don't start interval at module load time.
+// Start lazily on first sendAlert() call.
+// This prevents the interval from running in test mode
+// and keeping the process alive after tests complete.
+function ensureQueueStarted(): void {
+  if (queueInterval || config.isTest) return;
+  queueInterval = setInterval(processQueue, QUEUE_INTERVAL_MS);
+  if (queueInterval.unref) queueInterval.unref();
+}
 
-// ── Exported so gracefulShutdown can call this ────────────
 export function stopAlertQueue(): void {
   if (queueInterval) {
     clearInterval(queueInterval);
@@ -180,6 +183,9 @@ export function sendAlert(payload: AlertPayload): void {
   }
 
   markSent(payload);
+
+  // FIX: Start interval lazily — not at module load
+  ensureQueueStarted();
   alertQueue.push(payload);
 }
 
@@ -313,8 +319,6 @@ export const Alerts = {
       dedupeKey: `system-error:${title}`,
     }),
 
-  // ── Game tick monitoring ───────────────────────────────
-  // Fires when a tick takes longer than 30s — your plan requires this
   gameTickSlow: (durationMs: number) =>
     alertCritical(
       "Game Tick Slow",
@@ -323,7 +327,6 @@ export const Alerts = {
       "game-tick-slow"
     ),
 
-  // ── Game tick died completely ──────────────────────────
   gameTickFailed: (error: string) =>
     alertCritical(
       "Game Tick Failed",
@@ -332,7 +335,6 @@ export const Alerts = {
       "game-tick-failed"
     ),
 
-  // ── Backup monitoring ──────────────────────────────────
   backupFailed: (error: string) =>
     alertCritical(
       "Database Backup Failed",
@@ -349,7 +351,6 @@ export const Alerts = {
       "backup-succeeded"
     ),
 
-  // ── Memory pressure ────────────────────────────────────
   highMemory: (usedMb: number, totalMb: number, percentUsed: number) =>
     alertCritical(
       "High Memory Usage",
@@ -358,7 +359,6 @@ export const Alerts = {
       "high-memory"
     ),
 
-  // ── Disk pressure ─────────────────────────────────────
   highDisk: (usedGb: number, totalGb: number, percentUsed: number) =>
     alertCritical(
       "High Disk Usage",

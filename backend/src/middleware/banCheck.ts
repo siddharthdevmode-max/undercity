@@ -148,7 +148,7 @@ async function clearExpiredSoftBan(uid: string): Promise<void> {
        SET ban_type       = NULL,
            ban_reason     = NULL,
            ban_expires_at = NULL,
-           is_soft_banned = FALSE
+           is_shadow_banned = FALSE
        WHERE firebase_uid = $1
          AND ban_expires_at <= NOW()`,
       [uid]

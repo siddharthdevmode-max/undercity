@@ -10,7 +10,7 @@
 
 import { Router, Request, Response } from "express";
 import { pool }          from "../config/database";
-import redis             from "../config/redis";
+import { redis } from "../config/redis";
 import { getIO }         from "../config/socket";
 import { asyncHandler }  from "../utils/asyncHandler";
 import { internalOnly }  from "../middleware/internalOnly";

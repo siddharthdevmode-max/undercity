@@ -39,16 +39,16 @@ const USER_FIELDS = `
 `;
 
 const NEW_USER_DEFAULTS = {
-  money: 750,
-  level: 1,
-  points: 0,
-  nerve: 30,
-  max_nerve: 30,
-  life: 100,
-  max_life: 100,
-  energy: 100,
+  money:      750,
+  level:      1,
+  points:     0,
+  nerve:      30,
+  max_nerve:  30,
+  life:       100,
+  max_life:   100,
+  energy:     100,
   max_energy: 100,
-  happiness: 50
+  happiness:  50,
 } as const;
 
 router.post(
@@ -106,53 +106,57 @@ router.post(
       }
     }
 
-    const taken = await pool.query(
-      `SELECT id FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,
-      [username]
-    );
-
-    if (taken.rows.length > 0) {
-      throw new ConflictError("Username is already taken");
+    // FIX: Remove check-then-insert race condition.
+    // Let the DB UNIQUE constraint enforce uniqueness atomically.
+    // Catch pg error 23505 and convert to a clean 409 ConflictError.
+    let newUser;
+    try {
+      newUser = await pool.query(
+        `INSERT INTO users (
+           firebase_uid, email, username,
+           money, level, points,
+           nerve, max_nerve,
+           life, max_life,
+           energy, max_energy,
+           happiness,
+           jail_until, hospital_until, federal_jail_until,
+           last_crime_at, onboarding_completed
+         )
+         VALUES (
+           $1, $2, $3,
+           $4, $5, $6,
+           $7, $8,
+           $9, $10,
+           $11, $12,
+           $13,
+           NULL, NULL, NULL,
+           NULL, FALSE
+         )
+         RETURNING ${USER_FIELDS}`,
+        [
+          uid,
+          email,
+          username,
+          NEW_USER_DEFAULTS.money,
+          NEW_USER_DEFAULTS.level,
+          NEW_USER_DEFAULTS.points,
+          NEW_USER_DEFAULTS.nerve,
+          NEW_USER_DEFAULTS.max_nerve,
+          NEW_USER_DEFAULTS.life,
+          NEW_USER_DEFAULTS.max_life,
+          NEW_USER_DEFAULTS.energy,
+          NEW_USER_DEFAULTS.max_energy,
+          NEW_USER_DEFAULTS.happiness,
+        ]
+      );
+    } catch (err: unknown) {
+      // 23505 = unique_violation — username already taken
+      const pgErr = err as { code?: string };
+      if (pgErr.code === "23505") {
+        throw new ConflictError("Username is already taken");
+      }
+      throw err;
     }
-
-    const newUser = await pool.query(
-      `INSERT INTO users (
-         firebase_uid, email, username,
-         money, level, points,
-         nerve, max_nerve,
-         life, max_life,
-         energy, max_energy,
-         happiness,
-         jail_until, hospital_until, federal_jail_until,
-         last_crime_at, onboarding_completed
-       )
-       VALUES (
-         $1, $2, $3,
-         $4, $5, $6,
-         $7, $8,
-         $9, $10,
-         $11, $12,
-         $13,
-         NULL, NULL, NULL,
-         NULL, FALSE
-       )
-       RETURNING ${USER_FIELDS}`,
-      [
-        uid,
-        email,
-        username,
-        NEW_USER_DEFAULTS.money,
-        NEW_USER_DEFAULTS.level,
-        NEW_USER_DEFAULTS.points,
-        NEW_USER_DEFAULTS.nerve,
-        NEW_USER_DEFAULTS.max_nerve,
-        NEW_USER_DEFAULTS.life,
-        NEW_USER_DEFAULTS.max_life,
-        NEW_USER_DEFAULTS.energy,
-        NEW_USER_DEFAULTS.max_energy,
-        NEW_USER_DEFAULTS.happiness
-      ]
-    );
 
     void pool.query(
       `INSERT INTO admin_audit_log
@@ -161,21 +165,21 @@ router.post(
       [
         "system",
         JSON.stringify({ username, uid: uid.substring(0, 8) }),
-        req.ip ?? "unknown"
+        req.ip ?? "unknown",
       ]
     ).catch(() => {});
 
     if (email) {
       void queueEmail({
         type: "welcome",
-        to: email,
-        username
+        to:   email,
+        username,
       }).catch(() => {});
     }
 
     log.info("New user registered", {
       username,
-      uid: uid.substring(0, 8)
+      uid: uid.substring(0, 8),
     });
 
     res.status(201).json(newUser.rows[0]);
@@ -228,8 +232,8 @@ router.post(
     }
 
     res.json({
-      message: "Onboarding complete. Welcome to the Undercity.",
-      onboarding_completed: true
+      message:              "Onboarding complete. Welcome to the Undercity.",
+      onboarding_completed: true,
     });
   })
 );
@@ -249,7 +253,7 @@ router.get(
     if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
       res.json({
         available: false,
-        reason: "Only letters, numbers, _ and - allowed"
+        reason:    "Only letters, numbers, _ and - allowed",
       });
       return;
     }
@@ -286,10 +290,12 @@ router.delete(
   verifyFirebaseToken,
   asyncHandler(async (req, res) => {
     const { uid, email } = req.firebaseUser!;
-    const { confirm } = req.body as { confirm?: string };
+    const { confirm }    = req.body as { confirm?: string };
 
     if (confirm !== "DELETE MY ACCOUNT") {
-      throw new ValidationError('Send { "confirm": "DELETE MY ACCOUNT" } to confirm deletion');
+      throw new ValidationError(
+        'Send { "confirm": "DELETE MY ACCOUNT" } to confirm deletion'
+      );
     }
 
     const userResult = await pool.query(
@@ -309,23 +315,23 @@ router.delete(
 
     await pool.query(
       `UPDATE users
-       SET deleted_at = NOW(),
+       SET deleted_at      = NOW(),
            deletion_reason = 'Player self-deletion via /api/auth/account',
-           email = $2,
-           username = $3,
-           is_hard_banned = TRUE,
-           updated_at = NOW()
-       WHERE firebase_uid = $1`,
+           email           = $2,
+           username        = $3,
+           is_hard_banned  = TRUE,
+           updated_at      = NOW()
+       WHERE firebase_uid  = $1`,
       [
         uid,
         `deleted_${Date.now()}@deleted.invalid`,
-        `deleted_${user.id}`
+        `deleted_${user.id}`,
       ]
     );
 
     await Promise.allSettled([
       invalidateBanCache(uid),
-      invalidateRoleCache(uid)
+      invalidateRoleCache(uid),
     ]);
 
     void pool.query(
@@ -335,22 +341,22 @@ router.delete(
       [
         uid,
         JSON.stringify({ userId: user.id, username: user.username }),
-        req.ip ?? "unknown"
+        req.ip ?? "unknown",
       ]
     ).catch(() => {});
 
     if (email && user.username) {
       void queueEmail({
-        type: "ban_notice",
-        to: email,
+        type:     "ban_notice",
+        to:       email,
         username: user.username,
-        reason: "Account deletion requested by you."
+        reason:   "Account deletion requested by you.",
       }).catch(() => {});
     }
 
     res.json({
-      message: "Account deleted. Personal data will be purged within 30 days.",
-      deleted_at: new Date().toISOString()
+      message:    "Account deleted. Personal data will be purged within 30 days.",
+      deleted_at: new Date().toISOString(),
     });
   })
 );

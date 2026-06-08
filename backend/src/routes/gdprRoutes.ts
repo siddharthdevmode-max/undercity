@@ -87,14 +87,14 @@ router.get(
       data_shared:     false,
       full_export_url: "GET /api/gdpr/export",
       delete_url:      "DELETE /api/gdpr/delete-account",
-      contact:         "privacy@undercity.gg",
+      contact:         "privacy@undercity.online",
       your_rights: {
         gdpr: [
           "Art. 15 — Access:         GET  /api/gdpr/my-data",
           "Art. 20 — Portability:    GET  /api/gdpr/export",
           "Art. 17 — Erasure:        DELETE /api/gdpr/delete-account",
-          "Art. 16 — Rectification:  Email privacy@undercity.gg",
-          "Art. 21 — Object:         Email privacy@undercity.gg",
+          "Art. 16 — Rectification:  Email privacy@undercity.online",
+          "Art. 21 — Object:         Email privacy@undercity.online",
         ],
         ccpa: [
           "§1798.100 — Know:         GET  /api/gdpr/my-data",
@@ -193,7 +193,7 @@ router.get(
     const exportData = {
       exported_at:   new Date().toISOString(),
       format:        "GDPR Art. 20 portable data export",
-      contact:       "privacy@undercity.gg",
+      contact:       "privacy@undercity.online",
       gdpr_notice:   "All personal data held under GDPR Art. 20 / CCPA §1798.110",
       account:       userR.rows[0],
       game_progress: crimeR.rows,
@@ -308,7 +308,7 @@ router.delete(
       message:    "Account deleted. Personal data will be purged within 30 days per GDPR Art. 17.",
       deleted_at: new Date().toISOString(),
       data_purge: "Within 30 calendar days",
-      contact:    "privacy@undercity.gg",
+      contact:    "privacy@undercity.online",
       legal_basis: {
         gdpr: "Article 17 — Right to Erasure",
         ccpa: "Section 1798.105 — Right to Delete",
@@ -330,7 +330,7 @@ router.get(
       targeted_advertising: false,
       opt_out_available:    false,
       message:              "Undercity does not sell, share, or use personal data for targeted advertising.",
-      contact:              "privacy@undercity.gg",
+      contact:              "privacy@undercity.online",
       last_updated:         "2026-01-01",
       frameworks:           ["GDPR", "CCPA", "PIPEDA"],
     });

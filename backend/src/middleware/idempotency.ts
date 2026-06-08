@@ -1,7 +1,9 @@
 // ============================================================
 // IDEMPOTENCY MIDDLEWARE — UNDERCITY
 // Prevents duplicate mutations (double-clicks, retries).
-// Uses onFinished pattern instead of res.json monkey-patching.
+// Uses res.json monkey-patch for capture + onFinished for persistence.
+// ⚠️  WARNING: Do NOT combine with etagCache middleware on the same route.
+// Both patch res.json — the second patch wins and idempotency capture breaks.
 // TTL and key format validated upfront.
 // Only caches 2xx responses.
 //

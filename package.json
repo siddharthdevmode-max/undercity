@@ -1,23 +1,26 @@
 {
-  "name": "undercity",
+  "name": "undercity-root",
   "version": "1.0.0",
-  "description": "A browser-based crime MMO inspired by Torn.",
+  "description": "A browser-based crime MMO inspired by Torn. Build your criminal empire, commit crimes, train stats, and dominate the underground.",
   "private": true,
   "scripts": {
-    "prepare":          "husky",
-    "test":             "cd backend && npx vitest run",
-    "test:integration": "cd backend && npx vitest run --config vitest.integration.config.ts",
-    "test:all":         "cd backend && npx vitest run && npx vitest run --config vitest.integration.config.ts",
-    "build:backend":    "cd backend && npm run build",
-    "build:frontend":   "cd frontend && npm run build",
-    "lint:backend":     "cd backend && npm run lint",
-    "lint:frontend":    "cd frontend && npm run lint"
+    "prepare": "husky",
+    "test": "npm --prefix backend run test && npm --prefix backend run test:integration",
+    "test:unit": "npm --prefix backend run test",
+    "test:integration": "npm --prefix backend run test:integration",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
+    "lint:fix": "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/siddharthdevmode-max/undercity.git"
   },
   "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/siddharthdevmode-max/undercity/issues"
+  },
+  "homepage": "https://github.com/siddharthdevmode-max/undercity#readme",
   "devDependencies": {
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",

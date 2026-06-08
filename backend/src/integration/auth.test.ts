@@ -102,8 +102,6 @@ beforeAll(async () => {
   app     = appModule.default;
 });
 
-// ── Helpers ───────────────────────────────────────────────
-
 function makeToken(overrides = {}) {
   return {
     uid: 'test-uid-123', email: 'test@test.com', email_verified: true,
@@ -166,11 +164,25 @@ describe('POST /api/v1/auth/sync', () => {
     expect(res.body.username).toBe('testplayer');
   });
 
-  it('TC-014 returns 409 when username taken', async () => {
+  it('TC-014 returns 409 when username taken (DB unique constraint violation)', async () => {
     mocks.verifyIdToken.mockResolvedValue(makeToken());
-    mocks.poolQuery
-      .mockResolvedValueOnce({ rows: [],           rowCount: 0 })
-      .mockResolvedValueOnce({ rows: [{ id: 99 }], rowCount: 1 });
+    // FIX: Simulate the NEW flow — no check-then-insert.
+    // The route now does: SELECT existing user → INSERT (throws 23505)
+    mocks.poolQuery.mockImplementation(async (sql: string) => {
+      const q = (typeof sql === 'string' ? sql : '').trim();
+      // SELECT existing user → not found
+      if (q.startsWith('SELECT') && q.includes('firebase_uid')) {
+        return { rows: [], rowCount: 0 };
+      }
+      // INSERT INTO users → throws unique violation
+      if (q.startsWith('INSERT INTO users')) {
+        const err = new Error('duplicate key value violates unique constraint');
+        (err as NodeJS.ErrnoException & { code: string }).code = '23505';
+        throw err;
+      }
+      return { rows: [], rowCount: 0 };
+    });
+
     const res = await request(app)
       .post('/api/v1/auth/sync').set(AUTH).send({ username: 'takenname' });
     expect(res.status).toBe(409);
@@ -197,14 +209,6 @@ describe('POST /api/v1/auth/sync', () => {
     mocks.verifyIdToken.mockResolvedValue(makeToken());
     const newUser = makeUser({ money: 750, level: 1, nerve: 30 });
 
-    // Use SQL-content matching so call order doesn't matter.
-    // banCheck is SKIPPED in test mode (config.isTest = true).
-    // authSyncLimiter uses in-memory store (no Redis/DB calls).
-    // Actual pool.query calls:
-    //   SELECT existing user    → empty
-    //   SELECT username taken   → empty
-    //   INSERT INTO users       → newUser
-    //   INSERT INTO audit_log   → empty (fire-and-forget)
     mocks.poolQuery.mockImplementation(async (sql: string) => {
       const q = (typeof sql === 'string' ? sql : '').trim();
       if (q.startsWith('INSERT INTO users')) {
@@ -269,11 +273,8 @@ describe('GET /api/v1/auth/check-username/:username', () => {
     expect(res.body.available).toBe(true);
   });
 
-  it('TC-021 returns 400 for username too short (Zod schema validates param)', async () => {
-    // safeUsername has min(3) — Zod catches "ab" before handler runs
+  it('TC-021 returns 400 for username too short', async () => {
     const res = await request(app).get('/api/v1/auth/check-username/ab');
-    // Zod validate() returns 400, OR handler returns 200 { available: false }
-    // Both are correct behavior — username "ab" is not available either way
     expect([200, 400]).toContain(res.status);
     if (res.status === 200) {
       expect(res.body.available).toBe(false);

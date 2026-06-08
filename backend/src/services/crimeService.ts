@@ -41,14 +41,12 @@ import {
 // ─── Pre-flight checks ────────────────────────────────────
 
 export function assertCanAttempt(user: UserRow): void {
-  // Cooldown check first — cheapest check
   if (!canAttemptCrime(user.last_crime_at)) {
     throw new RateLimitError(
       `Slow down. Cooldown ${getCooldownRemaining(user.last_crime_at)}ms`
     );
   }
 
-  // Hospital check — cannot commit crimes while hospitalised
   if (isFutureDate(user.hospital_until)) {
     const seconds = Math.ceil(
       (new Date(user.hospital_until as string).getTime() - Date.now()) / 1000
@@ -56,7 +54,6 @@ export function assertCanAttempt(user: UserRow): void {
     throw new HospitalError(seconds);
   }
 
-  // Federal jail takes priority over normal jail
   if (isFutureDate(user.federal_jail_until)) {
     const seconds = Math.ceil(
       (new Date(user.federal_jail_until as string).getTime() - Date.now()) / 1000
@@ -175,15 +172,15 @@ export async function updateProgress(
 ): Promise<void> {
   await client.query(
     `UPDATE user_crime_progress
-     SET crime_xp            = $1,
-         crime_level         = $2,
-         hidden_cpl          = $3,
-         attempts            = $4,
-         successes           = $5,
-         failures            = $6,
-         crit_failures       = $7,
+     SET crime_xp             = $1,
+         crime_level          = $2,
+         hidden_cpl           = $3,
+         attempts             = $4,
+         successes            = $5,
+         failures             = $6,
+         crit_failures        = $7,
          specials_found_count = $8,
-         updated_at          = CURRENT_TIMESTAMP
+         updated_at           = CURRENT_TIMESTAMP
      WHERE user_id = $9 AND crime_id = $10`,
     [
       data.crimeXp, data.crimeLevel, data.hiddenCpl,
@@ -261,7 +258,12 @@ export function calculateOutcome(
 
   const immune = isImmuneToAntiCheat(user);
 
-  if (trustInfo.isShadowBanned && !immune) {
+  // Apply shadow punishment for ALL non-clean tiers (not just is_shadow_banned)
+  // trustScore < 70 = WATCHED, SUSPICIOUS, SHADOW_BANNED, HARD_BANNED
+  // Hard banned users never reach here (banCheck blocks them)
+  const shouldPunish = !immune && trustInfo.trustScore < 70;
+
+  if (shouldPunish) {
     outcome = applyShadowPunishment(outcome, trustInfo.trustScore, immune);
   }
 
@@ -281,15 +283,18 @@ export function buildUpdatedStats(
   const maxLife         = calcMaxLife(playerLevel);
   const updatedMaxNerve = calcMaxNerve(totalCrimeXp);
 
-  // Nerve: deduct cost, never below 0, never above maxNerve
   const updatedNerve = Math.max(0, toNumber(user.nerve) - crime.nerve_cost);
   const finalNerve   = Math.min(updatedNerve, updatedMaxNerve);
 
   // ── Money — debt mechanic ──────────────────────────────
-  // Tier 1-2: crimeEngine already caps money_loss so result >= 0
-  // Tier 3-5: money CAN go negative — this is intentional
-  // Do NOT add Math.max(0, ...) here — it would break the debt mechanic
-  const updatedMoney = toNumber(user.money) - outcome.money_loss + outcome.reward_money;
+  // Tier 1-2: crimeEngine caps money_loss so result should >= 0
+  //   BUT we add a defense-in-depth floor here too.
+  //   The engine guarantees it, the service double-checks it.
+  // Tier 3-5: money CAN go negative — this is intentional (debt)
+  const rawMoney = toNumber(user.money) - outcome.money_loss + outcome.reward_money;
+  const updatedMoney = crime.tier <= 2
+    ? Math.max(0, rawMoney)   // Tier 1-2: floor at 0, never debt
+    : rawMoney;               // Tier 3-5: allow negative (debt mechanic)
 
   const updatedPoints = Math.max(0,
     toNumber(user.points) + outcome.reward_points
@@ -298,7 +303,6 @@ export function buildUpdatedStats(
   // Life: minimum 1 — players cannot die, just get very low
   const updatedLife = Math.max(1, toNumber(user.life) - outcome.life_loss);
 
-  // Crime progress
   const updatedCrimeXp    = Math.max(0,
     progress.crime_xp + outcome.xp_gained - outcome.xp_lost
   );
@@ -308,12 +312,11 @@ export function buildUpdatedStats(
   const attempts     = progress.attempts + 1;
   const successes    = progress.successes +
     (outcome.outcome === "success" || outcome.outcome === "special" ? 1 : 0);
-  const failures     = progress.failures  +
-    (outcome.outcome === "fail"      ? 1 : 0);
+  const failures     = progress.failures +
+    (outcome.outcome === "fail" ? 1 : 0);
   const critFailures = progress.crit_failures +
     (outcome.outcome === "crit_fail" ? 1 : 0);
 
-  // Jail timestamps
   let jailUntil: Date | null =
     user.jail_until ? new Date(user.jail_until) : null;
   let federalJailUntil: Date | null =

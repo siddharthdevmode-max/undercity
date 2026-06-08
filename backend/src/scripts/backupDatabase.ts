@@ -1,18 +1,19 @@
-import { exec }      from "child_process";
+import { execFile }  from "child_process";
 import { promisify } from "util";
 import path          from "path";
 import fs            from "fs";
 import { logger }    from "../utils/logger";
 import { Alerts }    from "../utils/alerts";
 
-const execAsync = promisify(exec);
+// FIX: execFile instead of exec — no shell, no injection risk
+const execFileAsync = promisify(execFile);
 
 // ============================================================
 // DATABASE BACKUP SCRIPT
-// 1. pg_dump to local file (shell-injection-safe arg building)
+// 1. pg_dump to local file (execFile — no shell injection)
 // 2. Upload to R2/S3 if configured
 // 3. Clean up old local backups (keep 7)
-// 4. Alert on success/failure via correct alert methods
+// 4. Alert on success/failure
 // ============================================================
 
 const BACKUP_DIR    = path.join(process.cwd(), "backups");
@@ -22,23 +23,23 @@ const R2_ENDPOINT   = process.env.R2_ENDPOINT;
 const R2_ACCESS_KEY = process.env.R2_ACCESS_KEY_ID;
 const R2_SECRET_KEY = process.env.R2_SECRET_ACCESS_KEY;
 
-// ── Safe pg_dump argument builder ─────────────────────────
-// Parses DATABASE_URL and builds explicit flags instead of
-// passing the raw URL as a shell argument (injection risk).
+interface PgParts {
+  host:     string;
+  port:     string;
+  db:       string;
+  user:     string;
+  password: string;
+}
 
-function buildPgDumpArgs(dbUrl: string, outputFile: string): {
-  args: string;
-  env:  Record<string, string>;
-} {
-  const url  = new URL(dbUrl);
+function parsePgUrl(dbUrl: string): PgParts {
+  const url       = new URL(dbUrl);
+  const safeIdent = /^[a-zA-Z0-9_\-.]+$/;
+
   const host = url.hostname;
   const port = url.port || "5432";
   const db   = url.pathname.slice(1);
   const user = url.username;
-  const pass = url.password || "";
 
-  // Allowlist: only safe identifier characters
-  const safeIdent = /^[a-zA-Z0-9_\-.]+$/;
   if (
     !safeIdent.test(host) ||
     !safeIdent.test(port) ||
@@ -48,16 +49,8 @@ function buildPgDumpArgs(dbUrl: string, outputFile: string): {
     throw new Error("Invalid characters in DATABASE_URL connection params");
   }
 
-  // outputFile is already path.resolve'd — strip single quotes as safety
-  const safeOutput = outputFile.replace(/'/g, "");
-
-  return {
-    args: `-h ${host} -p ${port} -U ${user} -d ${db} -f '${safeOutput}' --no-password`,
-    env:  { PGPASSWORD: pass },
-  };
+  return { host, port, db, user, password: url.password || "" };
 }
-
-// ── R2 Upload ──────────────────────────────────────────────
 
 async function uploadToR2(localFile: string, filename: string): Promise<boolean> {
   if (!R2_BUCKET || !R2_ENDPOINT || !R2_ACCESS_KEY || !R2_SECRET_KEY) {
@@ -66,23 +59,25 @@ async function uploadToR2(localFile: string, filename: string): Promise<boolean>
   }
 
   try {
-    // Args built separately — no shell interpolation of secrets
-    const cmd = [
-      "aws", "s3", "cp",
-      localFile,
-      `s3://${R2_BUCKET}/backups/${filename}`,
-      "--endpoint-url", R2_ENDPOINT,
-      "--storage-class", "STANDARD",
-    ].join(" ");
-
-    await execAsync(cmd, {
-      env: {
-        ...process.env,
-        AWS_ACCESS_KEY_ID:     R2_ACCESS_KEY,
-        AWS_SECRET_ACCESS_KEY: R2_SECRET_KEY,
-      },
-      timeout: 120_000,
-    });
+    // FIX: execFile with array args — no shell
+    await execFileAsync(
+      "aws",
+      [
+        "s3", "cp",
+        localFile,
+        `s3://${R2_BUCKET}/backups/${filename}`,
+        "--endpoint-url", R2_ENDPOINT,
+        "--storage-class", "STANDARD",
+      ],
+      {
+        env: {
+          ...process.env,
+          AWS_ACCESS_KEY_ID:     R2_ACCESS_KEY,
+          AWS_SECRET_ACCESS_KEY: R2_SECRET_KEY,
+        },
+        timeout: 120_000,
+      }
+    );
 
     logger.info("☁️  Backup uploaded to R2", { filename });
     return true;
@@ -93,8 +88,6 @@ async function uploadToR2(localFile: string, filename: string): Promise<boolean>
     return false;
   }
 }
-
-// ── Clean old local backups ────────────────────────────────
 
 async function cleanOldBackups(): Promise<void> {
   if (!fs.existsSync(BACKUP_DIR)) return;
@@ -115,8 +108,6 @@ async function cleanOldBackups(): Promise<void> {
   }
 }
 
-// ── Main ──────────────────────────────────────────────────
-
 async function backup(): Promise<void> {
   const startTime = Date.now();
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -133,35 +124,40 @@ async function backup(): Promise<void> {
   }
 
   const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) {
-    throw new Error("DATABASE_URL environment variable is not set");
-  }
+  if (!dbUrl) throw new Error("DATABASE_URL environment variable is not set");
 
   logger.info("💾 Starting database backup...", { filename });
 
   try {
-    const { args, env: pgEnv } = buildPgDumpArgs(dbUrl, localPath);
+    const { host, port, db, user, password } = parsePgUrl(dbUrl);
 
-    await execAsync(`pg_dump ${args}`, {
-      env:       { ...process.env, ...pgEnv },
-      timeout:   300_000,
-      maxBuffer: 100 * 1024 * 1024,
-    });
+    // FIX: execFile with array args — completely eliminates shell injection
+    await execFileAsync(
+      "pg_dump",
+      [
+        "-h", host,
+        "-p", port,
+        "-U", user,
+        "-d", db,
+        "-f", localPath,
+        "--no-password",
+      ],
+      {
+        env:       { ...process.env, PGPASSWORD: password },
+        timeout:   300_000,
+        maxBuffer: 100 * 1024 * 1024,
+      }
+    );
 
     const stats      = fs.statSync(localPath);
     const fileSizeKb = Math.round(stats.size / 1024);
     const durationMs = Date.now() - startTime;
 
-    logger.info("✅ Local backup complete", {
-      filename,
-      fileSizeKb,
-      durationMs,
-    });
+    logger.info("✅ Local backup complete", { filename, fileSizeKb, durationMs });
 
     const uploaded = await uploadToR2(localPath, filename);
     await cleanOldBackups();
 
-    // ✅ Correct alert — was wrongly using Alerts.serverStarted()
     Alerts.backupSucceeded(fileSizeKb, durationMs);
 
     logger.info("✅ Backup pipeline complete", {
@@ -174,15 +170,9 @@ async function backup(): Promise<void> {
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
     logger.error("❌ Backup failed", { error: msg });
-
-    // ✅ Correct alert — was wrongly using Alerts.honeypotTriggered()
     Alerts.backupFailed(msg);
 
-    // Clean up partial backup file
-    if (fs.existsSync(localPath)) {
-      fs.unlinkSync(localPath);
-    }
-
+    if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
     process.exit(1);
   }
 }

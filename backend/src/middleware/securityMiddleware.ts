@@ -1,34 +1,39 @@
 import { Express, Request, Response, NextFunction } from "express";
-import helmet from "helmet";
+import helmet      from "helmet";
 import compression from "compression";
-import morgan from "morgan";
-import { config } from "../config";
-import { logger } from "../utils/logger";
+import morgan      from "morgan";
+import { config }  from "../config";
+import { logger }  from "../utils/logger";
 
-// Derive the CSP directives type directly from helmet's own types
 type CspDirectives = NonNullable<
   NonNullable<Parameters<typeof helmet.contentSecurityPolicy>[0]>["directives"]
 >;
 
 export function setupSecurityMiddleware(app: Express): void {
 
+  // FIX: Environment-aware connectSrc
+  const apiOrigins = config.isProduction
+    ? [
+        "https://api.undercity.online",
+        "wss://api.undercity.online",
+      ]
+    : [
+        "http://localhost:5000",
+        "ws://localhost:5000",
+        "http://localhost:3000",
+        "ws://localhost:3000",
+      ];
+
   const cspDirectives: CspDirectives = {
     defaultSrc: ["'self'"],
     styleSrc:   ["'self'", "'unsafe-inline'"],
     imgSrc:     ["'self'", "data:", "https:"],
-    connectSrc: [
-      "'self'",
-      "https://api.undercity.online",
-      // WebSocket connections require wss:// explicitly in CSP.
-      // Socket.IO uses wss:// in production — without this the
-      // browser blocks the upgrade and falls back to long-polling.
-      "wss://api.undercity.online",
-    ],
-    fontSrc:   ["'self'"],
-    objectSrc: ["'none'"],
-    mediaSrc:  ["'none'"],
-    frameSrc:  ["'none'"],
-    scriptSrc: ["'self'"],
+    connectSrc: ["'self'", ...apiOrigins],
+    fontSrc:    ["'self'"],
+    objectSrc:  ["'none'"],
+    mediaSrc:   ["'none'"],
+    frameSrc:   ["'none'"],
+    scriptSrc:  ["'self'"],
   };
 
   if (config.cspReportUri) {

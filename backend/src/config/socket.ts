@@ -279,3 +279,13 @@ export const SocketNotify = {
     this.broadcast("maintenance", { message, ts: Date.now() });
   },
 } as const;
+
+// ─── Safe Notify (null-guarded) ───────────────────────────
+// Use these in gameTick and other early-boot callers
+// where socket.io may not be initialized yet.
+export const SafeNotify = {
+  onlineCount(count: number): void {
+    if (!io) return;
+    io.emit("stats:online", { count, ts: Date.now() });
+  },
+};

@@ -339,6 +339,17 @@ export default function Shell({ children }: Props) {
             ))}
           </nav>
 
+          {/* Settings */}
+          <div className="sb-admin-block" style={{ marginTop: '0.5rem' }}>
+            <Link
+              to="/settings"
+              className={`nav-item ${location.pathname === '/settings' ? 'active' : ''}`}
+            >
+              <Icon name="admin" size={15} />
+              Settings
+            </Link>
+          </div>
+
           {/* Admin */}
           {(isAdmin || isDeveloper) && (
             <div className="sb-admin-block">

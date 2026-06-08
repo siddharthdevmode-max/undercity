@@ -351,3 +351,83 @@
   font-weight: 600;
   letter-spacing: 0.5px;
 }
+
+/* ════════════════════════════════════════════════════════════
+   AUTH PAGE LAYOUT — Two-column side by side
+   Form on left, hero image on right
+   ════════════════════════════════════════════════════════════ */
+
+.about-section {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  padding: 60px 32px;
+}
+
+.about-content {
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+  align-items: center;
+}
+
+.about-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.about-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.about-image img {
+  width: 100%;
+  max-width: 520px;
+  height: auto;
+  border-radius: 12px;
+  object-fit: cover;
+  box-shadow:
+    0 0 0 1px rgba(220, 31, 46, 0.15),
+    0 32px 80px rgba(0, 0, 0, 0.6),
+    0 0 60px rgba(220, 31, 46, 0.08);
+}
+
+/* Auth page fills full viewport height */
+.landing-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Responsive — stack on mobile ── */
+@media (max-width: 900px) {
+  .about-content {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+
+  .about-image {
+    display: none; /* hide image on mobile to save space */
+  }
+
+  .about-section {
+    padding: 40px 20px;
+  }
+}
+
+@media (max-width: 600px) {
+  .about-section {
+    padding: 24px 16px;
+  }
+
+  .auth-title {
+    font-size: 40px;
+  }
+}

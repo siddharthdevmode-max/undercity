@@ -80,7 +80,7 @@ async function lookupIp(ip: string): Promise<IpApiResponse | null> {
   try {
     const controller = new AbortController();
     const timer      = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-    const scheme     = config.isProduction ? "https" : "http";
+    const scheme = "http"; // ip-api.com free tier is HTTP only
     const url        = `${scheme}://ip-api.com/json/${encodeURIComponent(ip)}?fields=${API_FIELDS}`;
 
     const response = await fetch(url, {

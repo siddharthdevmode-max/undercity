@@ -1,7 +1,7 @@
 import { logger }           from "../utils/logger";
 import { pool }             from "../config/database";
 import { redis }            from "../config/redis";
-import { SocketNotify }     from "../config/socket";
+import { SafeNotify } from "../config/socket";
 import { config }           from "../config";
 import { Alerts }           from "../utils/alerts";
 import { regenNerveByTier } from "./nerveService";
@@ -12,10 +12,9 @@ import { regenNerveByTier } from "./nerveService";
 // Tick interval: config.game.tickIntervalMs (default 60s)
 //
 // TIMING STRATEGY:
-//   Instead of modular tickCount (resets on restart = broken timing),
-//   we use wall-clock time stored in Redis.
-//   Each regeneration type checks: "was this last run > X minutes ago?"
-//   This survives server restarts, crashes, and deploys cleanly.
+//   Wall-clock time stored in Redis per regeneration type.
+//   Each regen checks: "was this last run > X minutes ago?"
+//   Survives server restarts, crashes, and deploys cleanly.
 //
 // REGEN SCHEDULE:
 //   Energy:    +1 every 5  minutes (global timer)
@@ -24,11 +23,13 @@ import { regenNerveByTier } from "./nerveService";
 //   Happiness: -1 every 15 minutes (decay if no activity)
 //
 // CIRCUIT BREAKER:
-//   3 consecutive DB failures → tick pauses for 5 minutes
+//   3 consecutive OUTER failures → tick pauses for 5 minutes
+//   Sub-task failures (settled rejections) count separately.
+//   3 consecutive ticks with ANY sub-task failure → alert fires.
 // ============================================================
 
-const TICK_INTERVAL_MS   = config.game.tickIntervalMs;
-const SLOW_TICK_THRESHOLD_MS = 30_000; // Alert if tick > 30s
+const TICK_INTERVAL_MS       = config.game.tickIntervalMs;
+const SLOW_TICK_THRESHOLD_MS = 30_000;
 
 const ENERGY_REGEN_MS    = (config.game.energyRegenSec ?? 300) * 1_000;
 const LIFE_REGEN_MS      = 3  * 60 * 1_000;
@@ -43,20 +44,24 @@ const REDIS_KEY = {
 } as const;
 
 const CIRCUIT = {
-  failures:        0,
-  maxFailures:     3,
-  pauseUntil:      0,
-  pauseDurationMs: 5 * 60 * 1_000,
+  failures:              0,
+  maxFailures:           3,
+  pauseUntil:            0,
+  pauseDurationMs:       5 * 60 * 1_000,
+  // FIX: Track sub-task failures separately from outer failures
+  consecutivePartialFails: 0,
+  maxPartialFails:         3,
 };
 
 let tickInterval: NodeJS.Timeout | null = null;
 let isRunning = false;
-// TODO: Replace in-memory lock with Redlock before scaling to multiple processes.
-// Current guard works correctly for single-process deploy (Phase 6 Hetzner CX32).
-// See: https://github.com/mike-marcacci/node-redlock
+
+// TODO: Replace in-memory lock with Redlock before scaling to
+// multiple processes. Single-process deploy (Phase 6 CX32) is safe.
 
 function recordSuccess(): void {
   CIRCUIT.failures = 0;
+  CIRCUIT.consecutivePartialFails = 0;
 }
 
 function recordFailure(context: string): void {
@@ -73,6 +78,24 @@ function recordFailure(context: string): void {
     logger.error("🔴 Game tick circuit breaker OPEN — pausing for 5 minutes", {
       resumeAt: new Date(CIRCUIT.pauseUntil).toISOString(),
     });
+  }
+}
+
+// FIX: Track partial failures (sub-task rejections) separately.
+// 3 consecutive ticks with any sub-task failure = alert fires.
+function recordPartialFailure(failedTasks: string[]): void {
+  CIRCUIT.consecutivePartialFails++;
+
+  if (CIRCUIT.consecutivePartialFails >= CIRCUIT.maxPartialFails) {
+    logger.error("🟡 Game tick partial failure threshold reached", {
+      consecutiveFails: CIRCUIT.consecutivePartialFails,
+      failedTasks,
+    });
+    Alerts.gameTickFailed(
+      `Repeated sub-task failures: ${failedTasks.join(", ")}`
+    );
+    // Reset so we don't spam alerts every tick
+    CIRCUIT.consecutivePartialFails = 0;
   }
 }
 
@@ -135,7 +158,7 @@ async function regenLife(): Promise<{ updated: number }> {
     SET    life       = LEAST(life + 2, max_life),
            updated_at = NOW()
     WHERE  life       < max_life
-      AND  hospital_until IS NULL
+      AND  (hospital_until IS NULL OR hospital_until <= NOW())
       AND  deleted_at  IS NULL
     RETURNING id
   `);
@@ -212,6 +235,7 @@ export interface TickResult {
   tierExpiry:     { downgraded: number };
   onlineCount:    number;
   ranAt:          string;
+  partialFailures: string[];
 }
 
 export async function runGameTick(): Promise<TickResult | null> {
@@ -256,14 +280,21 @@ export async function runGameTick(): Promise<TickResult | null> {
     const online    = onlineR.status    === "fulfilled" ? onlineR.value    : 0;
     const tierExp   = tierR.status      === "fulfilled" ? tierR.value      : { downgraded: 0 };
 
-    if (energyR.status    === "rejected") logger.error("⚡ Energy regen failed",     { error: energyR.reason?.message });
-    if (nerveR.status     === "rejected") logger.error("🧠 Nerve regen failed",      { error: nerveR.reason?.message });
-    if (lifeR.status      === "rejected") logger.error("❤️  Life regen failed",      { error: lifeR.reason?.message });
-    if (happinessR.status === "rejected") logger.error("😊 Happiness decay failed",  { error: happinessR.reason?.message });
-    if (onlineR.status    === "rejected") logger.error("👥 Online count failed",     { error: onlineR.reason?.message });
-    if (tierR.status      === "rejected") logger.error("⏰ Tier expiry check failed", { error: tierR.reason?.message });
+    // FIX: Collect failed task names for partial failure tracking
+    const partialFailures: string[] = [];
+    if (energyR.status    === "rejected") { partialFailures.push("energy");    logger.error("⚡ Energy regen failed",     { error: energyR.reason?.message }); }
+    if (nerveR.status     === "rejected") { partialFailures.push("nerve");     logger.error("🧠 Nerve regen failed",      { error: nerveR.reason?.message }); }
+    if (lifeR.status      === "rejected") { partialFailures.push("life");      logger.error("❤️  Life regen failed",      { error: lifeR.reason?.message }); }
+    if (happinessR.status === "rejected") { partialFailures.push("happiness"); logger.error("😊 Happiness decay failed",  { error: happinessR.reason?.message }); }
+    if (onlineR.status    === "rejected") { partialFailures.push("online");    logger.error("👥 Online count failed",     { error: onlineR.reason?.message }); }
+    if (tierR.status      === "rejected") { partialFailures.push("tier");      logger.error("⏰ Tier expiry check failed", { error: tierR.reason?.message }); }
 
-    SocketNotify.onlineCount(online);
+    // FIX: Track partial failures in circuit breaker
+    if (partialFailures.length > 0) {
+      recordPartialFailure(partialFailures);
+    }
+
+    SafeNotify.onlineCount(online);
 
     const durationMs = Date.now() - startMs;
 
@@ -274,19 +305,17 @@ export async function runGameTick(): Promise<TickResult | null> {
       nerve,
       life,
       happiness,
-      tierExpiry:  tierExp,
-      onlineCount: online,
-      ranAt:       new Date().toISOString(),
+      tierExpiry:      tierExp,
+      onlineCount:     online,
+      ranAt:           new Date().toISOString(),
+      partialFailures,
     };
 
-    // ── Slow tick detection ────────────────────────────
-    // Fires Discord/Slack alert if tick exceeds 30s threshold
     if (durationMs > SLOW_TICK_THRESHOLD_MS) {
       logger.warn(
         `⚠️ Game tick #${tickNumber} SLOW: ${durationMs}ms (threshold: ${SLOW_TICK_THRESHOLD_MS}ms)`,
         result
       );
-      // Alert fires async — does not block tick completion
       Alerts.gameTickSlow(durationMs);
     } else if (durationMs > TICK_INTERVAL_MS * 0.5) {
       logger.warn(
@@ -297,7 +326,11 @@ export async function runGameTick(): Promise<TickResult | null> {
       logger.debug(`✅ Game tick #${tickNumber} complete`, result);
     }
 
-    recordSuccess();
+    // Only record success if NO partial failures
+    if (partialFailures.length === 0) {
+      recordSuccess();
+    }
+
     return result;
 
   } catch (err) {
@@ -306,9 +339,6 @@ export async function runGameTick(): Promise<TickResult | null> {
 
     logger.error(`❌ Game tick #${tickNumber} failed`, { error: message, durationMs });
     recordFailure(`tick #${tickNumber}: ${message}`);
-
-    // ── Tick failure alert ─────────────────────────────
-    // Fires Discord/Slack so you know the game engine is broken
     Alerts.gameTickFailed(message);
 
     return null;

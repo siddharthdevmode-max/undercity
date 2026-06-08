@@ -100,6 +100,9 @@ export const getCrimes = async (req: Request, res: Response): Promise<void> => {
       },
     }));
 
+    // Suppress unused variable — maxLife kept for future life display in GET /crimes
+    void maxLife;
+
     const totalCrimeXp = await getTotalCrimeXp(client, user.id);
     const maxNerve     = calcMaxNerve(totalCrimeXp);
 
@@ -113,7 +116,7 @@ export const getCrimes = async (req: Request, res: Response): Promise<void> => {
         nerve:            toNumber(user.nerve),
         maxNerve,
         life:             toNumber(user.life),
-        maxLife,
+        maxLife:          calcMaxLife(playerLevel),
         jailUntil:        user.jail_until,
         federalJailUntil: user.federal_jail_until,
         inJail:           isFutureDate(user.jail_until),
@@ -130,13 +133,13 @@ export const getCrimes = async (req: Request, res: Response): Promise<void> => {
 // POST /api/crimes/attempt
 // ============================================================
 export const attemptCrime = async (req: Request, res: Response): Promise<void> => {
-  const log    = getRequestLogger(req.requestId);
-  const client: PoolClient = await pool.connect();
+  const log = getRequestLogger(req.requestId);
 
-  // ── Anti-cheat: fire BEFORE transaction ───────────────
-  // These are non-transactional by design — they write to
-  // separate tracking tables and must not be rolled back
-  // if the crime transaction fails. They are best-effort.
+  // ── Auth check BEFORE acquiring connection ─────────────
+  // FIX: Validate firebaseUid BEFORE pool.connect() to prevent
+  // connection leak when unauthorized requests hit this endpoint.
+  // verifyFirebaseToken middleware should have already blocked
+  // unauthed requests, but this is defense-in-depth.
   const firebaseUid = req.firebaseUser?.uid;
   if (!firebaseUid) throw new UnauthorizedError();
 
@@ -145,7 +148,10 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
   const userAgent = req.headers["user-agent"] as string | undefined;
   const { crimeKey } = req.body as { crimeKey: string };
 
-  // Fire all anti-cheat checks before transaction — intentionally non-blocking
+  // ── Anti-cheat: fire BEFORE transaction ───────────────
+  // Non-transactional by design — write to separate tracking
+  // tables, must NOT be rolled back if crime tx fails.
+  // All are fire-and-forget (.catch handles failures).
   recordFingerprint(firebaseUid, ipAddress, userAgent, visitorId).catch(
     (e: Error) => log.warn("Fingerprint record failed", { error: e.message })
   );
@@ -172,6 +178,9 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
       }
     })
     .catch((e: Error) => log.warn("Multi-account check failed", { error: e.message }));
+
+  // ── Acquire connection AFTER auth check ───────────────
+  const client: PoolClient = await pool.connect();
 
   try {
     await client.query("BEGIN");
@@ -245,7 +254,7 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
       outcome: outcome.outcome,
     });
 
-    // ── Build response first ───────────────────────────
+    // ── Build response ─────────────────────────────────
     const responseBody = {
       outcome: outcome.outcome,
       message: outcome.message,
@@ -301,12 +310,9 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
       },
     };
 
-    // ── Send HTTP response first ───────────────────────
+    // ── HTTP response first, WebSocket after ──────────
     res.json(responseBody);
 
-    // ── WebSocket fires AFTER res.json ─────────────────
-    // Player sees the HTTP result immediately.
-    // Socket pushes update to any other open tabs/devices.
     SocketNotify.statUpdate(firebaseUid, {
       money:    stats.money,
       nerve:    stats.nerve,

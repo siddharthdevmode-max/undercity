@@ -44,6 +44,7 @@ import Newspaper            from './pages/Newspaper';
 import Calendar             from './pages/Calendar';
 import Onboarding           from './pages/Onboarding';
 import DevOnboardingPreview from './pages/DevOnboardingPreview';
+import Settings           from './pages/Settings';
 import NotFound             from './pages/NotFound';
 
 import './App.css';
@@ -95,6 +96,7 @@ function App() {
               <Route path="/events"       element={<ProtectedRoute><Events /></ProtectedRoute>} />
               <Route path="/newspaper"    element={<ProtectedRoute><Newspaper /></ProtectedRoute>} />
               <Route path="/calendar"     element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
+              <Route path="/settings"     element={<ProtectedRoute><Settings /></ProtectedRoute>} />
 
               {/* ── Onboarding ── */}
               <Route path="/onboarding" element={

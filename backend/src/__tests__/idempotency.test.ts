@@ -238,3 +238,29 @@ describe("idempotencyCheck middleware", () => {
     );
   });
 });
+
+  it("persists 2xx response to DB after response is finished", async () => {
+    mocks.mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // SELECT miss
+    mocks.mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // INSERT
+
+    const req = makeReq({ headers: { "x-idempotency-key": VALID_UUID } });
+    const res = makeRes();
+
+    await idempotencyCheck(req as Request, res as Response, mockNext);
+
+    // Simulate the handler calling res.json with a 200 response
+    res.statusCode = 200;
+    (res.json as ReturnType<typeof vi.fn>)({ outcome: "success" });
+
+    // Trigger the onFinished callback (simulates response being sent)
+    mocks.onFinishedCb();
+
+    // Wait for the async DB INSERT (fire-and-forget)
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Verify the INSERT was called
+    const insertCall = mocks.mockPoolQuery.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO idempotency_keys')
+    );
+    expect(insertCall).toBeDefined();
+  });

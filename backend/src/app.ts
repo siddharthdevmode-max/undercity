@@ -73,7 +73,7 @@ app.use(
       if (!origin) return callback(null, true);
       if (config.allowedOrigins.includes(origin)) return callback(null, true);
       logger.warn("CORS blocked", { origin });
-      return callback(new Error(`Origin "${origin}" not allowed by CORS`));
+      return callback(new Error("Origin not allowed by CORS"));
     },
     credentials:    true,
     methods:        ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

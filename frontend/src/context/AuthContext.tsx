@@ -11,16 +11,15 @@ import { auth } from '../firebase';
 import { authAPI } from '../services/api';
 import type { User } from '../types';
 
-// Re-export User as Player for backward compat
 export type Player = User;
 
 interface AuthContextValue {
   firebaseUser: FirebaseUser | null;
-  user: Player | null;
-  loading: boolean;
-  error: string | null;
-  refreshUser: () => Promise<void>;
-  clearError: () => void;
+  user:         Player | null;
+  loading:      boolean;
+  error:        string | null;
+  refreshUser:  () => Promise<void>;
+  clearError:   () => void;
 }
 
 export const AuthContext = createContext<AuthContextValue>({
@@ -32,13 +31,18 @@ export const AuthContext = createContext<AuthContextValue>({
   clearError:   () => {},
 });
 
+// ── Poll interval — matches game tick (60s) ───────────────
+// Keeps nerve/life/energy fresh without hammering the API
+const POLL_INTERVAL_MS = 60_000;
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [user,         setUser]         = useState<Player | null>(null);
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState<string | null>(null);
 
-  const fetchUserRef = useRef<(retryCount?: number) => Promise<void>>(async () => {});
+  const fetchUserRef   = useRef<(retryCount?: number) => Promise<void>>(async () => {});
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchUser = useCallback(async (retryCount = 0): Promise<void> => {
     try {
@@ -58,6 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Keep ref in sync with latest fetchUser
   useEffect(() => {
     fetchUserRef.current = fetchUser;
   }, [fetchUser]);
@@ -70,6 +75,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
   }, []);
 
+  // ── Start polling when user is logged in ─────────────────
+  // Stops when user logs out.
+  const startPolling = useCallback(() => {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    pollIntervalRef.current = setInterval(() => {
+      void fetchUserRef.current();
+    }, POLL_INTERVAL_MS);
+  }, []);
+
+  const stopPolling = useCallback(() => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  }, []);
+
+  // ── Firebase auth state listener ──────────────────────────
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
@@ -78,14 +100,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(true);
         await fetchUser();
         setLoading(false);
+        startPolling(); // start 60s polling after login
       } else {
         setUser(null);
         setLoading(false);
+        stopPolling(); // stop polling on logout
       }
     });
 
-    return unsubscribe;
-  }, [fetchUser]);
+    return () => {
+      unsubscribe();
+      stopPolling();
+    };
+  }, [fetchUser, startPolling, stopPolling]);
 
   return (
     <AuthContext.Provider value={{ firebaseUser, user, loading, error, refreshUser, clearError }}>

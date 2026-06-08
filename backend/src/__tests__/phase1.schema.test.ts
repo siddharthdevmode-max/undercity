@@ -11,8 +11,6 @@
 
 import { describe, it, expect } from 'vitest';
 
-// ── Schema contract tests (pure logic, no DB) ──────────────
-
 describe('Phase 1 — Migration contract verification', () => {
 
   // ── users table expected columns ──────────────────────────
@@ -40,29 +38,30 @@ describe('Phase 1 — Migration contract verification', () => {
     'user_tier', 'tier_expires_at', 'tier_granted_at', 'tier_granted_by',
     // Migration 014: nerve-regen
     'last_nerve_update',
-    // Migration 015: energy-happiness
+    // Migration 015: energy-happiness-hospital
     'energy', 'max_energy', 'happiness', 'hospital_until',
-    // Migration 016: phase1-fixes (CRITICAL — was missing)
-    'ban_type', 'ban_reason', 'ban_expires_at', 'is_soft_banned',
+    // Migration 016: phase1-fixes
+    'ban_type', 'ban_reason', 'ban_expires_at',
+    // NOTE: is_soft_banned was intentionally NOT added to schema.
+    // banCheck.ts uses is_shadow_banned instead (see audit CRIT-8).
   ] as const;
 
   it('users table has all required columns defined in migrations', () => {
-    // These are the columns we expect after all 17 migrations.
-    // If any migration is missing or wrong, this list catches it.
     expect(EXPECTED_USER_COLUMNS).toContain('ban_type');
     expect(EXPECTED_USER_COLUMNS).toContain('ban_reason');
     expect(EXPECTED_USER_COLUMNS).toContain('ban_expires_at');
-    expect(EXPECTED_USER_COLUMNS).toContain('is_soft_banned');
     expect(EXPECTED_USER_COLUMNS).toContain('firebase_uid');
     expect(EXPECTED_USER_COLUMNS).toContain('hospital_until');
     expect(EXPECTED_USER_COLUMNS).toContain('user_tier');
     expect(EXPECTED_USER_COLUMNS).toContain('last_nerve_update');
     expect(EXPECTED_USER_COLUMNS).toContain('onboarding_completed');
     expect(EXPECTED_USER_COLUMNS).toContain('trust_regen_streak');
+    // Verify is_soft_banned is NOT in schema (uses is_shadow_banned instead)
+    expect(EXPECTED_USER_COLUMNS).not.toContain('is_soft_banned');
   });
 
-  it('users table has correct total column count (44 columns)', () => {
-    expect(EXPECTED_USER_COLUMNS.length).toBe(44);
+  it('users table has correct total column count (43 columns)', () => {
+    expect(EXPECTED_USER_COLUMNS.length).toBe(43);
   });
 
   // ── idempotency_keys expected columns ─────────────────────
@@ -109,7 +108,6 @@ describe('Phase 1 — Migration contract verification', () => {
     const total = Object.values(CRIME_KEYS_BY_TIER).flat().length;
     expect(total).toBe(25);
 
-    // Each tier has exactly 5 crimes
     for (const [tier, crimes] of Object.entries(CRIME_KEYS_BY_TIER)) {
       expect(crimes.length).toBe(5);
       expect([1, 2, 3, 4, 5]).toContain(Number(tier));
@@ -142,7 +140,6 @@ describe('Phase 1 — Migration contract verification', () => {
       tier5: [22, 23, 24, 25, 26],
     };
 
-    // Verify all tier 2 costs > all tier 1 costs
     const maxT1 = Math.max(...NERVE_COSTS.tier1);
     const minT2 = Math.min(...NERVE_COSTS.tier2);
     expect(minT2).toBeGreaterThan(maxT1);
@@ -161,26 +158,22 @@ describe('Phase 1 — Migration contract verification', () => {
   });
 
   it('crime economy: reward ranges overlap by 10% (overlap formula)', () => {
-    // next crime min_reward = prev crime max_reward × 0.9
     const TIER_RANGES = [
-      { min: 0,          max: 5_000 },      // tier 1
-      { min: 5_000,      max: 50_000 },     // tier 2
-      { min: 50_000,     max: 500_000 },    // tier 3
-      { min: 500_000,    max: 2_500_000 },  // tier 4
-      { min: 2_500_000,  max: 10_000_000 }, // tier 5
+      { min: 0,          max: 5_000 },
+      { min: 5_000,      max: 50_000 },
+      { min: 50_000,     max: 500_000 },
+      { min: 500_000,    max: 2_500_000 },
+      { min: 2_500_000,  max: 10_000_000 },
     ];
 
     for (let i = 1; i < TIER_RANGES.length; i++) {
       const prev = TIER_RANGES[i - 1]!;
       const curr = TIER_RANGES[i]!;
-      // Current tier min should be ≥ 90% of prev tier max
       expect(curr.min).toBeGreaterThanOrEqual(prev.max * 0.9);
     }
   });
 
   it('crime economy: debt mechanic applies to tier 3+ only', () => {
-    // Tier 1-2: percentage-based loss, never negative
-    // Tier 3-5: flat loss, CAN go negative
     const DEBT_TIERS = [3, 4, 5];
     const SAFE_TIERS = [1, 2];
 
@@ -191,16 +184,8 @@ describe('Phase 1 — Migration contract verification', () => {
     expect(SAFE_TIERS).not.toContain(5);
   });
 
-  // ── Unlock level contract ──────────────────────────────────
-
   it('crime unlock levels match production plan', () => {
-    const UNLOCK_LEVELS = {
-      1: 1,
-      2: 5,
-      3: 10,
-      4: 15,
-      5: 20,
-    };
+    const UNLOCK_LEVELS = { 1: 1, 2: 5, 3: 10, 4: 15, 5: 20 };
     expect(UNLOCK_LEVELS[1]).toBe(1);
     expect(UNLOCK_LEVELS[2]).toBe(5);
     expect(UNLOCK_LEVELS[3]).toBe(10);
@@ -208,20 +193,13 @@ describe('Phase 1 — Migration contract verification', () => {
     expect(UNLOCK_LEVELS[5]).toBe(20);
   });
 
-  // ── New user defaults contract ─────────────────────────────
-
   it('new user default values match production spec', () => {
     const NEW_USER_DEFAULTS = {
-      money:      750,
-      level:      1,
-      points:     0,
-      nerve:      30,
-      max_nerve:  30,
-      life:       100,
-      max_life:   100,
-      energy:     100,
-      max_energy: 100,
-      happiness:  50,
+      money: 750, level: 1, points: 0,
+      nerve: 30, max_nerve: 30,
+      life: 100, max_life: 100,
+      energy: 100, max_energy: 100,
+      happiness: 50,
     };
 
     expect(NEW_USER_DEFAULTS.money).toBe(750);
@@ -234,9 +212,7 @@ describe('Phase 1 — Migration contract verification', () => {
     expect(NEW_USER_DEFAULTS.happiness).toBe(50);
   });
 
-  // ── Migration count contract ───────────────────────────────
-
-  it('exactly 17 migration files exist (0-15 + phase1-fixes)', () => {
+  it('exactly 18 migration files exist (migrations 0 through 16)', () => {
     const MIGRATION_FILES = [
       '1699999999000_initial-schema.js',
       '1700000000000_baseline-indexes.js',
@@ -257,31 +233,26 @@ describe('Phase 1 — Migration contract verification', () => {
       '1700000015000_energy-happiness-hospital.js',
       '1700000016000_phase1-fixes.js',
     ];
-    expect(MIGRATION_FILES.length).toBe(18); // 0-15 = 16, + fixes = 17... wait
-    // Actually: 17 numbered files + 1 gitkeep = 18 dir entries, but 17 actual migrations
-    const actualMigrations = MIGRATION_FILES.filter(f => f.endsWith('.js'));
-    expect(actualMigrations.length).toBe(18);
+    expect(MIGRATION_FILES.length).toBe(18);
+    expect(MIGRATION_FILES.every(f => f.endsWith('.js'))).toBe(true);
   });
-
-  // ── Index existence contract ───────────────────────────────
 
   it('critical indexes exist for game performance', () => {
     const EXPECTED_INDEXES = [
-      'idx_users_firebase_uid',        // Fast auth lookup
-      'idx_users_username',            // Username uniqueness check
-      'idx_users_trust_score',         // Admin queries
-      'idx_users_last_seen_at',        // Online count stats
-      'idx_users_nerve_regen',         // Game tick efficiency
-      'idx_users_user_tier',           // Tier-aware queries
-      'idx_users_ban_expires_at',      // Ban expiry cleanup
-      'idx_progress_user_crime',       // Crime progress lookup
-      'idx_violations_type',           // UAC admin queries
-      'idx_idempotency_uid_key',       // Idempotency fast lookup
-      'idx_auth_access_log_uid_ip',    // IP login history (non-unique)
-      'idx_trust_recovery_firebase_uid', // Daily regen queries
+      'idx_users_firebase_uid',
+      'idx_users_username',
+      'idx_users_trust_score',
+      'idx_users_last_seen_at',
+      'idx_users_nerve_regen',
+      'idx_users_user_tier',
+      'idx_users_ban_expires_at',
+      'idx_progress_user_crime',
+      'idx_violations_type',
+      'idx_idempotency_uid_key',
+      'idx_auth_access_log_uid_ip',
+      'idx_trust_recovery_firebase_uid',
     ];
 
-    // Every index in the list should be a non-empty string
     for (const idx of EXPECTED_INDEXES) {
       expect(typeof idx).toBe('string');
       expect(idx.length).toBeGreaterThan(0);
@@ -290,13 +261,11 @@ describe('Phase 1 — Migration contract verification', () => {
     expect(EXPECTED_INDEXES.length).toBe(12);
   });
 
-  // ── Tier config contract ───────────────────────────────────
-
   it('tier regen rates: contributor faster than player/citizen', () => {
     const TIER_REGEN = {
-      player:      300, // 5 min
-      citizen:     300, // 5 min (same as player)
-      contributor: 180, // 3 min (faster)
+      player:      300,
+      citizen:     300,
+      contributor: 180,
     };
 
     expect(TIER_REGEN.contributor).toBeLessThan(TIER_REGEN.player);
@@ -305,13 +274,12 @@ describe('Phase 1 — Migration contract verification', () => {
   });
 
   it('nerve cap is 130 for ALL tiers (only regen speed differs)', () => {
-    const NERVE_CAP = 130;
+    const NERVE_CAP  = 130;
     const NERVE_BASE = 30;
 
     expect(NERVE_CAP).toBe(130);
     expect(NERVE_BASE).toBe(30);
 
-    // All tiers share same nerve cap
     const tierCaps = {
       player:      NERVE_CAP,
       citizen:     NERVE_CAP,
@@ -321,8 +289,6 @@ describe('Phase 1 — Migration contract verification', () => {
     expect(tierCaps.player).toBe(tierCaps.citizen);
     expect(tierCaps.citizen).toBe(tierCaps.contributor);
   });
-
-  // ── Docker infrastructure contracts ───────────────────────
 
   it('docker services are correctly named', () => {
     const SERVICES = [
@@ -354,16 +320,11 @@ describe('Phase 1 — Migration contract verification', () => {
   });
 
   it('backend healthcheck uses /api/health endpoint', () => {
-    const HEALTHCHECK_PATH = '/api/health';
-    expect(HEALTHCHECK_PATH).toBe('/api/health');
+    expect('/api/health').toBe('/api/health');
   });
 
   it('nginx rate limits: api=60/min, auth=10/min, admin=5/min', () => {
-    const RATE_LIMITS = {
-      api:    60,
-      auth:   10,
-      strict: 5,
-    };
+    const RATE_LIMITS = { api: 60, auth: 10, strict: 5 };
 
     expect(RATE_LIMITS.auth).toBeLessThan(RATE_LIMITS.api);
     expect(RATE_LIMITS.strict).toBeLessThan(RATE_LIMITS.auth);
@@ -373,37 +334,22 @@ describe('Phase 1 — Migration contract verification', () => {
   });
 
   it('nginx client_max_body_size matches Express body limit (100kb)', () => {
-    const NGINX_LIMIT   = '100k';
-    const EXPRESS_LIMIT = '100kb';
-
-    // Both are 100kb — nginx and Express are aligned
     const nginxBytes   = 100 * 1024;
     const expressBytes = 100 * 1024;
     expect(nginxBytes).toBe(expressBytes);
-    expect(NGINX_LIMIT).toBe('100k');
-    expect(EXPRESS_LIMIT).toBe('100kb');
   });
 
-  // ── Seed script contract ───────────────────────────────────
-
   it('seed script is idempotent (ON CONFLICT handles re-runs)', () => {
-    // The seed script uses ON CONFLICT (crime_key) DO UPDATE
-    // This means running it multiple times is safe
     const SEED_STRATEGY = 'ON CONFLICT (crime_key) DO UPDATE SET name = EXCLUDED.name';
     expect(SEED_STRATEGY).toContain('ON CONFLICT');
     expect(SEED_STRATEGY).toContain('DO UPDATE');
   });
 
   it('seed script removes crimes not in seed list (cleanup)', () => {
-    // seedCrimes.ts deletes crimes NOT in the valid list
-    // This ensures old test crimes don't pollute production
     const CLEANUP_QUERY = 'DELETE FROM crimes WHERE crime_key != ALL($1::text[])';
     expect(CLEANUP_QUERY).toContain('DELETE');
-    // != ALL is PostgreSQL's equivalent of NOT IN
     expect(CLEANUP_QUERY).toContain('!= ALL');
   });
-
-  // ── Security: nginx blocks common bots ────────────────────
 
   it('nginx prod blocks common attack tools', () => {
     const BLOCKED_BOTS = [
@@ -411,8 +357,6 @@ describe('Phase 1 — Migration contract verification', () => {
       'nmap', 'masscan', 'nuclei', 'dirbuster',
       'gobuster', 'hydra', 'metasploit',
     ];
-
-    // In dev we allow curl/wget, in prod we block them
     const PROD_ONLY_BLOCKED = ['curl', 'wget'];
 
     expect(BLOCKED_BOTS.length).toBeGreaterThan(10);
@@ -420,29 +364,19 @@ describe('Phase 1 — Migration contract verification', () => {
     expect(PROD_ONLY_BLOCKED).toContain('wget');
   });
 
-  // ── Cloudflare IP passthrough ──────────────────────────────
-
   it('nginx prod uses CF-Connecting-IP for real IP detection', () => {
-    const REAL_IP_HEADER = 'CF-Connecting-IP';
-    expect(REAL_IP_HEADER).toBe('CF-Connecting-IP');
+    expect('CF-Connecting-IP').toBe('CF-Connecting-IP');
   });
 
   it('nginx prod includes all Cloudflare IPv4 ranges', () => {
     const CF_RANGES = [
-      '103.21.244.0/22',
-      '103.22.200.0/22',
-      '104.16.0.0/13',
-      '172.64.0.0/13',
-      '173.245.48.0/20',
-      '162.158.0.0/15',
+      '103.21.244.0/22', '103.22.200.0/22', '104.16.0.0/13',
+      '172.64.0.0/13', '173.245.48.0/20', '162.158.0.0/15',
       '198.41.128.0/17',
     ];
-    // Just verify we have a meaningful number of ranges
     expect(CF_RANGES.length).toBeGreaterThanOrEqual(7);
   });
 });
-
-// ── Seed data integrity tests ──────────────────────────────────
 
 describe('Phase 1 — Seed data integrity', () => {
 
@@ -461,76 +395,49 @@ describe('Phase 1 — Seed data integrity', () => {
   });
 
   it('tier 1 crimes have jail_max_seconds <= 3 hours', () => {
-    const TIER1_MAX_JAIL = 180 * 60; // 180 minutes = 3 hours
-    const SNATCHING_JAIL = 180 * 60; // Snatching: max 180 min
-
+    const TIER1_MAX_JAIL  = 180 * 60;
+    const SNATCHING_JAIL  = 180 * 60;
     expect(SNATCHING_JAIL).toBeLessThanOrEqual(TIER1_MAX_JAIL);
   });
 
   it('tier 5 crimes have jail_max_seconds of exactly 7 days', () => {
-    const SEVEN_DAYS = 7 * 24 * 60 * 60; // 604800 seconds
+    const SEVEN_DAYS     = 7 * 24 * 60 * 60;
     const TIER5_JAIL_MAX = 7 * 24 * 60 * 60;
-
     expect(TIER5_JAIL_MAX).toBe(SEVEN_DAYS);
   });
 
   it('beg_for_change has no jail time (safest tier 1 crime)', () => {
-    const BEG_JAIL_MIN = 0;
-    const BEG_JAIL_MAX = 0;
-
-    expect(BEG_JAIL_MIN).toBe(0);
-    expect(BEG_JAIL_MAX).toBe(0);
+    expect(0).toBe(0); // jail_min_seconds = 0
+    expect(0).toBe(0); // jail_max_seconds = 0
   });
 
   it('max single crime reward is $10M (tier 5 assassination cap)', () => {
     const MAX_REWARD = 10_000_000;
     expect(MAX_REWARD).toBe(10_000_000);
-    // Sanity cap in crimeEngine is 2x = $20M
-    expect(MAX_REWARD * 2).toBe(20_000_000);
+    expect(MAX_REWARD * 2).toBe(20_000_000); // sanity cap in crimeEngine
   });
 
   it('tier 1 crit fail cap is $2000 (never ruins beginners)', () => {
-    const TIER1_CRIT_CAP = 2_000;
-    expect(TIER1_CRIT_CAP).toBe(2_000);
+    expect(2_000).toBe(2_000);
   });
 
   it('tier 3+ crit fail has no cap (debt mechanic)', () => {
-    // Tier 3 flat loss: $50k-$200k
-    const TIER3_MIN_LOSS = 50_000;
-    const TIER3_MAX_LOSS = 200_000;
-    expect(TIER3_MIN_LOSS).toBe(50_000);
-    expect(TIER3_MAX_LOSS).toBe(200_000);
-
-    // Tier 5 flat loss: $2.5M-$5M
-    const TIER5_MIN_LOSS = 2_500_000;
-    const TIER5_MAX_LOSS = 5_000_000;
-    expect(TIER5_MIN_LOSS).toBe(2_500_000);
-    expect(TIER5_MAX_LOSS).toBe(5_000_000);
+    expect(50_000).toBe(50_000);     // tier 3 min loss
+    expect(200_000).toBe(200_000);   // tier 3 max loss
+    expect(2_500_000).toBe(2_500_000); // tier 5 min loss
+    expect(5_000_000).toBe(5_000_000); // tier 5 max loss
   });
 });
-
-// ── Auth access log constraint tests ───────────────────────────
 
 describe('Phase 1 — Auth access log constraint fix', () => {
 
   it('auth_access_log should NOT have unique constraint on uid+ip', () => {
-    // The original migration 007 added:
-    //   UNIQUE (firebase_uid, ip_address)
-    // This was WRONG — same user logs in from same IP many times.
-    // Migration 016 drops it and replaces with non-unique index.
-
-    const ORIGINAL_WRONG_CONSTRAINT = 'UNIQUE (firebase_uid, ip_address)';
     const CORRECT_INDEX = 'INDEX ON auth_access_log (firebase_uid, ip_address)';
-
-    // The correct approach uses INDEX not UNIQUE
     expect(CORRECT_INDEX).toContain('INDEX');
     expect(CORRECT_INDEX).not.toContain('UNIQUE INDEX');
-    expect(ORIGINAL_WRONG_CONSTRAINT).toContain('UNIQUE');
   });
 
   it('auth_access_log is_new_ip is determined by first login from an IP', () => {
-    // The firebaseAuth middleware checks if a uid+ip combo
-    // was seen before. is_new_ip=true only on first login from that IP.
     const IS_NEW_IP_LOGIC = `
       SELECT id FROM auth_access_log
       WHERE firebase_uid = $1 AND ip_address = $2
@@ -542,13 +449,9 @@ describe('Phase 1 — Auth access log constraint fix', () => {
   });
 });
 
-// ── Idempotency middleware schema alignment ──────────────────────
-
 describe('Phase 1 — Idempotency schema alignment', () => {
 
   it('idempotency INSERT uses firebase_uid not user_id for lookup', () => {
-    // The middleware queries by firebase_uid (what we have at middleware time)
-    // NOT by user_id (would require extra DB lookup)
     const INSERT_SQL = `
       INSERT INTO idempotency_keys
         (firebase_uid, idempotency_key, endpoint,
@@ -560,7 +463,6 @@ describe('Phase 1 — Idempotency schema alignment', () => {
     expect(INSERT_SQL).toContain('firebase_uid');
     expect(INSERT_SQL).toContain('response_status');
     expect(INSERT_SQL).toContain('ON CONFLICT (firebase_uid, idempotency_key)');
-    // user_id should NOT be in the primary lookup path
     expect(INSERT_SQL).not.toContain('user_id');
   });
 
@@ -581,9 +483,8 @@ describe('Phase 1 — Idempotency schema alignment', () => {
   });
 
   it('idempotency TTL is 5 minutes (300 seconds)', () => {
-    const IDEMPOTENCY_TTL_MS = 300_000;
+    const IDEMPOTENCY_TTL_MS  = 300_000;
     const IDEMPOTENCY_TTL_SEC = IDEMPOTENCY_TTL_MS / 1_000;
-
     expect(IDEMPOTENCY_TTL_SEC).toBe(300);
     expect(IDEMPOTENCY_TTL_MS).toBe(300_000);
   });

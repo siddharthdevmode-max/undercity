@@ -91,6 +91,8 @@ async function cacheVerification(uid: string): Promise<void> {
   }
 }
 
+const MAX_TURNSTILE_TOKEN_LEN = 2048;
+
 export const verifyTurnstile = async (
   req: Request,
   _res: Response,
@@ -135,6 +137,11 @@ export const verifyTurnstile = async (
 
     const rawToken = req.headers["x-turnstile-token"];
     const token = Array.isArray(rawToken) ? rawToken[0] : rawToken;
+
+    if (token && token.length > MAX_TURNSTILE_TOKEN_LEN) {
+      next(new ForbiddenError("Invalid security token."));
+      return;
+    }
 
     if (!token) {
       logger.warn("Turnstile token required", {

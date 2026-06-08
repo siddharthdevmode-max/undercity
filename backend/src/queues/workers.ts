@@ -6,13 +6,16 @@ import { runTrustRecovery }   from "../services/trustRecovery";
 import { sendEmail }          from "../services/emailService";
 import { pool }               from "../config/database";
 import { config }             from "../config";
-import { exec }               from "child_process";
+import { execFile }           from "child_process";
 import { promisify }          from "util";
 import path                   from "path";
 import fs                     from "fs";
 import type { EmailJob, PaymentWebhookJob } from "./index";
 
-const execAsync = promisify(exec);
+// FIX: Use execFile (no shell) instead of exec (shell=true)
+// execFile does NOT invoke a shell — args are passed directly to the process.
+// This eliminates shell injection risk entirely.
+const execFileAsync = promisify(execFile);
 
 // ============================================================
 // BULLMQ WORKERS — UNDERCITY
@@ -111,6 +114,7 @@ export const backupWorker = new Worker(
     const backupDir  = path.resolve(process.cwd(), "backups");
     const backupFile = path.resolve(backupDir, `undercity-${timestamp}.sql`);
 
+    // Path traversal guard
     if (!backupFile.startsWith(backupDir + path.sep)) {
       throw new Error("Path traversal detected in backup path");
     }
@@ -119,20 +123,33 @@ export const backupWorker = new Worker(
 
     await job.updateProgress(20);
 
-    const pgPassword = extractPgPassword(dbUrl);
-    const pgDumpArgs = buildPgDumpArgs(dbUrl, backupFile);
+    const { host, port, db, user, password } = parsePgUrl(dbUrl);
 
-    await execAsync(`pg_dump ${pgDumpArgs}`, {
-      env:       { ...process.env, PGPASSWORD: pgPassword },
-      timeout:   300_000,
-      maxBuffer: 100 * 1024 * 1024,
-    });
+    // FIX: Use execFile (array args) instead of exec (shell string)
+    // This completely eliminates shell injection — no shell is invoked.
+    await execFileAsync(
+      "pg_dump",
+      [
+        "-h", host,
+        "-p", port,
+        "-U", user,
+        "-d", db,
+        "-f", backupFile,
+        "--no-password",
+      ],
+      {
+        env:       { ...process.env, PGPASSWORD: password },
+        timeout:   300_000,
+        maxBuffer: 100 * 1024 * 1024,
+      }
+    );
 
     await job.updateProgress(80);
 
     const stats  = fs.statSync(backupFile);
     const sizeMb = Math.round((stats.size / 1024 / 1024) * 100) / 100;
 
+    // Retain last 7 backups
     const allBackups = fs
       .readdirSync(backupDir)
       .filter((f) => f.startsWith("undercity-") && f.endsWith(".sql"))
@@ -168,14 +185,23 @@ export const backupWorker = new Worker(
 
 attachWorkerEvents(backupWorker, "database-backup");
 
-function buildPgDumpArgs(dbUrl: string, outputFile: string): string {
-  const url  = new URL(dbUrl);
+interface PgParts {
+  host:     string;
+  port:     string;
+  db:       string;
+  user:     string;
+  password: string;
+}
+
+function parsePgUrl(dbUrl: string): PgParts {
+  const url      = new URL(dbUrl);
+  const safeIdent = /^[a-zA-Z0-9_\-.]+$/;
+
   const host = url.hostname;
   const port = url.port || "5432";
   const db   = url.pathname.slice(1);
   const user = url.username;
 
-  const safeIdent = /^[a-zA-Z0-9_\-.]+$/;
   if (
     !safeIdent.test(host) ||
     !safeIdent.test(port) ||
@@ -185,16 +211,7 @@ function buildPgDumpArgs(dbUrl: string, outputFile: string): string {
     throw new Error("Invalid characters in DB connection params");
   }
 
-  const safeOutput = outputFile.replace(/'/g, "").replace(/\\/g, "");
-  return `-h ${host} -p ${port} -U ${user} -d ${db} -f '${safeOutput}' --no-password`;
-}
-
-function extractPgPassword(dbUrl: string): string {
-  try {
-    return new URL(dbUrl).password || "";
-  } catch {
-    return "";
-  }
+  return { host, port, db, user, password: url.password || "" };
 }
 
 // ============================================================
@@ -300,10 +317,9 @@ export const paymentWebhookWorker = new Worker(
       paymentEventType,
     });
 
-    // Phase 3: replace this with real Lemon Squeezy processing
     return {
-      processed:       false,
-      reason:          "payments_not_implemented",
+      processed:     false,
+      reason:        "payments_not_implemented",
       paymentEventId,
     };
   },

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import Shell from '../components/Shell';
 import Icon  from '../components/ui/Icon';
@@ -20,10 +20,10 @@ function getSecondsRemaining(until: string | null, currentTime: number): number 
 }
 
 export default function Hospital() {
-  const { user } = useAuth();
-  const [now, setNow] = useState(() => Date.now());
+  const { user, refreshUser } = useAuth();
+  const [now, setNow]         = useState(() => Date.now());
+  const wasHospitalizedRef    = useRef(false);
 
-  // Only tick when actually hospitalized — saves one interval when healthy
   useEffect(() => {
     if (!user?.hospitalUntil) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -33,6 +33,16 @@ export default function Hospital() {
   const hospitalSeconds = getSecondsRemaining(user?.hospitalUntil ?? null, now);
   const isHospitalized  = hospitalSeconds > 0;
 
+  // ── Auto-refresh when discharged ─────────────────────────
+  useEffect(() => {
+    if (isHospitalized) {
+      wasHospitalizedRef.current = true;
+    } else if (wasHospitalizedRef.current) {
+      wasHospitalizedRef.current = false;
+      void refreshUser();
+    }
+  }, [isHospitalized, refreshUser]);
+
   const lifePercent = Math.round(
     ((user?.life ?? 0) / Math.max(user?.maxLife ?? 100, 1)) * 100
   );
@@ -41,7 +51,6 @@ export default function Hospital() {
     <Shell>
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '2rem 1rem' }}>
 
-        {/* Header */}
         <div style={{ marginBottom: '2rem' }}>
           <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
             <Icon name="hospital" size={28} className="icon-error" />
@@ -49,13 +58,12 @@ export default function Hospital() {
           </h1>
           <p style={{ color: 'var(--color-muted)', marginTop: '0.5rem' }}>
             {isHospitalized
-              ? 'You\'re recovering from your injuries.'
-              : 'You\'re in good health. Keep it that way.'}
+              ? "You're recovering from your injuries."
+              : "You're in good health. Keep it that way."}
           </p>
         </div>
 
         {isHospitalized ? (
-          /* ── Hospitalized state ── */
           <div style={{
             background:   'var(--color-surface)',
             border:       '1px solid var(--color-error)',
@@ -76,7 +84,6 @@ export default function Hospital() {
               Estimated recovery time
             </p>
 
-            {/* Life bar */}
             <div style={{ marginBottom: '1.5rem', textAlign: 'left' }}>
               <div style={{
                 display:        'flex',
@@ -89,12 +96,7 @@ export default function Hospital() {
                 </span>
                 <span>{user?.life ?? 0} / {user?.maxLife ?? 100}</span>
               </div>
-              <div style={{
-                height:       8,
-                background:   'var(--color-bg)',
-                borderRadius: 4,
-                overflow:     'hidden',
-              }}>
+              <div style={{ height: 8, background: 'var(--color-bg)', borderRadius: 4, overflow: 'hidden' }}>
                 <div style={{
                   height:     '100%',
                   width:      `${lifePercent}%`,
@@ -124,7 +126,6 @@ export default function Hospital() {
             </div>
           </div>
         ) : (
-          /* ── Healthy state ── */
           <div style={{
             background:   'var(--color-surface)',
             border:       '1px solid var(--color-border)',
@@ -133,33 +134,21 @@ export default function Hospital() {
             textAlign:    'center',
           }}>
             <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>💊</div>
-            <h2 style={{ margin: '0 0 0.5rem' }}>You\'re healthy</h2>
+            <h2 style={{ margin: '0 0 0.5rem' }}>You&apos;re healthy</h2>
             <p style={{ color: 'var(--color-muted)', marginBottom: '1.5rem' }}>
               Life: {user?.life ?? 0} / {user?.maxLife ?? 100}
             </p>
-
-            {/* Life bar */}
             <div style={{ marginBottom: '1.5rem' }}>
-              <div style={{
-                height:       8,
-                background:   'var(--color-bg)',
-                borderRadius: 4,
-                overflow:     'hidden',
-              }}>
+              <div style={{ height: 8, background: 'var(--color-bg)', borderRadius: 4, overflow: 'hidden' }}>
                 <div style={{
                   height:       '100%',
                   width:        `${lifePercent}%`,
-                  background:   lifePercent > 50
-                    ? 'var(--color-success)'
-                    : lifePercent > 25
-                    ? 'var(--color-warning)'
-                    : 'var(--color-error)',
+                  background:   lifePercent > 50 ? 'var(--color-success)' : lifePercent > 25 ? 'var(--color-warning)' : 'var(--color-error)',
                   borderRadius: 4,
                   transition:   'width 0.3s ease',
                 }} />
               </div>
             </div>
-
             <Link to="/crimes" className="cta-button" style={{ display: 'inline-flex' }}>
               <Icon name="crime" size={16} /> Commit a Crime
             </Link>

@@ -80,8 +80,8 @@ function buildOutcomeWeights(
   hiddenCpl:           number,
   hasAvailableSpecial: boolean
 ): Record<OutcomeType, number> {
-  const levelFactor  = crimeLevel / 100;
-  const cplFactor    = clamp(hiddenCpl / 200, 0, 1);
+  const levelFactor   = crimeLevel / 100;
+  const cplFactor     = clamp(hiddenCpl / 200, 0, 1);
   const masteryFactor = (levelFactor * 0.6) + (cplFactor * 0.4);
 
   const tierBaseCrit: Record<number, number> = {
@@ -145,8 +145,8 @@ function calcCplChange(outcome: OutcomeType, tier: number): number {
   const tierMult = 1 + (tier - 1) * 0.15;
 
   switch (outcome) {
-    case "special":   return randomFloat(8, 15)  * tierMult;
-    case "success":   return randomFloat(1, 4)   * tierMult;
+    case "special":   return randomFloat(8, 15)   * tierMult;
+    case "success":   return randomFloat(1, 4)    * tierMult;
     case "fail":      return -randomFloat(0.5, 2) * tierMult;
     case "crit_fail": return -randomFloat(4, 10)  * tierMult;
     default:          return 0;
@@ -218,12 +218,14 @@ function calcReward(crime: CrimeDefinition): number {
 //   Money NEVER goes below $0 for tier 1-2.
 //
 // TIER 3-5: Flat amount (brutal for veterans)
-//   Tier 3: lose $50,000   – $200,000
-//   Tier 4: lose $500,000  – $1,250,000
-//   Tier 5: lose $2,500,000 – $5,000,000
+//   Tier 3: lose $50,000   - $200,000
+//   Tier 4: lose $500,000  - $1,250,000
+//   Tier 5: lose $2,500,000 - $5,000,000
 //   Money CAN go negative (debt mechanic).
 //
-// For ALL tiers: EITHER money loss OR life loss, never both.
+// CONTRACT: EITHER money loss OR life loss OR jail, never combined.
+// If life loss is chosen, jail_seconds MUST be 0.
+// If money loss is chosen, jail_seconds is computed normally.
 // ============================================================
 
 const TIER_PCT_CONFIG: Record<number, { minPct: number; maxPct: number; cap: number }> = {
@@ -232,24 +234,33 @@ const TIER_PCT_CONFIG: Record<number, { minPct: number; maxPct: number; cap: num
 };
 
 const TIER_FLAT_CONFIG: Record<number, [number, number]> = {
-  3: [50_000,     200_000],
-  4: [500_000,    1_250_000],
-  5: [2_500_000,  5_000_000],
+  3: [50_000,    200_000],
+  4: [500_000,   1_250_000],
+  5: [2_500_000, 5_000_000],
 };
 
-function calcCritPenalties(
+export interface CritPenalties {
+  money_loss:   number;
+  life_loss:    number;
+  /** When true, jail_seconds must be set to 0 (life loss = no jail) */
+  skipJail:     boolean;
+}
+
+export function calcCritPenalties(
   tier:       number,
   cashOnHand: number,
   maxLife:    number
-): { money_loss: number; life_loss: number } {
+): CritPenalties {
   // 50/50: money loss OR life loss
   const loseMoney = Math.random() < 0.5;
 
   if (!loseMoney) {
+    // Life loss path — NO jail time (player is incapacitated, not arrested)
     const lifeLossPct = randomFloat(0.2, 0.9);
     return {
       money_loss: 0,
       life_loss:  Math.floor(maxLife * lifeLossPct),
+      skipJail:   true,
     };
   }
 
@@ -261,6 +272,7 @@ function calcCritPenalties(
     return {
       money_loss: Math.min(loss, pctConfig.cap),
       life_loss:  0,
+      skipJail:   false,
     };
   }
 
@@ -270,11 +282,12 @@ function calcCritPenalties(
     return {
       money_loss: randomBetween(flatRange[0], flatRange[1]),
       life_loss:  0,
+      skipJail:   false,
     };
   }
 
   // Fallback (should never hit)
-  return { money_loss: 0, life_loss: 0 };
+  return { money_loss: 0, life_loss: 0, skipJail: false };
 }
 
 // ============================================================
@@ -330,9 +343,14 @@ export function resolveCrimeOutcome(
 
     case "crit_fail": {
       const penalties = calcCritPenalties(tier, cashOnHand, maxLife);
-      money_loss   = penalties.money_loss;
-      life_loss    = penalties.life_loss;
-      jail_seconds = calcJailSeconds(crime, crime_level, hidden_cpl);
+      money_loss = penalties.money_loss;
+      life_loss  = penalties.life_loss;
+
+      // FIX: Only compute jail time when money loss path (not life loss path)
+      // Life loss = player is incapacitated/escapes, not arrested
+      if (!penalties.skipJail) {
+        jail_seconds = calcJailSeconds(crime, crime_level, hidden_cpl);
+      }
 
       if (money_loss > 0) {
         const wouldBeNegative = tier >= 3 && cashOnHand - money_loss < 0;
@@ -369,12 +387,12 @@ export function resolveCrimeOutcome(
 
 export function calcLevelProgress(xp: number): number {
   if (xp <= 0) return 0;
-  const currentLevel    = calcCrimeLevel(xp);
+  const currentLevel   = calcCrimeLevel(xp);
   if (currentLevel >= 100) return 100;
-  const currentLevelXp  = Math.ceil(500000 * Math.pow(currentLevel / 100, 1 / 0.45));
-  const nextLevelXp     = Math.ceil(500000 * Math.pow((currentLevel + 1) / 100, 1 / 0.45));
-  const range           = nextLevelXp - currentLevelXp;
-  const progress        = xp - currentLevelXp;
+  const currentLevelXp = Math.ceil(500000 * Math.pow(currentLevel / 100, 1 / 0.45));
+  const nextLevelXp    = Math.ceil(500000 * Math.pow((currentLevel + 1) / 100, 1 / 0.45));
+  const range          = nextLevelXp - currentLevelXp;
+  const progress       = xp - currentLevelXp;
   return Math.min(100, Math.max(0, Math.round((progress / range) * 100)));
 }
 

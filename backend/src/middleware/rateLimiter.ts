@@ -1,7 +1,7 @@
 import rateLimit, { Options } from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import type { Request, Response, NextFunction } from "express";
-import redis from "../config/redis";
+import { redis } from "../config/redis";
 import { config } from "../config";
 import { logger } from "../utils/logger";
 

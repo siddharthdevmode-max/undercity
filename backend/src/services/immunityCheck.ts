@@ -1,5 +1,5 @@
 import { pool } from "../config/database";
-import redis from "../config/redis";
+import { redis } from "../config/redis";
 import { logger } from "../utils/logger";
 
 // ============================================================

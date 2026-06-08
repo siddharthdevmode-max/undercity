@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import Shell from '../components/Shell';
 import Icon  from '../components/ui/Icon';
 import { useAuth } from '../hooks/useAuth';
 
-// ── Timer formatter ────────────────────────────────────────
 function formatTimer(seconds: number): string {
   if (seconds <= 0) return 'Released';
   const h = Math.floor(seconds / 3600);
@@ -21,11 +20,12 @@ function getSecondsRemaining(until: string | null, currentTime: number): number 
 }
 
 export default function Jail() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [now, setNow] = useState(() => Date.now());
+  const wasLockedRef  = useRef(false);
 
-  // Only tick when actually locked — saves one interval when free
   const hasActiveTimer = !!(user?.jailUntil || user?.federalJailUntil);
+
   useEffect(() => {
     if (!hasActiveTimer) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -40,11 +40,23 @@ export default function Jail() {
   const isLocked    = isInJail || isInFedJail;
   const activeTimer = isInFedJail ? fedJailSeconds : jailSeconds;
 
+  // ── Auto-refresh when timer hits zero ────────────────────
+  // When the countdown reaches 0, the user is released server-side.
+  // We refresh AuthContext so jailUntil clears and UI updates.
+  useEffect(() => {
+    if (isLocked) {
+      wasLockedRef.current = true;
+    } else if (wasLockedRef.current) {
+      // Was locked, now free → refresh user data
+      wasLockedRef.current = false;
+      void refreshUser();
+    }
+  }, [isLocked, refreshUser]);
+
   return (
     <Shell>
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '2rem 1rem' }}>
 
-        {/* Header */}
         <div style={{ marginBottom: '2rem' }}>
           <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
             <Icon name={isInFedJail ? 'federal-jail' : 'jail'} size={28} className="icon-error" />
@@ -52,25 +64,24 @@ export default function Jail() {
           </h1>
           <p style={{ color: 'var(--color-muted)', marginTop: '0.5rem' }}>
             {isInFedJail
-              ? 'You\'ve been detained by federal authorities.'
-              : 'You\'re locked up in the city jail.'}
+              ? "You've been detained by federal authorities."
+              : "You're locked up in the city jail."}
           </p>
         </div>
 
         {isLocked ? (
-          /* ── Locked state ── */
           <div style={{
-            background: 'var(--color-surface)',
-            border:     '1px solid var(--color-error)',
+            background:   'var(--color-surface)',
+            border:       '1px solid var(--color-error)',
             borderRadius: 8,
-            padding:    '2rem',
-            textAlign:  'center',
+            padding:      '2rem',
+            textAlign:    'center',
           }}>
             <div style={{
-              fontSize:   '3rem',
-              fontWeight: 700,
-              color:      'var(--color-error)',
-              fontFamily: 'monospace',
+              fontSize:     '3rem',
+              fontWeight:   700,
+              color:        'var(--color-error)',
+              fontFamily:   'monospace',
               marginBottom: '0.5rem',
             }}>
               {formatTimer(activeTimer)}
@@ -111,7 +122,6 @@ export default function Jail() {
             </div>
           </div>
         ) : (
-          /* ── Free state ── */
           <div style={{
             background:   'var(--color-surface)',
             border:       '1px solid var(--color-border)',
@@ -120,9 +130,9 @@ export default function Jail() {
             textAlign:    'center',
           }}>
             <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>🔓</div>
-            <h2 style={{ margin: '0 0 0.5rem' }}>You\'re free</h2>
+            <h2 style={{ margin: '0 0 0.5rem' }}>You&apos;re free</h2>
             <p style={{ color: 'var(--color-muted)', marginBottom: '1.5rem' }}>
-              You\'re not currently in jail. Stay out of trouble.
+              You&apos;re not currently in jail. Stay out of trouble.
             </p>
             <Link to="/crimes" className="cta-button" style={{ display: 'inline-flex' }}>
               <Icon name="crime" size={16} /> Commit a Crime
@@ -130,7 +140,6 @@ export default function Jail() {
           </div>
         )}
 
-        {/* Jail history placeholder */}
         <div style={{
           marginTop:    '2rem',
           background:   'var(--color-surface)',

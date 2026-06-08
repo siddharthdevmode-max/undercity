@@ -123,7 +123,7 @@ export const validate = <T extends ZodSchema>(schema: T) => {
       query?:  Record<string, unknown>;
     };
 
-    if (parsed.body   !== undefined) Object.assign(req.body,   parsed.body);
+    if (parsed.body   !== undefined) req.body   = parsed.body;
     if (parsed.params !== undefined) Object.assign(req.params, parsed.params);
     if (parsed.query  !== undefined) Object.assign(req.query,  parsed.query);
 
