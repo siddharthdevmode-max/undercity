@@ -7,7 +7,7 @@ import {
 } from "firebase/auth";
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import { auth } from '../firebase';
-import { checkUsernameAvailable } from '../services/api';
+import { checkUsernameAvailable, authAPI } from '../services/api';
 import { getFriendlyError } from '../utils/firebaseErrors';
 import { useAuth } from '../hooks/useAuth';
 import Header from '../components/Header';
@@ -58,25 +58,26 @@ export default function Register() {
   const [usernameMessage, setUsernameMessage] = useState('');
   const [turnstileToken, setTurnstileToken]   = useState<string | null>(null);
 
-  const usernameRef                           = useRef<HTMLInputElement>(null);
-  const turnstileRef                          = useRef<TurnstileInstance | null>(null);
-  const navigate                              = useNavigate();
-  const { user, setUser }                     = useAuth();
-  const strength                              = getPasswordStrength(password);
-  const emailValid                            = email.length > 0 && isValidEmail(email);
-  const emailInvalid                          = email.length > 0 && !isValidEmail(email);
+  const usernameRef  = useRef<HTMLInputElement>(null);
+  const turnstileRef = useRef<TurnstileInstance | null>(null);
+  const navigate     = useNavigate();
+
+  // ── AuthContext — refreshUser triggers re-fetch after sync ─
+  const { user, refreshUser } = useAuth();
+
+  const strength    = getPasswordStrength(password);
+  const emailValid  = email.length > 0 && isValidEmail(email);
+  const emailInvalid = email.length > 0 && !isValidEmail(email);
 
   useEffect(() => { if (user) navigate('/onboarding'); }, [user, navigate]);
   useEffect(() => { usernameRef.current?.focus(); }, []);
 
-  // ── Resend verification cooldown timer ──────────────────
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const t = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
     return () => clearTimeout(t);
   }, [resendCooldown]);
 
-  // ── Username availability check (debounced) ─────────────
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (!username) {
@@ -106,39 +107,34 @@ export default function Register() {
     return () => clearTimeout(timer);
   }, [username]);
 
-  // ── Submit ──────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!username.trim())                  return setError('Username is required.');
-    if (usernameStatus !== 'available')    return setError('Please choose an available username.');
-    if (!isValidEmail(email))              return setError('Please enter a valid email address.');
-    if (password !== confirmPassword)      return setError('Passwords do not match.');
-    if (password.length < 6)               return setError('Password must be at least 6 characters.');
-    if (!agreeTerms)                       return setError('You must agree to the terms.');
+    if (!username.trim())               return setError('Username is required.');
+    if (usernameStatus !== 'available') return setError('Please choose an available username.');
+    if (!isValidEmail(email))           return setError('Please enter a valid email address.');
+    if (password !== confirmPassword)   return setError('Passwords do not match.');
+    if (password.length < 6)            return setError('Password must be at least 6 characters.');
+    if (!agreeTerms)                    return setError('You must agree to the terms.');
     if (TURNSTILE_SITE_KEY && !turnstileToken) {
       return setError('Please complete the security check.');
     }
 
     setLoading(true);
     try {
-      // 1. Create Firebase account
       await createUserWithEmailAndPassword(auth, email, password);
 
-      // 2. Send verification email
       if (auth.currentUser) {
         await sendEmailVerification(auth.currentUser, {
           url: `${window.location.origin}/login`,
         });
       }
 
-      // 3. Move to "check your email" screen
       setStage('verify-email');
       setResendCooldown(60);
     } catch (err: unknown) {
       setError(getFriendlyError(err));
-      // Reset Turnstile on error so user can try again
       turnstileRef.current?.reset();
       setTurnstileToken(null);
     } finally {
@@ -146,7 +142,6 @@ export default function Register() {
     }
   };
 
-  // ── Resend verification email ───────────────────────────
   const handleResend = async () => {
     if (resendCooldown > 0 || !auth.currentUser) return;
     setError('');
@@ -160,12 +155,10 @@ export default function Register() {
     }
   };
 
-  // ── Continue to game after email verified ───────────────
   const handleContinue = async () => {
     setError('');
     setLoading(true);
     try {
-      // Force token refresh so backend gets email_verified=true
       await auth.currentUser?.reload();
       const refreshed = auth.currentUser;
 
@@ -175,18 +168,15 @@ export default function Register() {
         return;
       }
 
-      // Force token refresh so backend gets email_verified=true
-      // Without this, cached token may still have email_verified=false
+      // Force fresh token with email_verified=true
       await refreshed.getIdToken(true);
 
-      // Force token refresh so backend gets email_verified=true
-      // Without this, cached token may still have email_verified=false
-      await refreshed.getIdToken(true);
+      // Sync with backend (creates DB record)
+      await authAPI.sync(username);
 
-      // Now sync with backend (will create DB record)
-      const { authAPI } = await import('../services/api');
-      const newUser = await authAPI.sync(username);
-      setUser(newUser);
+      // Trigger AuthContext to re-fetch user from /auth/me
+      await refreshUser();
+
       navigate('/onboarding');
     } catch (err: unknown) {
       setError(getFriendlyError(err));
@@ -195,7 +185,6 @@ export default function Register() {
     }
   };
 
-  // ── Go back to form (cancel registration) ───────────────
   const handleBackToForm = async () => {
     try {
       await signOut(auth);
@@ -206,7 +195,6 @@ export default function Register() {
     turnstileRef.current?.reset();
   };
 
-  // ── Render: Email Verification Screen ───────────────────
   if (stage === 'verify-email') {
     return (
       <div className="landing-page">
@@ -251,36 +239,20 @@ export default function Register() {
                 onClick={handleResend}
                 className="cta-button"
                 disabled={resendCooldown > 0}
-                style={{
-                  marginTop: '0.75rem',
-                  background: 'transparent',
-                  border: '1px solid currentColor',
-                }}
+                style={{ marginTop: '0.75rem', background: 'transparent', border: '1px solid currentColor' }}
               >
-                {resendCooldown > 0
-                  ? `RESEND IN ${resendCooldown}s`
-                  : 'RESEND EMAIL'}
+                {resendCooldown > 0 ? `RESEND IN ${resendCooldown}s` : 'RESEND EMAIL'}
               </button>
 
               <button
                 onClick={handleBackToForm}
-                className="register-login"
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  marginTop: '1rem',
-                  cursor: 'pointer',
-                  color: 'inherit',
-                  textDecoration: 'underline',
-                }}
+                style={{ background: 'transparent', border: 'none', marginTop: '1rem', cursor: 'pointer', color: 'inherit', textDecoration: 'underline' }}
               >
                 Use a different email
               </button>
 
               {error && (
-                <p role="alert" aria-live="polite" className="register-error">
-                  {error}
-                </p>
+                <p role="alert" aria-live="polite" className="register-error">{error}</p>
               )}
             </div>
 
@@ -293,14 +265,12 @@ export default function Register() {
     );
   }
 
-  // ── Render: Registration Form ───────────────────────────
   return (
     <div className="landing-page">
       <Header />
       <section className="about-section">
         <div className="about-content">
 
-          {/* ── Left: Register Form ── */}
           <div className="about-text register-modern-wrapper">
 
             <span className="hero-eyebrow">CREATE YOUR IDENTITY</span>
@@ -387,10 +357,7 @@ export default function Register() {
                   <div className="strength-bar">
                     <div
                       className="strength-fill"
-                      style={{
-                        width:      `${(strength.score / 5) * 100}%`,
-                        background: strength.color,
-                      }}
+                      style={{ width: `${(strength.score / 5) * 100}%`, background: strength.color }}
                     />
                   </div>
                   <span className="strength-label" style={{ color: strength.color }}>
@@ -429,10 +396,7 @@ export default function Register() {
                     onSuccess={setTurnstileToken}
                     onExpire={() => setTurnstileToken(null)}
                     onError={() => setTurnstileToken(null)}
-                    options={{
-                      theme: 'dark',
-                      size:  'normal',
-                    }}
+                    options={{ theme: 'dark', size: 'normal' }}
                   />
                 </div>
               )}
@@ -448,7 +412,6 @@ export default function Register() {
               )}
             </form>
 
-            {/* ── Onboarding Steps ── */}
             <div className="auth-steps">
               <div className="auth-step">
                 <span className="step-num">01</span>
@@ -469,7 +432,6 @@ export default function Register() {
             </p>
           </div>
 
-          {/* ── Right: Hero Image ── */}
           <div className="about-image">
             <img src={hero} alt="Undercity skyline" />
           </div>

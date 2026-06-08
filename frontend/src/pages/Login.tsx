@@ -8,7 +8,6 @@ import {
   browserSessionPersistence,
 } from "firebase/auth";
 import { auth } from '../firebase';
-import { authAPI } from '../services/api';
 import { getFriendlyError } from '../utils/firebaseErrors';
 import { useAuth } from '../hooks/useAuth';
 import Header from '../components/Header';
@@ -42,7 +41,11 @@ export default function Login() {
 
   const emailRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
-  const { user, setUser } = useAuth();
+
+  // ── AuthContext — user comes from onAuthStateChanged ──
+  // We do NOT call setUser directly. Firebase onAuthStateChanged
+  // fires after signInWithEmailAndPassword and AuthContext handles it.
+  const { user } = useAuth();
 
   useEffect(() => { if (user) navigate('/home'); }, [user, navigate]);
   useEffect(() => { emailRef.current?.focus(); }, []);
@@ -80,17 +83,10 @@ export default function Login() {
         stayLoggedIn ? browserLocalPersistence : browserSessionPersistence
       );
       await signInWithEmailAndPassword(auth, email, password);
-      // Returning user — use me() not sync()
-      // sync() is for registration only
-      // AuthContext onAuthStateChanged will also call me() but we
-      // setUser here directly to avoid the loading flash
-      const loggedInUser = await authAPI.me();
-      setUser(loggedInUser);
+      // AuthContext onAuthStateChanged fires automatically and fetches user.
+      // navigate('/home') happens via the useEffect above when user is set.
       setAttempts(0);
-      // Client-side UX only — not a security control.
-      // Real brute force protection is in backend bruteForceProtection middleware.
       localStorage.removeItem('login_lockout');
-      navigate('/home');
     } catch (err: unknown) {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
@@ -130,7 +126,6 @@ export default function Login() {
       <section className="about-section">
         <div className="about-content">
 
-          {/* ── Left: Login Form ── */}
           <div className="about-text register-modern-wrapper">
 
             <span className="hero-eyebrow">UNDERCITY AWAITS</span>
@@ -220,7 +215,6 @@ export default function Login() {
               )}
             </form>
 
-            {/* ── Session Intel Strip ── */}
             <div className="auth-intel-strip">
               <span>⚡ Persistent world</span>
               <span>🔒 Secure login</span>
@@ -232,7 +226,6 @@ export default function Login() {
             </p>
           </div>
 
-          {/* ── Right: Hero Image ── */}
           <div className="about-image">
             <img src={hero} alt="Undercity skyline" />
           </div>

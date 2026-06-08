@@ -5,35 +5,14 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
+import type { User as FirebaseUser } from 'firebase/auth';
 import { auth } from '../firebase';
-import { api } from '../services/api';
+import { authAPI } from '../services/api';
+import type { User } from '../types';
 
-interface Player {
-  id: number;
-  firebase_uid: string;
-  username: string;
-  email: string;
-  level: number;
-  money: number;
-  points: number;
-  nerve: number;
-  max_nerve: number;
-  life: number;
-  max_life: number;
-  energy: number;
-  max_energy: number;
-  happiness: number;
-  jail_until: string | null;
-  hospital_until: string | null;
-  federal_jail_until: string | null;
-  last_crime_at: string | null;
-  onboarding_completed: boolean;
-  is_admin: boolean;
-  is_developer: boolean;
-  is_moderator: boolean;
-  created_at: string;
-}
+// Re-export User as Player for backward compat
+export type Player = User;
 
 interface AuthContextValue {
   firebaseUser: FirebaseUser | null;
@@ -59,23 +38,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState<string | null>(null);
 
-  // ── fetchUser — declared with useRef so it can self-reference
-  // without the "accessed before declaration" ESLint error.
-  // useRef holds the latest version of the function so the
-  // retry call always gets the current closure.
   const fetchUserRef = useRef<(retryCount?: number) => Promise<void>>(async () => {});
 
   const fetchUser = useCallback(async (retryCount = 0): Promise<void> => {
     try {
       setError(null);
-      const data = await api.get<Player>('/auth/me');
+      const data = await authAPI.me();
       setUser(data);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
 
       if (retryCount === 0) {
         await new Promise(r => setTimeout(r, 2000));
-        // Use ref to avoid "accessed before declared" lint error
         return fetchUserRef.current(1);
       }
 
@@ -84,7 +58,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Keep ref in sync with latest fetchUser
   useEffect(() => {
     fetchUserRef.current = fetchUser;
   }, [fetchUser]);
@@ -97,7 +70,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
   }, []);
 
-  // ── Firebase auth state listener ──────────────────────────
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);

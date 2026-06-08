@@ -4,6 +4,13 @@
 // Uses onFinished pattern instead of res.json monkey-patching.
 // TTL and key format validated upfront.
 // Only caches 2xx responses.
+//
+// SCHEMA NOTE:
+//   idempotency_keys table has both:
+//   - firebase_uid (varchar) — for fast auth lookup
+//   - user_id (int FK)       — for relational integrity
+//   We query by firebase_uid since that's what we have at
+//   middleware time (before any DB user lookup).
 // ============================================================
 
 import { Request, Response, NextFunction } from "express";
@@ -33,7 +40,7 @@ export const idempotencyCheck = async (
   // Skip if no key or no user
   if (!rawKey || !uid) return next();
 
-  // Validate key type and length
+  // Validate key type
   if (typeof rawKey !== "string") {
     return next(new ValidationError("X-Idempotency-Key must be a string"));
   }
@@ -54,7 +61,7 @@ export const idempotencyCheck = async (
 
   try {
     // ── Check for existing response ──────────────────────
-
+    // Query by firebase_uid — fast index lookup
     const existing = await pool.query<{
       response_body:   unknown;
       response_status: number;
@@ -82,14 +89,11 @@ export const idempotencyCheck = async (
     }
 
     // ── Capture and save response after it's sent ────────
-    // Using onFinished avoids monkey-patching res.json
 
-    let responseBody:   unknown  = null;
-    let responseStatus: number   = 200;
+    let responseBody:   unknown = null;
+    let responseStatus: number  = 200;
     let captured        = false;
 
-    // Intercept res.json to capture body before it's sent
-    // This is the minimal safe interception — just captures, doesn't block
     const originalJson = res.json.bind(res);
     res.json = function (body: unknown) {
       if (!captured) {
@@ -100,12 +104,16 @@ export const idempotencyCheck = async (
       return originalJson(body);
     };
 
-    // After response is fully sent, persist to DB if 2xx
+    // After response fully sent, persist to DB if 2xx
     onFinished(res, () => {
       if (responseStatus >= 200 && responseStatus < 300 && captured) {
+        // Insert with firebase_uid for fast future lookups
+        // user_id is optional — we skip it here since we'd need a
+        // separate DB call to resolve it, which adds latency
         pool.query(
           `INSERT INTO idempotency_keys
-             (firebase_uid, idempotency_key, endpoint, response_body, response_status, expires_at)
+             (firebase_uid, idempotency_key, endpoint,
+              response_body, response_status, expires_at)
            VALUES ($1, $2, $3, $4, $5, NOW() + ($6 * INTERVAL '1 second'))
            ON CONFLICT (firebase_uid, idempotency_key) DO NOTHING`,
           [uid, key, req.path, JSON.stringify(responseBody), responseStatus, TTL_SECONDS]
