@@ -6,7 +6,7 @@
 // ============================================================
 
 import { Router, Request, Response } from "express";
-import { POINT_PACKS }               from "../config/stripe";
+import { POINT_PACKS }               from "../config/pointPacks";
 
 const router = Router();
 

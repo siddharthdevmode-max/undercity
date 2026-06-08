@@ -25,3 +25,7 @@ firebase-service-account.json
 logs/
 firebase-service-account.json
 backups/*.sql
+
+# Runtime directories — never commit these
+backups/
+logs/*.log
