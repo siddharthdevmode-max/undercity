@@ -87,6 +87,38 @@ export default function Register() {
     return () => clearTimeout(t);
   }, [resendCooldown]);
 
+  // ── Auto-poll for email verification every 3s ─────────────
+  useEffect(() => {
+    if (stage !== 'verify-email') return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        await auth.currentUser?.reload();
+        if (auth.currentUser?.emailVerified && !cancelled) {
+          // Auto-proceed — no button click needed
+          setLoading(true);
+          try {
+            await auth.currentUser.getIdToken(true);
+            await authAPI.sync(username);
+            await refreshUser();
+            navigate('/onboarding');
+          } catch (err: unknown) {
+            if (!cancelled) {
+              setError(getFriendlyError(err));
+              setLoading(false);
+            }
+          }
+        }
+      } catch {
+        // ignore reload errors
+      }
+    };
+
+    const id = setInterval(() => { void poll(); }, 3000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [stage, username, navigate, refreshUser]);
+
   // Username availability check (debounced)
   useEffect(() => {
     const timer = setTimeout(async () => {
@@ -246,9 +278,9 @@ export default function Register() {
     return (
       <div className="landing-page">
         <Header />
-        <section className="about-section">
-          <div className="about-content">
-            <div className="about-text register-modern-wrapper">
+        <div className="auth-page-section">
+          <div className="auth-form-col">
+            <div className="register-modern-wrapper">
               <span className="hero-eyebrow">ONE LAST STEP</span>
               <h1 className="auth-title">
                 CHOOSE YOUR<br />
@@ -298,11 +330,11 @@ export default function Register() {
                 )}
               </form>
             </div>
-            <div className="about-image">
-              <img src={hero} alt="Undercity skyline" />
-            </div>
           </div>
-        </section>
+          <div className="auth-image-col">
+            <img src={hero} alt="Undercity skyline" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -312,64 +344,91 @@ export default function Register() {
     return (
       <div className="landing-page">
         <Header />
-        <section className="about-section">
-          <div className="about-content">
-            <div className="about-text register-modern-wrapper">
-              <span className="hero-eyebrow">ALMOST THERE</span>
-              <h1 className="auth-title">
-                CHECK YOUR<br />
-                <span className="accent">EMAIL INBOX</span>
-              </h1>
-              <div className="divider">
-                <span className="line" />
-                <span className="diamond">◆</span>
-                <span className="line" />
-              </div>
-              <p className="auth-supporting">
-                We sent a verification link to:<br />
-                <strong>{email}</strong>
-              </p>
-              <p className="auth-supporting" style={{ marginTop: '1rem' }}>
-                Click the link in your email, then come back and press
-                the button below to enter the city.
-              </p>
+        <div className="verify-page-center">
+          <div className="verify-card">
+            {/* Icon */}
+            <div className="verify-icon-wrap">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+                <rect width="48" height="48" rx="12" fill="rgba(220,31,46,0.12)"/>
+                <path d="M8 16l16 12 16-12" stroke="#dc1f2e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <rect x="8" y="14" width="32" height="22" rx="3" stroke="#dc1f2e" strokeWidth="2.5" fill="none"/>
+              </svg>
+            </div>
 
-              <button
-                onClick={handleContinue}
-                className="cta-button"
-                disabled={loading}
-                style={{ marginTop: '1.5rem' }}
-              >
+            {/* Heading */}
+            <span className="hero-eyebrow" style={{ textAlign: 'center', display: 'block' }}>ALMOST THERE</span>
+            <h1 className="verify-title">
+              CHECK YOUR<br />
+              <span className="accent">INBOX</span>
+            </h1>
+
+            {/* Email display */}
+            <div className="verify-email-chip">
+              <span className="verify-email-label">Sent to</span>
+              <span className="verify-email-value">{email}</span>
+            </div>
+
+            {/* Auto status */}
+            <div className="verify-auto-status">
+              <span className="verify-pulse" />
+              <span>
                 {loading
-                  ? <><span className="spinner" />CHECKING...</>
-                  : <>I&apos;VE VERIFIED — ENTER CITY <span className="arrow">→</span></>}
-              </button>
-
-              <button
-                onClick={handleResend}
-                className="cta-button"
-                disabled={resendCooldown > 0}
-                style={{ marginTop: '0.75rem', background: 'transparent', border: '1px solid currentColor' }}
-              >
-                {resendCooldown > 0 ? `RESEND IN ${resendCooldown}s` : 'RESEND EMAIL'}
-              </button>
-
-              <button
-                onClick={handleBackToForm}
-                style={{ background: 'transparent', border: 'none', marginTop: '1rem', cursor: 'pointer', color: 'inherit', textDecoration: 'underline' }}
-              >
-                Use a different email
-              </button>
-
-              {error && (
-                <p role="alert" aria-live="polite" className="register-error">{error}</p>
-              )}
+                  ? 'Verifying your email...'
+                  : 'Waiting — this page auto-advances when you click the link'}
+              </span>
             </div>
-            <div className="about-image">
-              <img src={hero} alt="Undercity skyline" />
+
+            {/* Steps */}
+            <div className="verify-steps">
+              <div className="verify-step">
+                <span className="verify-step-num">1</span>
+                <span className="verify-step-text">Open the email from Undercity</span>
+              </div>
+              <div className="verify-step">
+                <span className="verify-step-num">2</span>
+                <span className="verify-step-text">Click the verification link</span>
+              </div>
+              <div className="verify-step">
+                <span className="verify-step-num">3</span>
+                <span className="verify-step-text">This page advances automatically</span>
+              </div>
             </div>
+
+            {/* Manual fallback button */}
+            <button
+              onClick={handleContinue}
+              className="cta-button"
+              disabled={loading}
+              style={{ width: '100%', justifyContent: 'center', marginTop: '8px' }}
+            >
+              {loading
+                ? <><span className="spinner" />VERIFYING...</>
+                : <>ALREADY VERIFIED? CONTINUE <span className="arrow">→</span></>}
+            </button>
+
+            {/* Resend */}
+            <button
+              onClick={handleResend}
+              className="verify-resend-btn"
+              disabled={resendCooldown > 0}
+            >
+              {resendCooldown > 0
+                ? `Resend available in ${resendCooldown}s`
+                : 'Resend verification email'}
+            </button>
+
+            {/* Wrong email */}
+            <button onClick={handleBackToForm} className="verify-back-link">
+              ← Use a different email
+            </button>
+
+            {error && (
+              <p role="alert" aria-live="polite" className="register-error" style={{ textAlign: 'center' }}>
+                {error}
+              </p>
+            )}
           </div>
-        </section>
+        </div>
       </div>
     );
   }
@@ -378,9 +437,9 @@ export default function Register() {
   return (
     <div className="landing-page">
       <Header />
-      <section className="about-section">
-        <div className="about-content">
-          <div className="about-text register-modern-wrapper">
+      <div className="auth-page-section">
+        <div className="auth-form-col">
+          <div className="register-modern-wrapper">
 
             <span className="hero-eyebrow">CREATE YOUR IDENTITY</span>
             <h1 className="auth-title">
@@ -572,11 +631,11 @@ export default function Register() {
             </p>
           </div>
 
-          <div className="about-image">
-            <img src={hero} alt="Undercity skyline" />
-          </div>
         </div>
-      </section>
+        <div className="auth-image-col">
+          <img src={hero} alt="Undercity skyline" />
+        </div>
+      </div>
     </div>
   );
 }

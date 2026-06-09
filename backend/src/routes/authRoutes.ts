@@ -76,9 +76,17 @@ router.post(
       return;
     }
 
-    if (!username || username.trim().length === 0) {
-      throw new ValidationError("Username is required for new accounts");
+    // For Google SSO: auto-generate username from email if not provided
+    let resolvedUsername = username?.trim();
+    if (!resolvedUsername) {
+      // Take the part before @ from email, strip special chars, truncate
+      const base = (email ?? "user")
+        .split("@")[0]
+        .replace(/[^a-zA-Z0-9_-]/g, "")
+        .slice(0, 16);
+      resolvedUsername = base.length >= 3 ? base : `user${Date.now() % 100000}`;
     }
+    const usernameToUse = resolvedUsername;
 
     let isValidUsername:
       | ((u: string) => { valid: boolean; reason?: string })
@@ -93,15 +101,15 @@ router.post(
     }
 
     if (isValidUsername) {
-      const check = isValidUsername(username);
+      const check = isValidUsername(usernameToUse);
       if (!check.valid) {
         throw new ValidationError(check.reason ?? "Invalid username");
       }
     } else {
-      if (username.length < 3 || username.length > 20) {
+      if (usernameToUse.length < 3 || usernameToUse.length > 20) {
         throw new ValidationError("Username must be 3-20 characters");
       }
-      if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+      if (!/^[a-zA-Z0-9_-]+$/.test(usernameToUse)) {
         throw new ValidationError("Username may only contain letters, numbers, _ and -");
       }
     }
@@ -136,7 +144,7 @@ router.post(
         [
           uid,
           email,
-          username,
+          usernameToUse,
           NEW_USER_DEFAULTS.money,
           NEW_USER_DEFAULTS.level,
           NEW_USER_DEFAULTS.points,
@@ -173,12 +181,12 @@ router.post(
       void queueEmail({
         type: "welcome",
         to:   email,
-        username,
+        username: usernameToUse,
       }).catch(() => {});
     }
 
     log.info("New user registered", {
-      username,
+      username: usernameToUse,
       uid: uid.substring(0, 8),
     });
 

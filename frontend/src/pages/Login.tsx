@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   signInWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
   sendPasswordResetEmail,
+  applyActionCode,
   setPersistence,
   browserLocalPersistence,
   browserSessionPersistence,
@@ -44,9 +45,38 @@ export default function Login() {
   const [lockedUntil, setLockedUntil]   = useState<number | null>(loadLockout);
   const [now, setNow]                   = useState(() => Date.now());
 
+  const [verifySuccess, setVerifySuccess] = useState(false);
+  const [verifyProcessing, setVerifyProcessing] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, refreshUser } = useAuth();
+
+  // ── Handle Firebase email verification callback ────────
+  // When user clicks link in email, Firebase redirects here with
+  // ?mode=verifyEmail&oobCode=...
+  // Use ref to avoid setState-in-effect lint rule — state updates
+  // happen inside async callbacks, not synchronously in effect body.
+  const verifyHandledRef = useRef(false);
+
+  useEffect(() => {
+    const mode = searchParams.get('mode');
+    const oobCode = searchParams.get('oobCode');
+    if (mode !== 'verifyEmail' || !oobCode || verifyHandledRef.current) return;
+    verifyHandledRef.current = true;
+
+    void (async () => {
+      try {
+        setVerifyProcessing(true);
+        await applyActionCode(auth, oobCode);
+        setVerifySuccess(true);
+      } catch {
+        // Link expired or already used — user can still log in manually
+      } finally {
+        setVerifyProcessing(false);
+      }
+    })();
+  }, [searchParams]);
 
   useEffect(() => { if (user) navigate('/home'); }, [user, navigate]);
   useEffect(() => { emailRef.current?.focus(); }, []);
@@ -114,15 +144,22 @@ export default function Login() {
       const result = await signInWithPopup(auth, googleProvider);
       const fbUser = result.user;
 
-      // Force fresh token
+      // Force fresh token with latest claims
       await fbUser.getIdToken(true);
 
-      // Sync with backend — creates DB record if first time
-      // Username defaults to display name or null (backend handles it)
-      await authAPI.sync();
-      await refreshUser();
-
-      navigate('/home');
+      // Check if user already has a backend account
+      try {
+        await authAPI.me();
+        // Existing user — just refresh and go home
+        await refreshUser();
+        navigate('/home');
+      } catch {
+        // New Google user — sync creates the account
+        // Backend will auto-generate username from Google display name
+        await authAPI.sync();
+        await refreshUser();
+        navigate('/onboarding');
+      }
     } catch (err: unknown) {
       setError(getFriendlyError(err));
     } finally {
@@ -146,6 +183,58 @@ export default function Login() {
   };
 
   const anyLoading = loading || googleLoading;
+
+  // ── Email verification success screen ──────────────────
+  if (verifyProcessing) {
+    return (
+      <div className="landing-page">
+        <Header />
+        <div className="verify-page-center">
+          <div className="verify-card">
+            <div className="verify-icon-wrap">
+              <span className="spinner" style={{ width: 40, height: 40, borderWidth: 3 }} />
+            </div>
+            <h1 className="verify-title" style={{ fontSize: 28 }}>Verifying<br />your email...</h1>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (verifySuccess) {
+    return (
+      <div className="landing-page">
+        <Header />
+        <div className="verify-page-center">
+          <div className="verify-card">
+            <div className="verify-icon-wrap">
+              <svg width="56" height="56" viewBox="0 0 56 56" fill="none" aria-hidden="true">
+                <rect width="56" height="56" rx="14" fill="rgba(46,204,113,0.15)"/>
+                <path d="M16 28l10 10 14-16" stroke="#2ecc71" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <span className="hero-eyebrow" style={{ textAlign: 'center', display: 'block', color: '#2ecc71' }}>
+              EMAIL VERIFIED
+            </span>
+            <h1 className="verify-title">
+              YOU&apos;RE IN.<br />
+              <span style={{ color: '#2ecc71' }}>WELCOME.</span>
+            </h1>
+            <p style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: 14, margin: 0 }}>
+              Your email has been verified. Log in below to enter the city.
+            </p>
+            <button
+              className="cta-button"
+              onClick={() => setVerifySuccess(false)}
+              style={{ width: '100%', justifyContent: 'center' }}
+            >
+              CONTINUE TO LOGIN <span className="arrow">→</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="landing-page">

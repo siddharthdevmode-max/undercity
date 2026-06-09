@@ -398,3 +398,136 @@
     transform: none;
   }
 }
+
+/* ════════════════════════════════════════════════════════════
+   OB-CONTENT — actual class used in component
+   ════════════════════════════════════════════════════════════ */
+.ob-content {
+  padding: 32px 40px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.ob-eyebrow {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 4px;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.ob-title {
+  font-size: 36px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.1;
+}
+
+.ob-title .accent {
+  color: var(--accent);
+}
+
+.ob-body {
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 560px;
+}
+
+.ob-referral {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ob-referral-input {
+  width: 100%;
+  max-width: 360px;
+  padding: 13px 16px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 14px;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  font-family: inherit;
+}
+
+.ob-referral-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 16px rgba(220, 31, 46, 0.25);
+}
+
+.ob-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.ob-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 28px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.ob-btn-next {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(220, 31, 46, 0.35);
+}
+
+.ob-btn-next:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(220, 31, 46, 0.5);
+}
+
+.ob-btn-back {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.ob-btn-back:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+  background: rgba(255,255,255,0.04);
+}
+
+.ob-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 640px) {
+  .ob-content {
+    padding: 24px 20px 32px;
+  }
+  .ob-title {
+    font-size: 28px;
+  }
+  .ob-btn {
+    padding: 13px 20px;
+    font-size: 12px;
+  }
+}
