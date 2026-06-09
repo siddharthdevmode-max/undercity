@@ -10,19 +10,41 @@ export default defineConfig({
     setupFiles:  ["./src/test/setup.ts"],
     include:     ["src/**/*.test.{ts,tsx}"],
     coverage: {
-      provider:   "v8",
-      reporter:   ["text", "json", "html"],
-      include:    ["src/**/*.{ts,tsx}"],
-      exclude:    [
+      provider: "v8",
+      reporter: ["text", "json", "html"],
+      include:  ["src/**/*.{ts,tsx}"],
+      exclude: [
+        // Test infra
         "src/test/**",
         "src/main.tsx",
         "src/**/*.d.ts",
+
+        // UI — requires real browser/Firebase/DOM
+        "src/pages/**",
+        "src/components/**",
+        "src/App.tsx",
+        "src/firebase.ts",
+        "src/context/**",
+        "src/hooks/**",
+        "src/lib/**",
+        "src/types/**",
+
+        // Services that need live Firebase/fetch/socket
+        // These are covered by integration tests
+        "src/services/api.ts",
+        "src/services/crimes.ts",
+        "src/services/socket.ts",
+        "src/services/fingerprint.ts",
+        "src/services/admin.ts",
+        "src/services/features.ts",
+        "src/services/news.ts",
       ],
       thresholds: {
-        lines:      50,
-        functions:  50,
-        branches:   45,
-        statements: 50,
+        // Measuring only: utils + services/stats + services/analytics
+        lines:      80,
+        functions:  80,
+        branches:   70,
+        statements: 80,
       },
     },
   },

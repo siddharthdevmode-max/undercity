@@ -6,9 +6,9 @@
 
 import { describe, it, expect, afterAll } from "vitest";
 import request from "supertest";
-import app from "../../app";
-import { pool } from "../../config/database";
-import redis from "../../config/redis";
+import app from "../../../app";
+import { pool } from "../../../config/database";
+import redis from "../../../config/redis";
 
 // ── GET /api/health ────────────────────────────────────────
 
