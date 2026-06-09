@@ -7,14 +7,26 @@ import { getAuth, signOut } from 'firebase/auth';
 import { toast } from '../utils/toast';
 import { apiCall } from '../services/api';
 
+// ============================================================
+// SETTINGS PAGE — UNDERCITY
+// FIX: GDPR endpoint paths corrected to include /v1/
+//   /gdpr/my-data      → /v1/gdpr/my-data
+//   /gdpr/delete-account → /v1/gdpr/delete-account
+// apiCall prepends API_BASE_URL (/api), so full paths become:
+//   /api/v1/gdpr/my-data
+//   /api/v1/gdpr/delete-account
+// These match the backend routes defined in gdprRoutes.ts
+// ============================================================
+
 export default function Settings() {
   const { user }  = useAuth();
   const navigate  = useNavigate();
   const auth      = getAuth();
-  const [deleting,           setDeleting]           = useState(false);
-  const [showDeleteConfirm,  setShowDeleteConfirm]  = useState(false);
-  const [confirmText,        setConfirmText]        = useState('');
-  const [exportingData,      setExportingData]      = useState(false);
+
+  const [deleting,          setDeleting]          = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [confirmText,       setConfirmText]       = useState('');
+  const [exportingData,     setExportingData]     = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -25,15 +37,18 @@ export default function Settings() {
     }
   };
 
-  // FIX: GDPR export needs auth token — cannot use plain <a> href
-  // apiCall() injects the Firebase Bearer token automatically
+  // GDPR Art. 20 — data portability
+  // Uses apiCall() so Firebase Bearer token is injected automatically
   const handleExportData = async () => {
     setExportingData(true);
     try {
+      // FIX: /v1/gdpr/export — was /v1/gdpr/export (already correct here)
       const blob = await apiCall<Blob>('/v1/gdpr/export', {
         headers: { Accept: 'application/json' },
       });
-      const url      = URL.createObjectURL(new Blob([JSON.stringify(blob, null, 2)], { type: 'application/json' }));
+      const url     = URL.createObjectURL(
+        new Blob([JSON.stringify(blob, null, 2)], { type: 'application/json' })
+      );
       const anchor   = document.createElement('a');
       anchor.href    = url;
       anchor.download = `undercity-data-${user?.username ?? 'export'}.json`;
@@ -47,9 +62,11 @@ export default function Settings() {
     }
   };
 
+  // GDPR Art. 15 — right of access
   const handleViewData = async () => {
     try {
-      const data = await apiCall('/gdpr/my-data');
+      // FIX: was '/gdpr/my-data' → missing /v1/ prefix → 404
+      const data = await apiCall('/v1/gdpr/my-data');
       const url  = URL.createObjectURL(
         new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
       );
@@ -60,6 +77,7 @@ export default function Settings() {
     }
   };
 
+  // GDPR Art. 17 — right to erasure
   const handleDeleteAccount = async () => {
     if (confirmText !== 'DELETE MY ACCOUNT') {
       toast.error('Type exactly: DELETE MY ACCOUNT');
@@ -67,7 +85,8 @@ export default function Settings() {
     }
     setDeleting(true);
     try {
-      await apiCall('/gdpr/delete-account', {
+      // FIX: was '/gdpr/delete-account' → missing /v1/ prefix → 404
+      await apiCall('/v1/gdpr/delete-account', {
         method: 'DELETE',
         body:   JSON.stringify({ confirmPhrase: 'DELETE MY ACCOUNT' }),
       });
@@ -114,7 +133,9 @@ export default function Settings() {
             ] as [string, string | number | undefined][]).map(([k, v]) => (
               <div key={k} style={S.row}>
                 <span style={S.muted}>{k}</span>
-                <span style={{ fontWeight: 600, textTransform: k === 'Tier' ? 'capitalize' : 'none' }}>{v}</span>
+                <span style={{ fontWeight: 600, textTransform: k === 'Tier' ? 'capitalize' : 'none' }}>
+                  {v}
+                </span>
               </div>
             ))}
           </div>
@@ -124,7 +145,6 @@ export default function Settings() {
         <div style={S.card}>
           <h3 style={S.label}>YOUR DATA</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {/* FIX: Use buttons + apiCall instead of raw <a> tags */}
             <button
               onClick={handleExportData}
               disabled={exportingData}
@@ -133,10 +153,7 @@ export default function Settings() {
               <Icon name="download" size={14} />
               {exportingData ? 'Preparing export...' : 'Download my data (GDPR Art. 20)'}
             </button>
-            <button
-              onClick={handleViewData}
-              style={S.link}
-            >
+            <button onClick={handleViewData} style={S.link}>
               <Icon name="info" size={14} />
               View data we hold (GDPR Art. 15)
             </button>
@@ -177,7 +194,14 @@ export default function Settings() {
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
                 placeholder="DELETE MY ACCOUNT"
-                style={{ background: 'var(--color-bg)', border: '1px solid var(--color-error)', borderRadius: 6, padding: '0.6rem 1rem', color: 'var(--color-text)', fontSize: '0.9rem' }}
+                style={{
+                  background:   'var(--color-bg)',
+                  border:       '1px solid var(--color-error)',
+                  borderRadius: 6,
+                  padding:      '0.6rem 1rem',
+                  color:        'var(--color-text)',
+                  fontSize:     '0.9rem',
+                }}
               />
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button

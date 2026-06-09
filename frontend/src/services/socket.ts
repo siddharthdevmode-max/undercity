@@ -1,3 +1,12 @@
+// ============================================================
+// SOCKET SERVICE — UNDERCITY
+// FIX: pendingListeners now persists across server-initiated
+// disconnects. Only cleared on explicit user logout
+// (disconnectSocket() called from useSocket cleanup).
+// This prevents listeners registered by hooks from going
+// missing when the server drops the connection and reconnects.
+// ============================================================
+
 import { io, Socket } from "socket.io-client";
 import { getAuth }    from "firebase/auth";
 
@@ -7,6 +16,8 @@ let socket: Socket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ── Pending listener registry ──────────────────────────────
+// Persists across server-initiated disconnects.
+// Cleared ONLY on explicit user logout (disconnectSocket).
 type ListenerEntry = { event: string; cb: (...args: unknown[]) => void };
 const pendingListeners: ListenerEntry[] = [];
 
@@ -18,7 +29,7 @@ function attachPendingListeners(): void {
 }
 
 // Always get a fresh Firebase token for socket auth.
-// Firebase tokens expire after 1 hour, so reconnects must refresh.
+// Firebase tokens expire after 1 hour — reconnects must refresh.
 async function getFreshToken(): Promise<string> {
   const auth = getAuth();
   const user = auth.currentUser;
@@ -51,7 +62,6 @@ export async function connectSocket(): Promise<Socket> {
   socket.io.on("reconnect_attempt", async () => {
     try {
       const freshToken = await getFreshToken();
-      // auth belongs on the socket, not socket.io.opts
       socket!.auth = { token: freshToken };
     } catch {
       disconnectSocket();
@@ -59,6 +69,8 @@ export async function connectSocket(): Promise<Socket> {
   });
 
   socket.on("disconnect", (reason) => {
+    // Server-initiated disconnect: schedule reconnect
+    // pendingListeners preserved so hooks stay connected
     if (reason === "io server disconnect") {
       reconnectTimer = setTimeout(async () => {
         try {
@@ -86,6 +98,8 @@ export function disconnectSocket(): void {
     socket.disconnect();
     socket = null;
   }
+  // Clear pending listeners ONLY on explicit logout
+  // (not on server-initiated disconnect)
   pendingListeners.length = 0;
 }
 

@@ -6,7 +6,6 @@ let mockCurrentUser: { getIdToken: () => Promise<string> } | null = {
   getIdToken: () => Promise.resolve('mock-firebase-token'),
 };
 
-// fingerprintShouldFail lets us toggle failure per-test
 let fingerprintShouldFail = false;
 
 vi.mock('firebase/auth', () => ({
@@ -23,12 +22,11 @@ vi.mock('../fingerprint', () => ({
 }));
 
 Object.defineProperty(globalThis, 'crypto', {
-  value: { randomUUID: () => 'mock-uuid-1234' },
-  writable: true,
+  value:        { randomUUID: () => 'mock-uuid-1234' },
+  writable:     true,
   configurable: true,
 });
 
-// ── Import once — module cached after first import ───────────
 import {
   apiCall,
   publicCall,
@@ -37,6 +35,7 @@ import {
 } from '../api';
 
 // ── Fetch helpers ─────────────────────────────────────────────
+
 function mockFetch(body: unknown, status = 200, ok = true) {
   return vi.fn().mockResolvedValue({
     ok,
@@ -50,7 +49,7 @@ function mockFetchSequence(
 ) {
   let call = 0;
   return vi.fn().mockImplementation(() => {
-    const r = responses[Math.min(call++, responses.length - 1)];
+    const r = responses[Math.min(call++, responses.length - 1)]!;
     return Promise.resolve({
       ok:     r.ok     ?? true,
       status: r.status ?? 200,
@@ -60,6 +59,7 @@ function mockFetchSequence(
 }
 
 // ── Fixtures ──────────────────────────────────────────────────
+
 const rawUser = {
   id:                   1,
   firebase_uid:         'uid-123',
@@ -132,8 +132,8 @@ describe('apiCall', () => {
     mockCurrentUser = null;
     const err = await apiCall('/auth/me').catch(e => e) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
-    expect((err as ApiError).code).toBe('UNAUTHORIZED');
-    expect((err as ApiError).statusCode ?? (err as ApiError).status).toBe(401);
+    expect(err.code).toBe('UNAUTHORIZED');
+    expect(err.statusCode).toBe(401);
   });
 
   it('makes GET request with correct auth headers', async () => {
@@ -158,7 +158,8 @@ describe('apiCall', () => {
     await apiCall('/crimes/attempt', { method: 'POST', body: JSON.stringify({}) });
 
     const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls as [string, RequestInit][];
-    expect(calls[0][0]).toContain('/challenge');
+    // FIX: challenge URL now includes /v1/
+    expect(calls[0][0]).toContain('/v1/challenge');
     const headers = calls[1][1].headers as Record<string, string>;
     expect(headers['x-uac-challenge']).toBe('challenge-token-xyz');
     expect(headers['x-idempotency-key']).toBe('mock-uuid-1234');
@@ -187,7 +188,7 @@ describe('apiCall', () => {
 
     const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls as [string, RequestInit][];
     expect(calls).toHaveLength(2);
-    expect(calls[0][0]).toContain('/challenge');
+    expect(calls[0][0]).toContain('/v1/challenge');
   });
 
   it('does NOT add challenge headers for GET requests', async () => {
@@ -197,12 +198,12 @@ describe('apiCall', () => {
 
     expect(fetch).toHaveBeenCalledOnce();
     const [, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
-    const headers = opts.headers as Record<string, string>;
+    const headers  = opts.headers as Record<string, string>;
     expect(headers['x-uac-challenge']).toBeUndefined();
     expect(headers['x-idempotency-key']).toBeUndefined();
   });
 
-  it('throws ApiError on non-ok response with message and code', async () => {
+  it('throws ApiError on non-ok response', async () => {
     globalThis.fetch = mockFetch(
       { message: 'Not found', code: 'NOT_FOUND' },
       404,
@@ -211,12 +212,12 @@ describe('apiCall', () => {
 
     const err = await apiCall('/missing').catch(e => e) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
-    expect((err as ApiError).message).toBe('Not found');
-    expect((err as ApiError).code).toBe('NOT_FOUND');
-    expect(err.statusCode ?? err.status).toBe(404);
+    expect(err.message).toBe('Not found');
+    expect(err.code).toBe('NOT_FOUND');
+    expect(err.statusCode).toBe(404);
   });
 
-  it('throws ApiError with fallback message on unparseable error body', async () => {
+  it('throws ApiError with fallback on unparseable error body', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok:     false,
       status: 500,
@@ -225,19 +226,18 @@ describe('apiCall', () => {
 
     const err = await apiCall('/bad').catch(e => e) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
-    expect((err as ApiError).message).toBe('API request failed');
-    expect((err as ApiError).code).toBe('UNKNOWN_ERROR');
+    expect(err.message).toBe('API request failed');
+    expect(err.code).toBe('UNKNOWN_ERROR');
   });
 
-  it('omits x-fp-visitor header when fingerprint throws', async () => {
-    // Toggle the module-level flag — no dynamic import needed
+  it('omits x-fp-visitor when fingerprint throws', async () => {
     fingerprintShouldFail = true;
-    globalThis.fetch = mockFetch({ ok: true });
+    globalThis.fetch      = mockFetch({ ok: true });
 
     await apiCall('/auth/me');
 
     const [, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
-    const headers = opts.headers as Record<string, string>;
+    const headers  = opts.headers as Record<string, string>;
     expect(headers['x-fp-visitor']).toBeUndefined();
   });
 });
@@ -266,9 +266,9 @@ describe('publicCall', () => {
 
     const err = await publicCall('/auth/check-username/taken').catch(e => e) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
-    expect((err as ApiError).message).toBe('Username taken');
-    expect((err as ApiError).code).toBe('TAKEN');
-    expect(err.statusCode ?? err.status).toBe(409);
+    expect(err.message).toBe('Username taken');
+    expect(err.code).toBe('TAKEN');
+    expect(err.statusCode).toBe(409);
   });
 });
 
@@ -318,7 +318,7 @@ describe('authAPI', () => {
       const result = await authAPI.sync('TestPlayer');
 
       const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls as [string, RequestInit][];
-      const body = JSON.parse(calls[1][1].body as string);
+      const body  = JSON.parse(calls[1][1].body as string) as Record<string, unknown>;
       expect(body).toEqual({ username: 'TestPlayer' });
       expect(result).toMatchObject(expectedUser);
     });
@@ -364,7 +364,7 @@ describe('checkUsernameAvailable', () => {
     expect(result).toEqual({ available: false, reason: 'Already taken' });
   });
 
-  it('URL-encodes special characters', async () => {
+  it('URL-encodes special characters in username', async () => {
     globalThis.fetch = mockFetch({ available: false });
     await checkUsernameAvailable('user name');
     const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
@@ -373,7 +373,7 @@ describe('checkUsernameAvailable', () => {
 });
 
 // ═════════════════════════════════════════════════════════════
-describe('transformUser field mapping (via authAPI.me)', () => {
+describe('transformUser field mapping', () => {
   it('maps all snake_case fields to camelCase correctly', async () => {
     globalThis.fetch = mockFetch({ user: rawUser });
     const result = await authAPI.me();
