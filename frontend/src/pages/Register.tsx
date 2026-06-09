@@ -332,7 +332,10 @@ export default function Register() {
             </div>
           </div>
           <div className="auth-image-col">
-            <img src={hero} alt="Undercity skyline" />
+            <span className="poster-scanlines" aria-hidden="true" />
+            <span className="poster-edge"      aria-hidden="true" />
+            <img src={hero} alt="Undercity — enter the city" />
+            <span className="poster-label"     aria-hidden="true">Undercity</span>
           </div>
         </div>
       </div>

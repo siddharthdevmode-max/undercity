@@ -826,3 +826,365 @@
     align-items: flex-start;
   }
 }
+
+/* ============================================================
+   AUTH IMAGE — FULL ARTWORK VISIBLE
+   Form left, full image right, no crop
+   ============================================================ */
+
+.auth-page-section {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(420px, 560px) minmax(520px, 1fr);
+  gap: 32px;
+  min-height: calc(100vh - 76px);
+  padding: 24px 32px;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.auth-form-col {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 8px 24px 8px;
+}
+
+.auth-image-col {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.01) 100%),
+    rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.06);
+  overflow: hidden;
+  min-height: 640px;
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(220, 31, 46, 0.08);
+}
+
+.auth-image-col img {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: calc(100vh - 140px);
+  object-fit: contain;
+  object-position: center;
+  display: block;
+  border-radius: 16px;
+  box-shadow:
+    0 0 0 1px rgba(220, 31, 46, 0.12),
+    0 24px 48px rgba(0, 0, 0, 0.45);
+  background: #0b0b0b;
+}
+
+/* remove crop overlay effect from previous version */
+.auth-image-col::after {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .auth-page-section {
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    padding: 20px 24px;
+  }
+
+  .auth-image-col {
+    min-height: 520px;
+  }
+
+  .auth-image-col img {
+    max-height: 560px;
+  }
+}
+
+@media (max-width: 900px) {
+  .auth-page-section {
+    grid-template-columns: 1fr;
+    min-height: unset;
+    padding: 20px;
+  }
+
+  .auth-form-col {
+    padding: 16px 0;
+  }
+
+  .auth-image-col {
+    min-height: 320px;
+    max-height: 420px;
+  }
+
+  .auth-image-col img {
+    max-height: 380px;
+  }
+}
+
+@media (max-width: 600px) {
+  .auth-image-col {
+    display: none;
+  }
+
+  .auth-page-section {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+}
+
+/* ============================================================
+   AUTH IMAGE — CINEMATIC POSTER STYLE
+   Full artwork visible, dramatic framing
+   ============================================================ */
+
+/* Reset previous auth-image-col rules */
+.auth-image-col {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 600px;
+  padding: 0;
+  background: #060606;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(220, 31, 46, 0.15),
+    0 32px 80px rgba(0, 0, 0, 0.6),
+    inset 0 0 120px rgba(220, 31, 46, 0.04);
+}
+
+/* Animated red glow behind image */
+.auth-image-col::before {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(220, 31, 46, 0.12) 0%,
+    transparent 65%
+  );
+  animation: posterGlow 4s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes posterGlow {
+  from { opacity: 0.6; transform: scale(0.95); }
+  to   { opacity: 1;   transform: scale(1.05); }
+}
+
+/* Top + bottom cinematic bars */
+.auth-image-col::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg,
+      rgba(6, 6, 6, 0.55) 0%,
+      transparent 20%,
+      transparent 80%,
+      rgba(6, 6, 6, 0.7) 100%
+    ),
+    linear-gradient(90deg,
+      rgba(6, 6, 6, 0.25) 0%,
+      transparent 30%
+    );
+  pointer-events: none;
+  z-index: 2;
+  display: block;
+}
+
+/* The image itself */
+.auth-image-col img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  max-height: calc(100vh - 120px);
+  object-fit: contain;
+  object-position: center;
+  display: block;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  filter: brightness(0.92) contrast(1.05) saturate(1.1);
+  transition: filter 0.4s ease;
+}
+
+.auth-image-col:hover img {
+  filter: brightness(0.98) contrast(1.06) saturate(1.15);
+}
+
+/* UNDERCITY watermark on image */
+.auth-image-col .poster-label {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  z-index: 3;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  color: rgba(220, 31, 46, 0.5);
+  text-transform: uppercase;
+  pointer-events: none;
+  font-family: inherit;
+}
+
+/* Scanlines overlay for cinematic feel */
+.auth-image-col .poster-scanlines {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.04) 2px,
+    rgba(0, 0, 0, 0.04) 4px
+  );
+  pointer-events: none;
+  border-radius: 20px;
+}
+
+/* Red accent border — left edge only */
+.auth-image-col .poster-edge {
+  position: absolute;
+  top: 15%;
+  bottom: 15%;
+  left: 0;
+  width: 2px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(220, 31, 46, 0.6) 30%,
+    rgba(220, 31, 46, 0.8) 50%,
+    rgba(220, 31, 46, 0.6) 70%,
+    transparent 100%
+  );
+  z-index: 4;
+  border-radius: 0 1px 1px 0;
+}
+
+@media (max-width: 1100px) {
+  .auth-image-col {
+    min-height: 480px;
+  }
+}
+
+@media (max-width: 900px) {
+  .auth-image-col {
+    min-height: 340px;
+    border-radius: 14px;
+  }
+
+  .auth-image-col img {
+    max-height: 360px;
+  }
+}
+
+@media (max-width: 600px) {
+  .auth-image-col {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-image-col::before {
+    animation: none;
+  }
+}
+
+/* ============================================================
+   AUTH IMAGE — FRAME ONLY THE IMAGE, NOT THE WHOLE COLUMN
+   ============================================================ */
+
+.auth-image-col {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  padding: 0 !important;
+  min-height: 640px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible !important;
+}
+
+/* remove giant wrapper effects */
+.auth-image-col::before,
+.auth-image-col::after,
+.auth-image-col .poster-scanlines,
+.auth-image-col .poster-edge {
+  display: none !important;
+}
+
+/* image itself is now the framed poster */
+.auth-image-col img {
+  width: auto !important;
+  height: auto !important;
+  max-width: 100%;
+  max-height: calc(100vh - 130px);
+  object-fit: contain !important;
+  object-position: center;
+  border-radius: 20px;
+  border: 1px solid rgba(220, 31, 46, 0.16);
+  box-shadow:
+    0 0 0 1px rgba(220, 31, 46, 0.08),
+    0 28px 64px rgba(0, 0, 0, 0.45),
+    0 0 70px rgba(220, 31, 46, 0.08);
+  background: #080808;
+  padding: 0;
+  display: block;
+  filter: brightness(0.96) contrast(1.04) saturate(1.08);
+}
+
+/* watermark stays attached to image area visually */
+.auth-image-col .poster-label {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 3;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.38);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: rgba(220, 31, 46, 0.7);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+@media (max-width: 1100px) {
+  .auth-image-col {
+    min-height: 520px;
+  }
+
+  .auth-image-col img {
+    max-height: 520px;
+  }
+}
+
+@media (max-width: 900px) {
+  .auth-image-col {
+    min-height: 360px;
+  }
+
+  .auth-image-col img {
+    max-height: 360px;
+  }
+}
+
+@media (max-width: 600px) {
+  .auth-image-col {
+    display: none;
+  }
+}

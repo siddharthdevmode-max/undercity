@@ -17,7 +17,8 @@
     "seed:specials": "ts-node src/scripts/seedSpecials.ts",
     "backup": "ts-node src/scripts/backupDatabase.ts",
     "trust:recovery": "ts-node src/scripts/runTrustRecovery.ts",
-    "clean:idempotency": "ts-node src/scripts/cleanIdempotencyKeys.ts"
+    "clean:idempotency": "ts-node src/scripts/cleanIdempotencyKeys.ts",
+    "reset:users": "ts-node src/scripts/resetUsersForLaunch.ts"
   },
   "repository": {
     "type": "git",
