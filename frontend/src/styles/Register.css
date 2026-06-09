@@ -431,3 +431,82 @@
     font-size: 40px;
   }
 }
+
+/* ════════════════════════════════════════════════════════════
+   GOOGLE SIGN-IN BUTTON
+   ════════════════════════════════════════════════════════════ */
+
+.google-signin-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+  padding: 14px 20px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.google-signin-btn:hover:not(:disabled) {
+  border-color: #4285F4;
+  background: rgba(66, 133, 244, 0.06);
+  box-shadow: 0 0 0 1px rgba(66, 133, 244, 0.2);
+}
+
+.google-signin-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── OR divider ── */
+.auth-or-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+  margin: 4px 0;
+}
+
+.auth-or-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.auth-or-text {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+}
+
+/* ── Divider (reused from landing) ── */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 160px;
+  margin-bottom: 8px;
+}
+
+.divider .line {
+  flex: 1;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+.divider .diamond {
+  color: var(--accent);
+  font-size: 10px;
+}

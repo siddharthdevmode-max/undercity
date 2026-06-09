@@ -4,4 +4,4 @@ Disallow: /api/
 Disallow: /admin
 Disallow: /onboarding
 
-Sitemap: https://undercity.app/sitemap.xml
+Sitemap: https://undercity.online/sitemap.xml

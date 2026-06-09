@@ -130,10 +130,10 @@ beforeEach(() => {
 describe('apiCall', () => {
   it('throws UNAUTHORIZED when no firebase user', async () => {
     mockCurrentUser = null;
-    const err = await apiCall('/auth/me').catch(e => e);
+    const err = await apiCall('/auth/me').catch(e => e) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
-    expect(err.code).toBe('UNAUTHORIZED');
-    expect(err.statusCode ?? err.status).toBe(401);
+    expect((err as ApiError).code).toBe('UNAUTHORIZED');
+    expect((err as ApiError).statusCode ?? (err as ApiError).status).toBe(401);
   });
 
   it('makes GET request with correct auth headers', async () => {
@@ -209,10 +209,10 @@ describe('apiCall', () => {
       false
     );
 
-    const err = await apiCall('/missing').catch(e => e);
+    const err = await apiCall('/missing').catch(e => e) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
-    expect(err.message).toBe('Not found');
-    expect(err.code).toBe('NOT_FOUND');
+    expect((err as ApiError).message).toBe('Not found');
+    expect((err as ApiError).code).toBe('NOT_FOUND');
     expect(err.statusCode ?? err.status).toBe(404);
   });
 
@@ -223,10 +223,10 @@ describe('apiCall', () => {
       json:   vi.fn().mockRejectedValue(new Error('bad json')),
     });
 
-    const err = await apiCall('/bad').catch(e => e);
+    const err = await apiCall('/bad').catch(e => e) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
-    expect(err.message).toBe('API request failed');
-    expect(err.code).toBe('UNKNOWN_ERROR');
+    expect((err as ApiError).message).toBe('API request failed');
+    expect((err as ApiError).code).toBe('UNKNOWN_ERROR');
   });
 
   it('omits x-fp-visitor header when fingerprint throws', async () => {
@@ -264,10 +264,10 @@ describe('publicCall', () => {
       false
     );
 
-    const err = await publicCall('/auth/check-username/taken').catch(e => e);
+    const err = await publicCall('/auth/check-username/taken').catch(e => e) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
-    expect(err.message).toBe('Username taken');
-    expect(err.code).toBe('TAKEN');
+    expect((err as ApiError).message).toBe('Username taken');
+    expect((err as ApiError).code).toBe('TAKEN');
     expect(err.statusCode ?? err.status).toBe(409);
   });
 });

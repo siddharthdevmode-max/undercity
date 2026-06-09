@@ -3,22 +3,25 @@ import { useNavigate, Link } from 'react-router-dom';
 import {
   createUserWithEmailAndPassword,
   sendEmailVerification,
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut,
-} from "firebase/auth";
+} from 'firebase/auth';
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import { auth } from '../firebase';
 import { checkUsernameAvailable, authAPI } from '../services/api';
 import { getFriendlyError } from '../utils/firebaseErrors';
 import { useAuth } from '../hooks/useAuth';
 import Header from '../components/Header';
-import hero from '../assets/hero.png';
+import hero from '../assets/hero.webp';
 import '../styles/Landing.css';
 import '../styles/Register.css';
 
 type UsernameStatus = 'idle' | 'checking' | 'available' | 'taken' | 'invalid';
-type RegisterStage  = 'form' | 'verify-email';
+type RegisterStage  = 'form' | 'verify-email' | 'google-username';
 
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string;
+const googleProvider     = new GoogleAuthProvider();
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -52,6 +55,7 @@ export default function Register() {
   const [agreeTerms, setAgreeTerms]           = useState(false);
   const [error, setError]                     = useState('');
   const [loading, setLoading]                 = useState(false);
+  const [googleLoading, setGoogleLoading]     = useState(false);
   const [stage, setStage]                     = useState<RegisterStage>('form');
   const [resendCooldown, setResendCooldown]   = useState(0);
   const [usernameStatus, setUsernameStatus]   = useState<UsernameStatus>('idle');
@@ -59,10 +63,10 @@ export default function Register() {
   const [turnstileToken, setTurnstileToken]   = useState<string | null>(null);
 
   const usernameRef  = useRef<HTMLInputElement>(null);
+  const googleUsernameRef = useRef<HTMLInputElement>(null);
   const turnstileRef = useRef<TurnstileInstance | null>(null);
   const navigate     = useNavigate();
 
-  // ── AuthContext — refreshUser triggers re-fetch after sync ─
   const { user, refreshUser } = useAuth();
 
   const strength    = getPasswordStrength(password);
@@ -71,6 +75,11 @@ export default function Register() {
 
   useEffect(() => { if (user) navigate('/onboarding'); }, [user, navigate]);
   useEffect(() => { usernameRef.current?.focus(); }, []);
+  useEffect(() => {
+    if (stage === 'google-username') {
+      setTimeout(() => googleUsernameRef.current?.focus(), 100);
+    }
+  }, [stage]);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -78,6 +87,7 @@ export default function Register() {
     return () => clearTimeout(t);
   }, [resendCooldown]);
 
+  // Username availability check (debounced)
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (!username) {
@@ -107,6 +117,54 @@ export default function Register() {
     return () => clearTimeout(timer);
   }, [username]);
 
+  // ── Google Sign-Up ────────────────────────────────────────
+  const handleGoogleSignUp = async () => {
+    setError('');
+    setGoogleLoading(true);
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const fbUser = result.user;
+      await fbUser.getIdToken(true);
+
+      // Check if user already has a backend account
+      try {
+        await authAPI.me();
+        // Already exists → just refresh and go home
+        await refreshUser();
+        navigate('/home');
+        return;
+      } catch {
+        // New user → need username
+        setStage('google-username');
+      }
+    } catch (err: unknown) {
+      setError(getFriendlyError(err));
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  // ── Google username completion ────────────────────────────
+  const handleGoogleUsernameSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (usernameStatus !== 'available') {
+      setError('Please choose an available username.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await authAPI.sync(username);
+      await refreshUser();
+      navigate('/onboarding');
+    } catch (err: unknown) {
+      setError(getFriendlyError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Email/password submit ─────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -124,13 +182,11 @@ export default function Register() {
     setLoading(true);
     try {
       await createUserWithEmailAndPassword(auth, email, password);
-
       if (auth.currentUser) {
         await sendEmailVerification(auth.currentUser, {
           url: `${window.location.origin}/login`,
         });
       }
-
       setStage('verify-email');
       setResendCooldown(60);
     } catch (err: unknown) {
@@ -161,22 +217,14 @@ export default function Register() {
     try {
       await auth.currentUser?.reload();
       const refreshed = auth.currentUser;
-
       if (!refreshed?.emailVerified) {
         setError('Email not verified yet. Check your inbox and click the link.');
         setLoading(false);
         return;
       }
-
-      // Force fresh token with email_verified=true
       await refreshed.getIdToken(true);
-
-      // Sync with backend (creates DB record)
       await authAPI.sync(username);
-
-      // Trigger AuthContext to re-fetch user from /auth/me
       await refreshUser();
-
       navigate('/onboarding');
     } catch (err: unknown) {
       setError(getFriendlyError(err));
@@ -186,15 +234,80 @@ export default function Register() {
   };
 
   const handleBackToForm = async () => {
-    try {
-      await signOut(auth);
-    } catch { /* ignore */ }
+    try { await signOut(auth); } catch { /* ignore */ }
     setStage('form');
     setError('');
     setTurnstileToken(null);
     turnstileRef.current?.reset();
   };
 
+  // ── Google username stage ─────────────────────────────────
+  if (stage === 'google-username') {
+    return (
+      <div className="landing-page">
+        <Header />
+        <section className="about-section">
+          <div className="about-content">
+            <div className="about-text register-modern-wrapper">
+              <span className="hero-eyebrow">ONE LAST STEP</span>
+              <h1 className="auth-title">
+                CHOOSE YOUR<br />
+                <span className="accent">STREET NAME</span>
+              </h1>
+              <div className="divider">
+                <span className="line" />
+                <span className="diamond">◆</span>
+                <span className="line" />
+              </div>
+              <p className="auth-supporting">
+                Your Google account is connected.<br />
+                Now pick the name the streets will remember.
+              </p>
+
+              <form onSubmit={handleGoogleUsernameSubmit} className="register-modern-form" noValidate>
+                <div className="input-with-status">
+                  <input
+                    ref={googleUsernameRef}
+                    type="text"
+                    placeholder="Street Name (3–20 chars)"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    disabled={loading}
+                    maxLength={20}
+                    autoComplete="username"
+                    required
+                  />
+                  {usernameMessage && (
+                    <span className={`status-msg status-${usernameStatus}`}>
+                      {usernameStatus === 'checking'  && '⏳ '}
+                      {usernameStatus === 'available' && '✓ '}
+                      {(usernameStatus === 'taken' || usernameStatus === 'invalid') && '✗ '}
+                      {usernameMessage}
+                    </span>
+                  )}
+                </div>
+
+                <button type="submit" className="cta-button" disabled={loading}>
+                  {loading
+                    ? <><span className="spinner" />ENTERING...</>
+                    : <>ENTER THE CITY <span className="arrow">→</span></>}
+                </button>
+
+                {error && (
+                  <p role="alert" aria-live="polite" className="register-error">{error}</p>
+                )}
+              </form>
+            </div>
+            <div className="about-image">
+              <img src={hero} alt="Undercity skyline" />
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  // ── Email verify stage ────────────────────────────────────
   if (stage === 'verify-email') {
     return (
       <div className="landing-page">
@@ -202,7 +315,6 @@ export default function Register() {
         <section className="about-section">
           <div className="about-content">
             <div className="about-text register-modern-wrapper">
-
               <span className="hero-eyebrow">ALMOST THERE</span>
               <h1 className="auth-title">
                 CHECK YOUR<br />
@@ -213,12 +325,10 @@ export default function Register() {
                 <span className="diamond">◆</span>
                 <span className="line" />
               </div>
-
               <p className="auth-supporting">
                 We sent a verification link to:<br />
                 <strong>{email}</strong>
               </p>
-
               <p className="auth-supporting" style={{ marginTop: '1rem' }}>
                 Click the link in your email, then come back and press
                 the button below to enter the city.
@@ -255,7 +365,6 @@ export default function Register() {
                 <p role="alert" aria-live="polite" className="register-error">{error}</p>
               )}
             </div>
-
             <div className="about-image">
               <img src={hero} alt="Undercity skyline" />
             </div>
@@ -265,12 +374,12 @@ export default function Register() {
     );
   }
 
+  // ── Main registration form ────────────────────────────────
   return (
     <div className="landing-page">
       <Header />
       <section className="about-section">
         <div className="about-content">
-
           <div className="about-text register-modern-wrapper">
 
             <span className="hero-eyebrow">CREATE YOUR IDENTITY</span>
@@ -287,14 +396,40 @@ export default function Register() {
               In Undercity, identity is everything.<br />
               Choose your name carefully — the streets remember.
             </p>
+
             <div className="register-value-strip">
               <span>🎯 25 crimes to master</span>
               <span>💰 Start with $750 cash</span>
               <span>⚡ Real-time world</span>
             </div>
 
-            <form onSubmit={handleSubmit} className="register-modern-form" noValidate>
+            {/* ── Google Sign-Up ── */}
+            <button
+              type="button"
+              className="google-signin-btn"
+              onClick={handleGoogleSignUp}
+              disabled={googleLoading || loading}
+              aria-label="Sign up with Google"
+              style={{ marginTop: '8px' }}
+            >
+              {googleLoading ? (
+                <><span className="spinner" />CONNECTING...</>
+              ) : (
+                <>
+                  <GoogleIcon />
+                  CONTINUE WITH GOOGLE
+                </>
+              )}
+            </button>
 
+            {/* ── Divider ── */}
+            <div className="auth-or-divider">
+              <span className="auth-or-line" />
+              <span className="auth-or-text">OR</span>
+              <span className="auth-or-line" />
+            </div>
+
+            <form onSubmit={handleSubmit} className="register-modern-form" noValidate>
               <div className="input-with-status">
                 <input
                   ref={usernameRef}
@@ -304,6 +439,7 @@ export default function Register() {
                   onChange={(e) => setUsername(e.target.value)}
                   disabled={loading}
                   maxLength={20}
+                  autoComplete="username"
                   required
                 />
                 {usernameMessage && (
@@ -323,6 +459,7 @@ export default function Register() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={loading}
+                  autoComplete="email"
                   required
                 />
                 {emailInvalid && (
@@ -340,6 +477,7 @@ export default function Register() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}
+                  autoComplete="new-password"
                   required
                 />
                 <button
@@ -347,6 +485,7 @@ export default function Register() {
                   className="password-toggle"
                   onClick={() => setShowPassword(!showPassword)}
                   tabIndex={-1}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? 'HIDE' : 'SHOW'}
                 </button>
@@ -372,6 +511,7 @@ export default function Register() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 disabled={loading}
+                autoComplete="new-password"
                 required
               />
 
@@ -383,8 +523,8 @@ export default function Register() {
                   disabled={loading}
                 />
                 <span>
-                  I agree to the <a href="/legal/terms">Terms</a> and{' '}
-                  <a href="/legal/privacy">Privacy Policy</a>
+                  I agree to the <Link to="/legal/terms">Terms</Link> and{' '}
+                  <Link to="/legal/privacy">Privacy Policy</Link>
                 </span>
               </label>
 
@@ -435,9 +575,20 @@ export default function Register() {
           <div className="about-image">
             <img src={hero} alt="Undercity skyline" />
           </div>
-
         </div>
       </section>
     </div>
+  );
+}
+
+// ── Google SVG Icon ───────────────────────────────────────
+function GoogleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+      <path fill="#4285F4" d="M16.51 8H8.98v3h4.3c-.18 1-.74 1.48-1.6 2.04v2.01h2.6a7.8 7.8 0 0 0 2.38-5.88c0-.57-.05-.66-.15-1.18z"/>
+      <path fill="#34A853" d="M8.98 17c2.16 0 3.97-.72 5.3-1.94l-2.6-2a4.8 4.8 0 0 1-7.18-2.54H1.83v2.07A8 8 0 0 0 8.98 17z"/>
+      <path fill="#FBBC05" d="M4.5 10.52a4.8 4.8 0 0 1 0-3.04V5.41H1.83a8 8 0 0 0 0 7.18l2.67-2.07z"/>
+      <path fill="#EA4335" d="M8.98 4.18c1.17 0 2.23.4 3.06 1.2l2.3-2.3A8 8 0 0 0 1.83 5.4L4.5 7.49a4.77 4.77 0 0 1 4.48-3.3z"/>
+    </svg>
   );
 }

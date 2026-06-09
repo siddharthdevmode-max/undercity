@@ -150,7 +150,7 @@ describe('connectSocket', () => {
     await connectSocket();
 
     const events = (currentMockSocket.on as ReturnType<typeof vi.fn>)
-      .mock.calls.map(([e]: [string]) => e);
+      .mock.calls.map((args: unknown[]) => args[0] as string);
 
     expect(events).toContain('connect');
     expect(events).toContain('disconnect');

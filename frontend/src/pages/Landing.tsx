@@ -5,7 +5,7 @@ import Footer           from '../components/Footer';
 import StatsSection     from '../components/StatsSection';
 import FeaturesSection  from '../components/FeaturesSection';
 import Icon             from '../components/ui/Icon';
-import hero             from '../assets/hero.png';
+import hero             from '../assets/hero.webp';
 import '../styles/Landing.css';
 
 // ── Why Undercity cards ────────────────────────────────────
