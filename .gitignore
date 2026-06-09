@@ -1,41 +1,41 @@
-# Node
+# ── Node ─────────────────────────────────────────────────────
 node_modules/
 dist/
+build/
 
-# Environment
+# ── Environment — NEVER commit real env files ────────────────
 .env
 .env.*
 !.env.example
+.env.docker
+docker-compose.override.yml
 
-# Firebase
+# ── Firebase ──────────────────────────────────────────────────
 firebase-service-account.json
+*-service-account.json
 
-# Database
+# ── Database ──────────────────────────────────────────────────
 *.sqlite
+*.sqlite-journal
 
-# OS
+# ── OS ───────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# IDE
+# ── IDE ──────────────────────────────────────────────────────
 .vscode/
 .idea/
-.env
-*.env
-node_modules
-backups/
-backend/backups/
-backend/logs/
-*.sqlite
-*.sqlite-journal
-backend/coverage/
 
-# Docker env (contains real passwords)
-.env.docker
-docker-compose.override.yml
-backend/firebase-service-account.json
+# ── Coverage & build artifacts ───────────────────────────────
+coverage/
+*.lcov
+lcov.info
+
+# ── Logs ─────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+
+# ── Backups ───────────────────────────────────────────────────
+backups/*.sql
 backend/backups/*.sql
-backend/firebase-service-account.json
-backend/backups/*.sql
-backend/.env
-frontend/.env

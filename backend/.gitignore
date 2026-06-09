@@ -1,31 +1,30 @@
-# Environment
-.env
-.env.save
-.env.save.*
-.env.local
-.env.production
-
-# Firebase credentials
-firebase-service-account.json
-
-# Database
-database.sqlite
-*.sqlite
-
-# Node
+# ── Node ─────────────────────────────────────────────────────
 node_modules/
 dist/
 
-# OS
-.DS_Store
-Thumbs.db
+# ── Environment ───────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+.env.test
+
+# ── Firebase ──────────────────────────────────────────────────
 firebase-service-account.json
+*-service-account.json
+
+# ── Database ──────────────────────────────────────────────────
 *.sqlite
 *.sqlite-journal
-logs/
-firebase-service-account.json
+
+# ── Coverage ──────────────────────────────────────────────────
+coverage/
+*.lcov
+lcov.info
+
+# ── Logs & backups ───────────────────────────────────────────
+logs/*.log
 backups/*.sql
 
-# Runtime directories — never commit these
-backups/
-logs/*.log
+# ── OS ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

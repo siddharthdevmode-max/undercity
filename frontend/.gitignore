@@ -1,24 +1,43 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# ── Node ─────────────────────────────────────────────────────
+node_modules/
+dist/
+dist-ssr/
 
-node_modules
-dist
-dist-ssr
+# ── Environment ───────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+.env.local
+.env.production
+.env.save
+.env.save.*
+
+# ── Firebase ──────────────────────────────────────────────────
+firebase-service-account.json
+
+# ── Coverage & build artifacts ───────────────────────────────
+coverage/
+*.lcov
+lcov.info
+
+# ── Vite ─────────────────────────────────────────────────────
 *.local
 
-# Editor directories and files
+# ── OS & IDE ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .idea
-.DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
