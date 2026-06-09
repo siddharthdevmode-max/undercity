@@ -11,15 +11,15 @@ import { promisify }          from "util";
 import path                   from "path";
 import fs                     from "fs";
 import type { EmailJob, PaymentWebhookJob } from "./index";
+import {
+  processWebhookEvent,
+  type LemonSqueezyWebhookPayload,
+}                             from "../services/paymentService";
 
-// FIX: Use execFile (no shell) instead of exec (shell=true)
-// execFile does NOT invoke a shell — args are passed directly to the process.
-// This eliminates shell injection risk entirely.
 const execFileAsync = promisify(execFile);
 
 // ============================================================
-// BULLMQ WORKERS — UNDERCITY
-// Each worker gets its OWN Redis connection (BullMQ requirement).
+// WORKER EVENT ATTACHMENT
 // ============================================================
 
 function attachWorkerEvents(worker: Worker, name: string): void {
@@ -58,10 +58,6 @@ function attachWorkerEvents(worker: Worker, name: string): void {
 
   worker.on("stalled", (jobId) => {
     logger.warn(`⚠️ [${name}] Job stalled`, { jobId });
-  });
-
-  worker.on("progress", (job, progress) => {
-    logger.debug(`📊 [${name}] Job progress`, { jobId: job.id, progress });
   });
 }
 
@@ -114,7 +110,6 @@ export const backupWorker = new Worker(
     const backupDir  = path.resolve(process.cwd(), "backups");
     const backupFile = path.resolve(backupDir, `undercity-${timestamp}.sql`);
 
-    // Path traversal guard
     if (!backupFile.startsWith(backupDir + path.sep)) {
       throw new Error("Path traversal detected in backup path");
     }
@@ -125,23 +120,10 @@ export const backupWorker = new Worker(
 
     const { host, port, db, user, password } = parsePgUrl(dbUrl);
 
-    // FIX: Use execFile (array args) instead of exec (shell string)
-    // This completely eliminates shell injection — no shell is invoked.
     await execFileAsync(
       "pg_dump",
-      [
-        "-h", host,
-        "-p", port,
-        "-U", user,
-        "-d", db,
-        "-f", backupFile,
-        "--no-password",
-      ],
-      {
-        env:       { ...process.env, PGPASSWORD: password },
-        timeout:   300_000,
-        maxBuffer: 100 * 1024 * 1024,
-      }
+      ["-h", host, "-p", port, "-U", user, "-d", db, "-f", backupFile, "--no-password"],
+      { env: { ...process.env, PGPASSWORD: password }, timeout: 300_000, maxBuffer: 100 * 1024 * 1024 }
     );
 
     await job.updateProgress(80);
@@ -149,15 +131,10 @@ export const backupWorker = new Worker(
     const stats  = fs.statSync(backupFile);
     const sizeMb = Math.round((stats.size / 1024 / 1024) * 100) / 100;
 
-    // Retain last 7 backups
     const allBackups = fs
       .readdirSync(backupDir)
       .filter((f) => f.startsWith("undercity-") && f.endsWith(".sql"))
-      .map((f) => ({
-        name:     f,
-        fullPath: path.join(backupDir, f),
-        mtime:    fs.statSync(path.join(backupDir, f)).mtime.getTime(),
-      }))
+      .map((f) => ({ name: f, fullPath: path.join(backupDir, f), mtime: fs.statSync(path.join(backupDir, f)).mtime.getTime() }))
       .sort((a, b) => b.mtime - a.mtime);
 
     for (const old of allBackups.slice(7)) {
@@ -167,50 +144,26 @@ export const backupWorker = new Worker(
 
     await job.updateProgress(100);
 
-    logger.info("✅ Database backup complete", {
-      jobId: job.id,
-      file:  path.basename(backupFile),
-      sizeMb,
-    });
-
+    logger.info("✅ Database backup complete", { jobId: job.id, file: path.basename(backupFile), sizeMb });
     return { file: backupFile, sizeMb, timestamp };
   },
-  {
-    connection:      { ...bullmqConnection },
-    concurrency:     1,
-    stalledInterval: 360_000,
-    maxStalledCount: 1,
-  }
+  { connection: { ...bullmqConnection }, concurrency: 1, stalledInterval: 360_000, maxStalledCount: 1 }
 );
 
 attachWorkerEvents(backupWorker, "database-backup");
 
-interface PgParts {
-  host:     string;
-  port:     string;
-  db:       string;
-  user:     string;
-  password: string;
-}
+interface PgParts { host: string; port: string; db: string; user: string; password: string; }
 
 function parsePgUrl(dbUrl: string): PgParts {
-  const url      = new URL(dbUrl);
+  const url       = new URL(dbUrl);
   const safeIdent = /^[a-zA-Z0-9_\-.]+$/;
-
   const host = url.hostname;
   const port = url.port || "5432";
   const db   = url.pathname.slice(1);
   const user = url.username;
-
-  if (
-    !safeIdent.test(host) ||
-    !safeIdent.test(port) ||
-    !safeIdent.test(db)   ||
-    !safeIdent.test(user)
-  ) {
+  if (!safeIdent.test(host) || !safeIdent.test(port) || !safeIdent.test(db) || !safeIdent.test(user)) {
     throw new Error("Invalid characters in DB connection params");
   }
-
   return { host, port, db, user, password: url.password || "" };
 }
 
@@ -222,43 +175,27 @@ export const idempotencyCleanupWorker = new Worker(
   "idempotency-cleanup",
   async (job: Job) => {
     logger.info("🧹 Idempotency cleanup started", { jobId: job.id });
-
     let totalDeleted = 0;
     const BATCH_SIZE = 1_000;
 
     while (true) { // eslint-disable-line no-constant-condition
       const result = await pool.query(
-        `DELETE FROM idempotency_keys
-         WHERE id IN (
-           SELECT id FROM idempotency_keys
-           WHERE expires_at < NOW()
-           LIMIT $1
-         )
-         RETURNING id`,
+        `DELETE FROM idempotency_keys WHERE id IN (
+           SELECT id FROM idempotency_keys WHERE expires_at < NOW() LIMIT $1
+         ) RETURNING id`,
         [BATCH_SIZE]
       );
-
       const batchDeleted = result.rowCount ?? 0;
       totalDeleted += batchDeleted;
-
       await job.updateProgress(Math.min(90, (totalDeleted / 10_000) * 90));
-
       if (batchDeleted < BATCH_SIZE) break;
     }
 
     await job.updateProgress(100);
-
-    logger.info("✅ Idempotency cleanup complete", {
-      jobId: job.id,
-      totalDeleted,
-    });
-
+    logger.info("✅ Idempotency cleanup complete", { jobId: job.id, totalDeleted });
     return { totalDeleted };
   },
-  {
-    connection:  { ...bullmqConnection },
-    concurrency: 1,
-  }
+  { connection: { ...bullmqConnection }, concurrency: 1 }
 );
 
 attachWorkerEvents(idempotencyCleanupWorker, "idempotency-cleanup");
@@ -271,61 +208,75 @@ export const emailWorker = new Worker(
   "email",
   async (job: Job<EmailJob>) => {
     const { type } = job.data;
-
-    logger.info("📧 Email job started", {
-      jobId: job.id,
-      type,
-      to:    job.data.to,
-    });
-
+    logger.info("📧 Email job started", { jobId: job.id, type, to: job.data.to });
     await job.updateProgress(10);
     await sendEmail(job.data);
     await job.updateProgress(100);
-
     logger.info("✅ Email sent", { jobId: job.id, type, to: job.data.to });
     return { sent: true, type, to: job.data.to };
   },
-  {
-    connection:  { ...bullmqConnection },
-    concurrency: 5,
-    limiter: {
-      max:      20,
-      duration: 1_000,
-    },
-  }
+  { connection: { ...bullmqConnection }, concurrency: 5, limiter: { max: 20, duration: 1_000 } }
 );
 
 attachWorkerEvents(emailWorker, "email");
 
 // ============================================================
 // PAYMENT WEBHOOK WORKER
-// ============================================================
-// Phase 0-2 STUB: Payment webhook processing not yet implemented.
-// Lemon Squeezy integration coming in Phase 3 (Sept 2026).
-// Worker registered so BullMQ doesn't leave jobs stranded,
-// but immediately marks them as skipped with a log.
+// Phase 3: Real Lemon Squeezy webhook processing
 // ============================================================
 
 export const paymentWebhookWorker = new Worker(
   "payment-webhook",
   async (job: Job<PaymentWebhookJob>) => {
-    const { paymentEventId, paymentEventType } = job.data;
+    const { paymentEventId, paymentEventType, payload: rawPayload } = job.data;
 
-    logger.info("💳 Payment webhook received (Phase 3 stub — skipping)", {
-      jobId:           job.id,
+    logger.info("💳 Processing payment webhook", {
+      jobId:         job.id,
       paymentEventId,
       paymentEventType,
     });
 
-    return {
-      processed:     false,
-      reason:        "payments_not_implemented",
+    await job.updateProgress(10);
+
+    let payload: LemonSqueezyWebhookPayload;
+    try {
+      payload = JSON.parse(rawPayload) as LemonSqueezyWebhookPayload;
+    } catch {
+      throw new Error(`Invalid JSON payload for event ${paymentEventId}`);
+    }
+
+    await job.updateProgress(30);
+
+    const result = await processWebhookEvent(
+      payload,
+      rawPayload,
+      paymentEventType
+    );
+
+    await job.updateProgress(100);
+
+    logger.info("✅ Payment webhook processed", {
+      jobId:         job.id,
       paymentEventId,
-    };
+      paymentEventType,
+      success:       result.success,
+      tier:          result.tier,
+      message:       result.message,
+    });
+
+    if (!result.success && result.message !== "skipped") {
+      void Alerts.systemError(
+        "Payment processing failed",
+        `Event: ${paymentEventType} | ${result.message}`,
+        "high"
+      );
+    }
+
+    return result;
   },
   {
     connection:  { ...bullmqConnection },
-    concurrency: 1,
+    concurrency: 1,   // process payments one at a time — no race conditions
   }
 );
 
@@ -345,22 +296,14 @@ const ALL_WORKERS = [
 
 export async function closeWorkers(): Promise<void> {
   logger.info("🔄 Closing BullMQ workers...");
-
-  const results = await Promise.allSettled(
-    ALL_WORKERS.map((w) => w.close())
-  );
-
-  const failed = results.filter((r) => r.status === "rejected");
+  const results = await Promise.allSettled(ALL_WORKERS.map((w) => w.close()));
+  const failed  = results.filter((r) => r.status === "rejected");
   if (failed.length > 0) {
     logger.warn("⚠️ Some workers did not close cleanly", { count: failed.length });
   }
-
   logger.info("✅ BullMQ workers closed");
 }
 
 export function getWorkerStatuses() {
-  return ALL_WORKERS.map((w) => ({
-    name:    w.name,
-    running: !w.closing,
-  }));
+  return ALL_WORKERS.map((w) => ({ name: w.name, running: !w.closing }));
 }

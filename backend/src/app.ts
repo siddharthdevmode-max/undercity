@@ -87,6 +87,7 @@ app.use(
       "X-Integrity",
       "X-API-Version",
       "X-UAC-Challenge",
+      "X-Signature",
     ],
     exposedHeaders: [
       "X-Request-ID",
@@ -97,6 +98,15 @@ app.use(
       "RateLimit-Reset",
     ],
   })
+);
+
+// ── IMPORTANT: Webhook route needs raw body ─────────────────
+// Mount BEFORE express.json() so the webhook handler receives
+// the raw Buffer needed for HMAC signature verification.
+// All other payment routes get parsed JSON normally.
+app.use(
+  "/api/v1/payments/webhook",
+  express.raw({ type: "*/*", limit: "100kb" })
 );
 
 app.use(express.json({ limit: "100kb" }));
