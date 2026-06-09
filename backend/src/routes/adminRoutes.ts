@@ -1,3 +1,14 @@
+// ============================================================
+// ADMIN ROUTES — UNDERCITY
+// All routes: verifyFirebaseToken + requireAdmin/requireModerator
+// All mutating routes: insert into admin_audit_log
+//
+// FIX: shadow-ban and hard-ban now use validate(adminBanSchema)
+// instead of manually calling adminBanSchema.shape.body.parse().
+// This ensures consistent ValidationError formatting and field
+// path prefixes through the central error handler.
+// ============================================================
+
 import { Router }                from "express";
 import { isIP }                  from "node:net";
 import { pool }                  from "../config/database";
@@ -33,16 +44,8 @@ import {
 }                                from "../utils/errors";
 import { Alerts }                from "../utils/alerts";
 
-// ============================================================
-// ADMIN ROUTES — /api/admin
-// All routes: verifyFirebaseToken + requireAdmin (or requireModerator)
-// All mutating routes: insert into admin_audit_log
-// ============================================================
-
 const router = Router();
 
-// ── Apply auth to ALL admin routes ────────────────────────
-// requireAdmin/requireModerator is applied per-route for granularity
 router.use(verifyFirebaseToken);
 router.use(adminLimiter);
 
@@ -64,7 +67,7 @@ async function auditLog(
   });
 }
 
-// ── IP address validator ───────────────────────────────────
+// ── IP validator ───────────────────────────────────────────
 
 function validateIp(ip: unknown): string {
   const value = typeof ip === "string" ? ip.trim() : "";
@@ -74,10 +77,8 @@ function validateIp(ip: unknown): string {
   return value;
 }
 
-// ============================================================
-// GET /api/admin/cheaters
-// Moderators can view — admins can action
-// ============================================================
+// ── GET /cheaters ──────────────────────────────────────────
+
 router.get(
   "/cheaters",
   requireModerator,
@@ -109,10 +110,8 @@ router.get(
   })
 );
 
-// ============================================================
-// GET /api/admin/search
-// Search users by username or partial email
-// ============================================================
+// ── GET /search ────────────────────────────────────────────
+
 router.get(
   "/search",
   requireModerator,
@@ -154,9 +153,8 @@ router.get(
   })
 );
 
-// ============================================================
-// GET /api/admin/violations/:uid
-// ============================================================
+// ── GET /violations/:uid ───────────────────────────────────
+
 router.get(
   "/violations/:uid",
   requireModerator,
@@ -167,9 +165,7 @@ router.get(
 
     const [countResult, rowsResult] = await Promise.all([
       pool.query(
-        `SELECT COUNT(*)::int AS total
-         FROM uac_violations
-         WHERE firebase_uid = $1`,
+        `SELECT COUNT(*)::int AS total FROM uac_violations WHERE firebase_uid = $1`,
         [uid]
       ),
       pool.query(
@@ -188,9 +184,8 @@ router.get(
   })
 );
 
-// ============================================================
-// POST /api/admin/unban/:uid
-// ============================================================
+// ── POST /unban/:uid ───────────────────────────────────────
+
 router.post(
   "/unban/:uid",
   requireAdmin,
@@ -229,30 +224,28 @@ router.post(
       auditLog(adminUid, "UNBAN", { uid, username: user.username }, req.ip ?? ""),
     ]);
 
-    logger.info("✅ Admin unbanned user", {
-      uid:     uid.substring(0, 8),
-      adminUid: adminUid.substring(0, 8),
-    });
-
     res.json({ message: "User unbanned and trust restored", user: result.rows[0] });
   })
 );
 
-// ============================================================
-// POST /api/admin/shadow-ban/:uid
-// ============================================================
+// ── POST /shadow-ban/:uid ─────────────────────────────────
+// FIX: Use validate(adminBanSchema) to cover both params + body.
+// Previously used manual adminBanSchema.shape.body.parse(req.body)
+// which threw raw ZodError with wrong field path prefixes.
+
 router.post(
   "/shadow-ban/:uid",
   requireAdmin,
-  validate(adminUidParamSchema),
+  validate(adminBanSchema),
   asyncHandler(async (req, res) => {
     const uid      = String(req.params["uid"]);
     const adminUid = req.firebaseUser!.uid;
+    const body     = req.body as {
+      banType:       string;
+      reason:        string;
+      durationDays?: number;
+    };
 
-    // Validate body
-    const body = adminBanSchema.shape.body.parse(req.body);
-
-    // Safety: can't shadow-ban yourself
     if (uid === adminUid) {
       throw new ValidationError("You cannot ban yourself");
     }
@@ -294,32 +287,28 @@ router.post(
       }, req.ip ?? ""),
     ]);
 
-    logger.warn("⚠️ Admin shadow-banned user", {
-      uid:     uid.substring(0, 8),
-      reason:  body.reason,
-    });
-
     res.json({ message: "User shadow-banned", user: result.rows[0] });
   })
 );
 
-// ============================================================
-// POST /api/admin/hard-ban/:uid
-// ============================================================
+// ── POST /hard-ban/:uid ────────────────────────────────────
+// FIX: Same — use validate(adminBanSchema) for consistent error handling.
+
 router.post(
   "/hard-ban/:uid",
   requireAdmin,
-  validate(adminUidParamSchema),
+  validate(adminBanSchema),
   asyncHandler(async (req, res) => {
     const uid      = String(req.params["uid"]);
     const adminUid = req.firebaseUser!.uid;
+    const body     = req.body as {
+      banType: string;
+      reason:  string;
+    };
 
-    // Safety: can't hard-ban yourself
     if (uid === adminUid) {
       throw new ValidationError("You cannot ban yourself");
     }
-
-    const body = adminBanSchema.shape.body.parse(req.body);
 
     const result = await pool.query(
       `UPDATE users
@@ -343,10 +332,8 @@ router.post(
 
     const user = result.rows[0] as { id: number; username: string };
 
-    // Revoke Firebase session — user gets kicked immediately
     await revokeUserSession(uid);
 
-    // Blacklist their recent IPs using Redis pipeline
     const fpResult = await pool.query(
       `SELECT DISTINCT ip_address
        FROM device_fingerprints
@@ -361,21 +348,16 @@ router.post(
       .filter(Boolean) as string[];
 
     if (ips.length > 0) {
-      // Pipeline for atomic bulk-set — not sequential awaits
       const pipeline = redis.pipeline();
       for (const ip of ips) {
         pipeline.set(
           `blacklist:ip:${ip}`,
           body.reason,
           "EX",
-          60 * 60 * 24 * 30 // 30 days
+          60 * 60 * 24 * 30
         );
       }
       await pipeline.exec();
-      logger.warn("🚫 IPs blacklisted for banned user", {
-        uid: uid.substring(0, 8),
-        count: ips.length,
-      });
     }
 
     await Promise.allSettled([
@@ -383,8 +365,8 @@ router.post(
       invalidateImmunityCache(uid),
       auditLog(adminUid, "HARD_BAN", {
         uid,
-        username: user.username,
-        reason:   body.reason,
+        username:       user.username,
+        reason:         body.reason,
         ipsBlacklisted: ips.length,
       }, req.ip ?? ""),
       Alerts.systemError(
@@ -394,11 +376,6 @@ router.post(
       ),
     ]);
 
-    logger.warn("🚫 Admin hard-banned user", {
-      uid:    uid.substring(0, 8),
-      reason: body.reason,
-    });
-
     res.json({
       message:         "User hard-banned, session revoked, IPs blacklisted",
       user:            result.rows[0],
@@ -407,9 +384,8 @@ router.post(
   })
 );
 
-// ============================================================
-// POST /api/admin/ip-blacklist
-// ============================================================
+// ── POST /ip-blacklist ─────────────────────────────────────
+
 router.post(
   "/ip-blacklist",
   requireAdmin,
@@ -426,19 +402,16 @@ router.post(
     const ttl           = validatedDays * 60 * 60 * 24;
 
     await redis.set(`blacklist:ip:${validatedIp}`, reason, "EX", ttl);
-
     await auditLog(adminUid, "IP_BLACKLIST_ADD", {
       ip: validatedIp, reason, days: validatedDays,
     }, req.ip ?? "");
 
-    logger.warn("🚫 IP manually blacklisted", { ip: validatedIp, days: validatedDays });
     res.json({ message: `IP ${validatedIp} blacklisted for ${validatedDays} days` });
   })
 );
 
-// ============================================================
-// DELETE /api/admin/ip-blacklist
-// ============================================================
+// ── DELETE /ip-blacklist ───────────────────────────────────
+
 router.delete(
   "/ip-blacklist",
   requireAdmin,
@@ -447,27 +420,23 @@ router.delete(
     const { ip }   = req.body as { ip: unknown };
 
     const validatedIp = validateIp(ip);
-
     await redis.del(`blacklist:ip:${validatedIp}`);
-
     await auditLog(adminUid, "IP_BLACKLIST_REMOVE", { ip: validatedIp }, req.ip ?? "");
 
-    logger.info("✅ IP removed from blacklist", { ip: validatedIp });
     res.json({ message: `IP ${validatedIp} removed from blacklist` });
   })
 );
 
-// ============================================================
-// POST /api/admin/adjust-money/:uid
-// ============================================================
+// ── POST /adjust-money/:uid ────────────────────────────────
+
 router.post(
   "/adjust-money/:uid",
   requireAdmin,
-  validate(adminUidParamSchema),
+  validate(adminAdjustMoneySchema),
   asyncHandler(async (req, res) => {
     const uid      = String(req.params["uid"]);
     const adminUid = req.firebaseUser!.uid;
-    const body     = adminAdjustMoneySchema.shape.body.parse(req.body);
+    const body     = req.body as { amount: number; reason: string };
 
     const result = await pool.query(
       `UPDATE users
@@ -485,28 +454,18 @@ router.post(
 
     await auditLog(adminUid, "ADJUST_MONEY", {
       uid,
-      username: user.username,
-      amount:   body.amount,
-      reason:   body.reason,
+      username:   user.username,
+      amount:     body.amount,
+      reason:     body.reason,
       newBalance: user.money.toString(),
     }, req.ip ?? "");
 
-    logger.info("💰 Admin adjusted money", {
-      uid:    uid.substring(0, 8),
-      amount: body.amount,
-    });
-
-    res.json({
-      message:     `Money adjusted by ${body.amount}`,
-      user:        result.rows[0],
-    });
+    res.json({ message: `Money adjusted by ${body.amount}`, user: result.rows[0] });
   })
 );
 
-// ============================================================
-// GET /api/admin/user/:uid/full
-// Full investigation bundle for one user
-// ============================================================
+// ── GET /user/:uid/full ────────────────────────────────────
+
 router.get(
   "/user/:uid/full",
   requireModerator,
@@ -531,34 +490,25 @@ router.get(
 
     if (userResult.rows.length === 0) throw new NotFoundError("User");
 
-    const user = userResult.rows[0];
-
     const [
-      violationsR,
-      trustLogR,
-      fingerprintsR,
-      linkedR,
-      crimeR,
-      authLogR,
+      violationsR, trustLogR, fingerprintsR,
+      linkedR, crimeR, authLogR,
     ] = await Promise.all([
       pool.query(
         `SELECT violation_type, severity, details, ip_address, user_agent, created_at
-         FROM uac_violations
-         WHERE firebase_uid = $1
+         FROM uac_violations WHERE firebase_uid = $1
          ORDER BY created_at DESC LIMIT 100`,
         [uid]
       ),
       pool.query(
         `SELECT old_score, new_score, reason, created_at
-         FROM trust_recovery_log
-         WHERE firebase_uid = $1
+         FROM trust_recovery_log WHERE firebase_uid = $1
          ORDER BY created_at DESC LIMIT 50`,
         [uid]
       ),
       pool.query(
         `SELECT fingerprint_hash, ip_address, user_agent, hit_count, last_seen
-         FROM device_fingerprints
-         WHERE firebase_uid = $1
+         FROM device_fingerprints WHERE firebase_uid = $1
          ORDER BY last_seen DESC LIMIT 50`,
         [uid]
       ),
@@ -568,8 +518,7 @@ router.get(
          JOIN device_fingerprints df2
            ON  df1.fingerprint_hash = df2.fingerprint_hash
            AND df2.firebase_uid    != $1
-         WHERE df1.firebase_uid = $1
-         LIMIT 20`,
+         WHERE df1.firebase_uid = $1 LIMIT 20`,
         [uid]
       ),
       pool.query(
@@ -581,21 +530,19 @@ router.get(
          JOIN users  u ON u.id  = ucp.user_id
          JOIN crimes c ON c.id  = ucp.crime_id
          WHERE u.firebase_uid = $1
-         ORDER BY ucp.updated_at DESC
-         LIMIT 50`,
+         ORDER BY ucp.updated_at DESC LIMIT 50`,
         [uid]
       ),
       pool.query(
         `SELECT ip_address, user_agent, is_new_ip, accessed_at
-         FROM auth_access_log
-         WHERE firebase_uid = $1
+         FROM auth_access_log WHERE firebase_uid = $1
          ORDER BY accessed_at DESC LIMIT 50`,
         [uid]
       ).catch(() => ({ rows: [] })),
     ]);
 
     res.json({
-      user,
+      user:             userResult.rows[0],
       violations:       violationsR.rows,
       trustRecoveryLog: trustLogR.rows,
       fingerprints:     fingerprintsR.rows,
@@ -606,14 +553,12 @@ router.get(
   })
 );
 
-// ============================================================
-// GET /api/admin/stats
-// ============================================================
+// ── GET /stats ─────────────────────────────────────────────
+
 router.get(
   "/stats",
   requireAdmin,
   asyncHandler(async (_req, res) => {
-    // Run subqueries in parallel — not a single mega-query
     const [
       usersR, bannedR, shadowR, suspiciousR,
       violationsR, violations24hR, newIpsR,
@@ -642,9 +587,8 @@ router.get(
   })
 );
 
-// ============================================================
-// GET /api/admin/multi-accounts
-// ============================================================
+// ── GET /multi-accounts ────────────────────────────────────
+
 router.get(
   "/multi-accounts",
   requireModerator,
@@ -653,10 +597,8 @@ router.get(
 
     const [countR, rowsR] = await Promise.all([
       pool.query(
-        `SELECT COUNT(*)::int AS total
-         FROM (
-           SELECT fingerprint_hash
-           FROM device_fingerprints
+        `SELECT COUNT(*)::int AS total FROM (
+           SELECT fingerprint_hash FROM device_fingerprints
            GROUP BY fingerprint_hash
            HAVING COUNT(DISTINCT firebase_uid) > 1
          ) sub`
@@ -680,9 +622,8 @@ router.get(
   })
 );
 
-// ============================================================
-// GET /api/admin/earnings-anomalies
-// ============================================================
+// ── GET /earnings-anomalies ────────────────────────────────
+
 router.get(
   "/earnings-anomalies",
   requireModerator,
@@ -691,9 +632,7 @@ router.get(
 
     const [countR, rowsR] = await Promise.all([
       pool.query(
-        `SELECT COUNT(*)::int AS total
-         FROM uac_violations
-         WHERE violation_type = 'EARNINGS_VELOCITY'`
+        `SELECT COUNT(*)::int AS total FROM uac_violations WHERE violation_type = 'EARNINGS_VELOCITY'`
       ),
       pool.query(
         `SELECT uv.firebase_uid, u.username, uv.severity,
@@ -712,9 +651,8 @@ router.get(
   })
 );
 
-// ============================================================
-// GET /api/admin/db-health
-// ============================================================
+// ── GET /db-health ─────────────────────────────────────────
+
 router.get(
   "/db-health",
   requireAdmin,
@@ -736,9 +674,7 @@ router.get(
       ),
       pool.query(
         `SELECT query_text, duration_ms, rows_returned, created_at
-         FROM slow_queries
-         ORDER BY created_at DESC
-         LIMIT 20`
+         FROM slow_queries ORDER BY created_at DESC LIMIT 20`
       ).catch(() => ({ rows: [] })),
     ]);
 
@@ -752,9 +688,8 @@ router.get(
   })
 );
 
-// ============================================================
-// GET /api/admin/queue-stats
-// ============================================================
+// ── GET /queue-stats ───────────────────────────────────────
+
 router.get(
   "/queue-stats",
   requireAdmin,
@@ -764,31 +699,25 @@ router.get(
       Promise.resolve(getWorkerStatuses()),
       getTickInfo(),
     ]);
-
     res.json({ queues, workers, gameTick: tick, checkedAt: new Date().toISOString() });
   })
 );
 
-// ============================================================
-// POST /api/admin/trust-recovery/run
-// ============================================================
+// ── POST /trust-recovery/run ───────────────────────────────
+
 router.post(
   "/trust-recovery/run",
   requireAdmin,
   asyncHandler(async (req, res) => {
     const adminUid = req.firebaseUser!.uid;
-
-    const result = await runTrustRecovery();
-
+    const result   = await runTrustRecovery();
     await auditLog(adminUid, "TRUST_RECOVERY_MANUAL", result as unknown as Record<string, unknown>, req.ip ?? "");
-
     res.json({ message: "Trust recovery complete", ...result });
   })
 );
 
-// ============================================================
-// GET /api/admin/trust-recovery/log/:uid
-// ============================================================
+// ── GET /trust-recovery/log/:uid ──────────────────────────
+
 router.get(
   "/trust-recovery/log/:uid",
   requireModerator,
@@ -804,10 +733,8 @@ router.get(
       ),
       pool.query(
         `SELECT old_score, new_score, reason, created_at
-         FROM trust_recovery_log
-         WHERE firebase_uid = $1
-         ORDER BY created_at DESC
-         LIMIT $2 OFFSET $3`,
+         FROM trust_recovery_log WHERE firebase_uid = $1
+         ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
         [uid, limit, offset]
       ),
     ]);
@@ -817,9 +744,8 @@ router.get(
   })
 );
 
-// ============================================================
-// GET /api/admin/audit-log
-// ============================================================
+// ── GET /audit-log ─────────────────────────────────────────
+
 router.get(
   "/audit-log",
   requireAdmin,
@@ -837,8 +763,7 @@ router.get(
         `SELECT id, admin_firebase_uid, action_type, details, ip_address, created_at
          FROM admin_audit_log
          WHERE ($1::text IS NULL OR action_type = $1)
-         ORDER BY created_at DESC
-         LIMIT $2 OFFSET $3`,
+         ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
         [actionFilter, limit, offset]
       ),
     ]);

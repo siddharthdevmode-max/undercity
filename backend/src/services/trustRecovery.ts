@@ -1,8 +1,3 @@
-import { pool }          from "../config/database";
-import { withTransaction } from "../config/database";
-import { logger }        from "../utils/logger";
-import { getTrustTier }  from "./trustEngine";
-
 // ============================================================
 // UAC 2.0 — TRUST RECOVERY ENGINE
 // Runs daily via BullMQ scheduler or admin trigger.
@@ -16,19 +11,22 @@ import { getTrustTier }  from "./trustEngine";
 // BATCH PROCESSING:
 //   Processes in batches of BATCH_SIZE to avoid holding
 //   too many pool connections simultaneously.
-//   Each row uses withTransaction() from config/database.ts
-//   (the canonical transaction helper from Round 1).
+//   Each row uses withTransaction() from config/database.ts.
 //
 // INTERVAL FIX:
 //   $2 * INTERVAL '1 hour' is NOT valid PostgreSQL.
 //   Correct form: ($2 || ' hours')::INTERVAL
 // ============================================================
 
+import { pool, withTransaction } from "../config/database";
+import { logger }                from "../utils/logger";
+import { getTrustTier }          from "./trustEngine";
+
 const MAX_AUTO_REGEN   = 70;
 const DAILY_REGEN      = 1;
 const WEEKLY_BONUS     = 5;
 const REGEN_INTERVAL_H = 24;
-const BATCH_SIZE       = 500; // process up to 500 users per batch
+const BATCH_SIZE       = 500;
 
 export interface TrustRecoveryResult {
   processed: number;
@@ -46,9 +44,6 @@ export async function runTrustRecovery(): Promise<TrustRecoveryResult> {
   try {
     logger.info("🔄 Trust recovery starting...");
 
-    // ── Fetch all eligible users (read-only query) ─────────
-    // eligible = has low trust, not hard-banned, clean for 24h,
-    //            hasn't been recovered in last 24h
     const eligibleResult = await pool.query(
       `SELECT
          u.id,
@@ -85,13 +80,10 @@ export async function runTrustRecovery(): Promise<TrustRecoveryResult> {
 
     logger.info(`🔄 Trust recovery: ${eligible.length} users eligible`);
 
-    // ── Process in batches ─────────────────────────────────
     for (let batchStart = 0; batchStart < eligible.length; batchStart += BATCH_SIZE) {
       const batch = eligible.slice(batchStart, batchStart + BATCH_SIZE);
       batches++;
 
-      // Process each user in the batch concurrently
-      // (each uses its own transaction via withTransaction)
       const batchResults = await Promise.allSettled(
         batch.map((user) => recoverUser(user))
       );
@@ -99,11 +91,8 @@ export async function runTrustRecovery(): Promise<TrustRecoveryResult> {
       for (const result of batchResults) {
         processed++;
         if (result.status === "fulfilled") {
-          if (result.value) {
-            recovered++;
-          } else {
-            skipped++;
-          }
+          if (result.value) recovered++;
+          else               skipped++;
         } else {
           skipped++;
           logger.error("Trust recovery: row error", {
@@ -138,8 +127,6 @@ export async function runTrustRecovery(): Promise<TrustRecoveryResult> {
   }
 }
 
-// ── Per-user recovery (uses canonical withTransaction) ─────
-
 async function recoverUser(user: {
   id:                 number;
   firebase_uid:       string;
@@ -152,13 +139,11 @@ async function recoverUser(user: {
   const gain     = DAILY_REGEN + (isWeekly ? WEEKLY_BONUS : 0);
   const newScore = Math.min(MAX_AUTO_REGEN, oldScore + gain);
 
-  // Nothing to change
   if (newScore === oldScore) return false;
 
   const isShadowBanned = newScore > 0 && newScore < 20;
   const reason         = isWeekly ? "WEEKLY_STREAK_BONUS" : "DAILY_REGEN";
 
-  // withTransaction() from config/database.ts (Round 1 canonical helper)
   await withTransaction(async (client) => {
     await client.query(
       `UPDATE users

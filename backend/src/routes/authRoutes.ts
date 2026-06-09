@@ -1,3 +1,12 @@
+// ============================================================
+// AUTH ROUTES — UNDERCITY
+// POST /sync              — Register or return existing user
+// GET  /me                — Get current user
+// POST /onboarding-complete
+// GET  /check-username/:username
+// DELETE /account         — Self-deletion (GDPR)
+// ============================================================
+
 import { Router } from "express";
 import { verifyFirebaseToken } from "../middleware/firebaseAuth";
 import {
@@ -6,20 +15,20 @@ import {
   usernameCheckLimiter
 } from "../middleware/rateLimiter";
 import { validate } from "../middleware/validate";
-import { noCache } from "../middleware/cacheHeaders";
+import { noCache }  from "../middleware/cacheHeaders";
 import {
   syncUserSchema,
   checkUsernameSchema
 } from "../utils/schemas";
-import { asyncHandler } from "../utils/asyncHandler";
-import { pool } from "../config/database";
-import { getRequestLogger } from "../utils/logger";
+import { asyncHandler }       from "../utils/asyncHandler";
+import { pool }               from "../config/database";
+import { getRequestLogger }   from "../utils/logger";
 import {
   ConflictError,
   NotFoundError,
   ValidationError
 } from "../utils/errors";
-import { queueEmail } from "../queues/index";
+import { queueEmail }         from "../queues/index";
 import { invalidateBanCache } from "../middleware/banCheck";
 import { invalidateRoleCache } from "../middleware/requireAdmin";
 
@@ -51,6 +60,27 @@ const NEW_USER_DEFAULTS = {
   happiness:  50,
 } as const;
 
+// ── Username generation for Google SSO ────────────────────
+// Generates a base username from email prefix.
+// If the base collides, we append a random suffix and retry once.
+// Max 2 attempts total — if both collide, throw ConflictError.
+
+function generateBaseUsername(email: string | undefined): string {
+  const base = (email ?? "user")
+    .split("@")[0]!
+    .replace(/[^a-zA-Z0-9_-]/g, "")
+    .slice(0, 16);
+  return base.length >= 3 ? base : `user${Date.now() % 100000}`;
+}
+
+function generateFallbackUsername(base: string): string {
+  // Append 4-digit random suffix, truncate total to 20 chars
+  const suffix = String(Math.floor(Math.random() * 9000) + 1000);
+  return base.slice(0, 16) + suffix;
+}
+
+// ── POST /sync ────────────────────────────────────────────
+
 router.post(
   "/sync",
   authSyncLimiter,
@@ -61,6 +91,7 @@ router.post(
     const { uid, email } = req.firebaseUser!;
     const { username } = req.body as { username?: string };
 
+    // Return existing user immediately — no re-registration
     const existing = await pool.query(
       `SELECT ${USER_FIELDS}
        FROM users
@@ -76,18 +107,13 @@ router.post(
       return;
     }
 
-    // For Google SSO: auto-generate username from email if not provided
+    // ── Resolve username ─────────────────────────────────
     let resolvedUsername = username?.trim();
     if (!resolvedUsername) {
-      // Take the part before @ from email, strip special chars, truncate
-      const base = (email ?? "user")
-        .split("@")[0]
-        .replace(/[^a-zA-Z0-9_-]/g, "")
-        .slice(0, 16);
-      resolvedUsername = base.length >= 3 ? base : `user${Date.now() % 100000}`;
+      resolvedUsername = generateBaseUsername(email);
     }
-    const usernameToUse = resolvedUsername;
 
+    // ── Validate username ─────────────────────────────────
     let isValidUsername:
       | ((u: string) => { valid: boolean; reason?: string })
       | undefined;
@@ -101,25 +127,25 @@ router.post(
     }
 
     if (isValidUsername) {
-      const check = isValidUsername(usernameToUse);
+      const check = isValidUsername(resolvedUsername);
       if (!check.valid) {
         throw new ValidationError(check.reason ?? "Invalid username");
       }
     } else {
-      if (usernameToUse.length < 3 || usernameToUse.length > 20) {
+      if (resolvedUsername.length < 3 || resolvedUsername.length > 20) {
         throw new ValidationError("Username must be 3-20 characters");
       }
-      if (!/^[a-zA-Z0-9_-]+$/.test(usernameToUse)) {
+      if (!/^[a-zA-Z0-9_-]+$/.test(resolvedUsername)) {
         throw new ValidationError("Username may only contain letters, numbers, _ and -");
       }
     }
 
-    // FIX: Remove check-then-insert race condition.
-    // Let the DB UNIQUE constraint enforce uniqueness atomically.
-    // Catch pg error 23505 and convert to a clean 409 ConflictError.
-    let newUser;
-    try {
-      newUser = await pool.query(
+    // ── Insert with retry on collision ────────────────────
+    // FIX: On username collision (23505), generate a fallback username
+    // and retry once. This handles Google SSO users who share email
+    // prefixes without surfacing a confusing ConflictError to them.
+    const insertUser = async (usernameToUse: string) => {
+      return pool.query(
         `INSERT INTO users (
            firebase_uid, email, username,
            money, level, points,
@@ -157,42 +183,71 @@ router.post(
           NEW_USER_DEFAULTS.happiness,
         ]
       );
+    };
+
+    let newUser;
+    let usernameUsed = resolvedUsername;
+
+    try {
+      newUser = await insertUser(resolvedUsername);
     } catch (err: unknown) {
-      // 23505 = unique_violation — username already taken
       const pgErr = err as { code?: string };
-      if (pgErr.code === "23505") {
+
+      if (pgErr.code !== "23505") throw err;
+
+      // Username collision — try once with fallback
+      // Only auto-retry if the username was auto-generated (no explicit username provided)
+      if (username?.trim()) {
+        // User explicitly chose this username — surface the conflict
         throw new ConflictError("Username is already taken");
       }
-      throw err;
+
+      const fallback = generateFallbackUsername(resolvedUsername);
+      usernameUsed   = fallback;
+
+      try {
+        newUser = await insertUser(fallback);
+      } catch (err2: unknown) {
+        const pgErr2 = err2 as { code?: string };
+        if (pgErr2.code === "23505") {
+          // Two collisions in a row — extremely unlikely, surface it
+          throw new ConflictError("Username is already taken. Please choose a different one.");
+        }
+        throw err2;
+      }
     }
 
+    // ── Audit log ─────────────────────────────────────────
     void pool.query(
       `INSERT INTO admin_audit_log
          (admin_firebase_uid, action_type, details, ip_address)
        VALUES ($1, 'USER_REGISTERED', $2, $3)`,
       [
         "system",
-        JSON.stringify({ username, uid: uid.substring(0, 8) }),
+        JSON.stringify({ username: usernameUsed, uid: uid.substring(0, 8) }),
         req.ip ?? "unknown",
       ]
     ).catch(() => {});
 
+    // ── Welcome email ─────────────────────────────────────
     if (email) {
       void queueEmail({
-        type: "welcome",
-        to:   email,
-        username: usernameToUse,
+        type:     "welcome",
+        to:       email,
+        username: usernameUsed,
       }).catch(() => {});
     }
 
     log.info("New user registered", {
-      username: usernameToUse,
-      uid: uid.substring(0, 8),
+      username: usernameUsed,
+      uid:      uid.substring(0, 8),
     });
 
     res.status(201).json(newUser.rows[0]);
   })
 );
+
+// ── GET /me ───────────────────────────────────────────────
 
 router.get(
   "/me",
@@ -217,6 +272,8 @@ router.get(
     res.json(result.rows[0]);
   })
 );
+
+// ── POST /onboarding-complete ─────────────────────────────
 
 router.post(
   "/onboarding-complete",
@@ -245,6 +302,8 @@ router.post(
     });
   })
 );
+
+// ── GET /check-username/:username ─────────────────────────
 
 router.get(
   "/check-username/:username",
@@ -276,7 +335,7 @@ router.get(
         return;
       }
     } catch {
-      // optional
+      // profanity filter optional
     }
 
     const result = await pool.query(
@@ -292,13 +351,15 @@ router.get(
   })
 );
 
+// ── DELETE /account ───────────────────────────────────────
+
 router.delete(
   "/account",
   authMeLimiter,
   verifyFirebaseToken,
   asyncHandler(async (req, res) => {
-    const { uid, email } = req.firebaseUser!;
-    const { confirm }    = req.body as { confirm?: string };
+    const { uid, email }  = req.firebaseUser!;
+    const { confirm }     = req.body as { confirm?: string };
 
     if (confirm !== "DELETE MY ACCOUNT") {
       throw new ValidationError(

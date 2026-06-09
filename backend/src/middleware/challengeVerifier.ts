@@ -1,3 +1,22 @@
+// ============================================================
+// CHALLENGE VERIFIER MIDDLEWARE — UNDERCITY
+// UAC Pillar: Proof-of-work token validation
+//
+// Flow:
+//   1. Frontend calls GET /api/challenge to get a token
+//   2. Token stored in Redis: challenge:{uid}:{token} with TTL
+//   3. Frontend sends token in X-UAC-Challenge header
+//   4. This middleware validates + consumes (deletes) the token
+//
+// SECURITY:
+//   - Token format validated before Redis lookup
+//   - Failed attempts tracked with per-uid counter
+//   - flagUser only called after confirmed invalid token
+//     (not on Redis errors — avoids false flags during outages)
+//   - Fail counter TTL set only on first increment (sliding window)
+//   - req.ip normalized before passing to flagUser
+// ============================================================
+
 import { Request, Response, NextFunction } from "express";
 import { redis }            from "../config/redis";
 import { flagUser }         from "../services/trustEngine";
@@ -8,31 +27,12 @@ import {
   AppError,
 }                           from "../utils/errors";
 
-// ============================================================
-// CHALLENGE VERIFIER MIDDLEWARE
-// UAC Pillar: Proof-of-work token validation
-//
-// Flow:
-//   1. Frontend calls GET /api/challenge to get a token
-//   2. Token stored in Redis: challenge:{uid}:{token} with TTL
-//   3. Frontend sends token in X-UAC-Challenge header
-//   4. This middleware validates + consumes (deletes) the token
-//
-// SECURITY:
-//   - Token format validated before Redis lookup (no Redis abuse)
-//   - Token length capped at MAX_TOKEN_LEN
-//   - Failed attempts tracked with per-uid rate limit in Redis
-//   - flagUser only called after Redis confirms token is invalid
-//     (not on Redis errors — avoids false flags during outages)
-//   - req.ip normalized — never passes undefined to flagUser
-// ============================================================
-
 // ── Constants ──────────────────────────────────────────────
 
 const MAX_TOKEN_LEN       = 128;
-const TOKEN_SAFE_RE       = /^[a-zA-Z0-9\-_]+$/; // hex, UUID, URL-safe base64
-const MAX_FAILS_WINDOW    = 10 * 60;              // 10 minutes
-const MAX_FAILS_THRESHOLD = 10;                   // flag after 10 bad tokens in window
+const TOKEN_SAFE_RE       = /^[a-zA-Z0-9\-_]+$/;
+const MAX_FAILS_WINDOW    = 10 * 60;   // 10 minutes in seconds
+const MAX_FAILS_THRESHOLD = 10;
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -51,20 +51,22 @@ function isValidTokenFormat(token: string): boolean {
 
 async function trackFailedAttempt(uid: string): Promise<number> {
   try {
-    const key     = `challenge:fails:${uid}`;
-    const count   = await redis.incr(key);
+    const key   = `challenge:fails:${uid}`;
+    const count = await redis.incr(key);
     if (count === 1) {
-      // Set TTL only on first increment — avoids reset on each attempt
+      // Set TTL only on first increment
+      // Avoids resetting the window on every failed attempt
       await redis.expire(key, MAX_FAILS_WINDOW);
     }
     return count;
   } catch {
-    return 0; // Redis error → don't block
+    // Redis error → return 0 (fail open, do not flag)
+    return 0;
   }
 }
 
 // ============================================================
-// verifyChallenge middleware
+// verifyChallenge
 // ============================================================
 
 export const verifyChallenge = async (
@@ -84,19 +86,20 @@ export const verifyChallenge = async (
     const token    = Array.isArray(rawToken) ? rawToken[0] : rawToken;
 
     // ── Missing token ──────────────────────────────────────
+    // Do NOT flag on missing token — could be first request
+    // or a legitimate frontend timing issue
     if (!token) {
       logger.warn("🔒 Challenge: missing token", {
         uid:  uid.substring(0, 8),
         path: req.path,
       });
-
-      // Don't flag on missing token alone — could be legitimate
-      // first request or frontend timing issue. Only flag on bad tokens.
       next(new ForbiddenError("Security token required."));
       return;
     }
 
-    // ── Format validation (before Redis lookup) ────────────
+    // ── Format validation ─────────────────────────────────
+    // Validate before Redis lookup — prevents Redis abuse
+    // Malformed token = deliberate bypass attempt → flag immediately
     if (!isValidTokenFormat(token)) {
       logger.warn("🔒 Challenge: invalid token format", {
         uid:    uid.substring(0, 8),
@@ -104,7 +107,6 @@ export const verifyChallenge = async (
         path:   req.path,
       });
 
-      // Malformed token = deliberate bypass attempt → flag
       await flagUser({
         firebaseUid:   uid,
         violationType: "INVALID_CHALLENGE",
@@ -122,8 +124,7 @@ export const verifyChallenge = async (
     try {
       exists = await redis.get(`challenge:${uid}:${token}`);
     } catch (redisErr) {
-      // Redis is down — fail open to avoid blocking all users
-      // Log but do NOT flag (not the user's fault)
+      // Redis down — fail open, do NOT flag (not user's fault)
       logger.error("Challenge: Redis unavailable — failing open", {
         error: redisErr instanceof Error ? redisErr.message : String(redisErr),
         uid:   uid.substring(0, 8),
@@ -132,7 +133,7 @@ export const verifyChallenge = async (
       return;
     }
 
-    // ── Token not found / expired ──────────────────────────
+    // ── Token not found or expired ─────────────────────────
     if (!exists) {
       const failCount = await trackFailedAttempt(uid);
 
@@ -142,7 +143,8 @@ export const verifyChallenge = async (
         failCount,
       });
 
-      // Only flag after repeated failures — single miss could be timing
+      // Only flag after repeated failures
+      // Single miss could be clock skew or token expiry
       if (failCount >= MAX_FAILS_THRESHOLD) {
         await flagUser({
           firebaseUid:   uid,
@@ -161,10 +163,8 @@ export const verifyChallenge = async (
       return;
     }
 
-    // ── Valid token — consume (delete) atomically ──────────
+    // ── Valid — consume atomically ─────────────────────────
     await redis.del(`challenge:${uid}:${token}`);
-
-    // Reset fail counter on success
     await redis.del(`challenge:fails:${uid}`).catch(() => {});
 
     logger.debug("✅ Challenge token verified", {
@@ -173,7 +173,6 @@ export const verifyChallenge = async (
     });
 
     next();
-
   } catch (err) {
     logger.error("Challenge: unexpected error", {
       error: err instanceof Error ? err.message : String(err),

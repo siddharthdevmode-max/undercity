@@ -9,7 +9,9 @@
 // 2. Fix idempotency_keys table:
 //    - Add firebase_uid column (code queries by uid not user_id)
 //    - Add response_status column (was missing, INSERT fails without it)
+//    - Make user_id NULLABLE (middleware inserts without user_id)
 //    - Add index on (firebase_uid, idempotency_key) for fast lookups
+//    - Drop old (user_id, idempotency_key) unique constraint
 //
 // 3. Fix auth_access_log unique constraint:
 //    - (firebase_uid, ip_address) UNIQUE is wrong — same user
@@ -25,8 +27,9 @@
 exports.up = async (pgm) => {
 
   // ── 1. Ban columns on users ────────────────────────────
-  // banCheck.ts reads: ban_type, ban_reason, ban_expires_at, is_soft_banned
+  // banCheck.ts reads: ban_type, ban_reason, ban_expires_at
   // These were never added to the schema — critical bug.
+  // NOTE: is_soft_banned NOT added — banCheck uses is_shadow_banned instead.
 
   pgm.addColumns("users", {
     ban_type: {
@@ -42,14 +45,8 @@ exports.up = async (pgm) => {
       type:    "timestamptz",
       default: null,
     },
-    is_soft_banned: {
-      type:    "boolean",
-      notNull: true,
-      default: false,
-    },
   });
 
-  // Index for soft ban expiry queries
   pgm.createIndex("users", "ban_expires_at", {
     name:  "idx_users_ban_expires_at",
     where: "ban_expires_at IS NOT NULL",
@@ -58,13 +55,18 @@ exports.up = async (pgm) => {
   // ── 2. Fix idempotency_keys ────────────────────────────
   // The middleware queries by firebase_uid but the table only
   // has user_id. Add firebase_uid column.
-  // Also add response_status which the INSERT uses but column
-  // was missing from original migration.
+  // Also add response_status which the INSERT uses but was missing.
+  // CRITICAL: make user_id nullable — middleware inserts WITHOUT user_id.
+
+  pgm.alterColumn("idempotency_keys", "user_id", {
+    type:    "integer",
+    notNull: false,   // FIX: was NOT NULL — every middleware INSERT fails
+  });
 
   pgm.addColumns("idempotency_keys", {
     firebase_uid: {
       type:    "varchar(128)",
-      notNull: false, // nullable to avoid breaking existing rows
+      notNull: false,
     },
     response_status: {
       type:    "integer",
@@ -73,23 +75,28 @@ exports.up = async (pgm) => {
     },
   });
 
+  // Drop the old unique constraint on (user_id, idempotency_key)
+  // — user_id is now nullable and middleware doesn't provide it
+  pgm.dropConstraint(
+    "idempotency_keys",
+    "idempotency_keys_user_key_unique",
+    { ifExists: true }
+  );
+
   // Add unique constraint on (firebase_uid, idempotency_key)
-  // This is what the middleware actually enforces
   pgm.addConstraint(
     "idempotency_keys",
     "idempotency_keys_uid_key_unique",
     "UNIQUE (firebase_uid, idempotency_key)"
   );
 
-  // Fast lookup index
   pgm.createIndex("idempotency_keys", ["firebase_uid", "idempotency_key"], {
     name: "idx_idempotency_uid_key",
   });
 
   // ── 3. Fix auth_access_log unique constraint ───────────
   // The unique constraint on (firebase_uid, ip_address) is wrong:
-  // A user logs in from the same IP every time → second login fails with
-  // duplicate key violation → IP logging silently breaks.
+  // A user logs in from the same IP every time → second login fails.
   // Fix: drop unique, replace with non-unique index.
 
   pgm.dropIndex("auth_access_log", [], {
@@ -98,7 +105,7 @@ exports.up = async (pgm) => {
   });
 
   pgm.createIndex("auth_access_log", ["firebase_uid", "ip_address"], {
-    name:      "idx_auth_access_log_uid_ip",
+    name:        "idx_auth_access_log_uid_ip",
     ifNotExists: true,
   });
 
@@ -111,7 +118,7 @@ exports.up = async (pgm) => {
 
   // ── 5. firebase_uid index on trust_recovery_log ────────
   pgm.createIndex("trust_recovery_log", "firebase_uid", {
-    name:      "idx_trust_recovery_firebase_uid",
+    name:        "idx_trust_recovery_firebase_uid",
     ifNotExists: true,
   });
 
@@ -143,15 +150,23 @@ exports.down = async (pgm) => {
   pgm.dropIndex("idempotency_keys", [], {
     name: "idx_idempotency_uid_key", ifExists: true,
   });
+
   pgm.dropConstraint("idempotency_keys", "idempotency_keys_uid_key_unique", {
     ifExists: true,
   });
+
   pgm.dropColumns("idempotency_keys", ["firebase_uid", "response_status"]);
+
+  pgm.alterColumn("idempotency_keys", "user_id", {
+    type:    "integer",
+    notNull: true,
+  });
 
   pgm.dropIndex("users", [], {
     name: "idx_users_ban_expires_at", ifExists: true,
   });
+
   pgm.dropColumns("users", [
-    "ban_type", "ban_reason", "ban_expires_at", "is_soft_banned",
+    "ban_type", "ban_reason", "ban_expires_at",
   ]);
 };

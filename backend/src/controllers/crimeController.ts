@@ -1,3 +1,7 @@
+// ============================================================
+// CRIME CONTROLLER — UNDERCITY
+// ============================================================
+
 import { Request, Response } from "express";
 import { PoolClient }        from "pg";
 import { pool }              from "../config/database";
@@ -41,7 +45,6 @@ export const getCrimes = async (req: Request, res: Response): Promise<void> => {
     if (!user) throw new NotFoundError("User");
 
     const playerLevel = toNumber(user.level);
-    const maxLife     = calcMaxLife(playerLevel);
 
     const crimesResult = await client.query(
       `SELECT
@@ -100,11 +103,13 @@ export const getCrimes = async (req: Request, res: Response): Promise<void> => {
       },
     }));
 
-    // Suppress unused variable — maxLife kept for future life display in GET /crimes
-    void maxLife;
-
     const totalCrimeXp = await getTotalCrimeXp(client, user.id);
     const maxNerve     = calcMaxNerve(totalCrimeXp);
+
+    // FIX: Removed unused calcMaxLife call from getCrimes.
+    // maxLife is not in the GET /crimes response — it's in the
+    // POST /crimes/attempt response via buildUpdatedStats.
+    // Keeping dead code with void suppression trains bad habits.
 
     res.json({
       user: {
@@ -135,11 +140,10 @@ export const getCrimes = async (req: Request, res: Response): Promise<void> => {
 export const attemptCrime = async (req: Request, res: Response): Promise<void> => {
   const log = getRequestLogger(req.requestId);
 
-  // ── Auth check BEFORE acquiring connection ─────────────
-  // FIX: Validate firebaseUid BEFORE pool.connect() to prevent
-  // connection leak when unauthorized requests hit this endpoint.
-  // verifyFirebaseToken middleware should have already blocked
-  // unauthed requests, but this is defense-in-depth.
+  // Auth check BEFORE acquiring DB connection — prevents connection
+  // leak when unauthorized requests hit this endpoint.
+  // verifyFirebaseToken middleware should have already blocked these,
+  // but this is defense-in-depth.
   const firebaseUid = req.firebaseUser?.uid;
   if (!firebaseUid) throw new UnauthorizedError();
 
@@ -148,10 +152,9 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
   const userAgent = req.headers["user-agent"] as string | undefined;
   const { crimeKey } = req.body as { crimeKey: string };
 
-  // ── Anti-cheat: fire BEFORE transaction ───────────────
-  // Non-transactional by design — write to separate tracking
-  // tables, must NOT be rolled back if crime tx fails.
-  // All are fire-and-forget (.catch handles failures).
+  // Anti-cheat: fire BEFORE transaction — writes to separate tracking
+  // tables that must NOT be rolled back if crime tx fails.
+  // All fire-and-forget via .catch().
   recordFingerprint(firebaseUid, ipAddress, userAgent, visitorId).catch(
     (e: Error) => log.warn("Fingerprint record failed", { error: e.message })
   );
@@ -179,7 +182,7 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
     })
     .catch((e: Error) => log.warn("Multi-account check failed", { error: e.message }));
 
-  // ── Acquire connection AFTER auth check ───────────────
+  // Acquire connection AFTER anti-cheat fires and AFTER auth check
   const client: PoolClient = await pool.connect();
 
   try {
@@ -254,7 +257,6 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
       outcome: outcome.outcome,
     });
 
-    // ── Build response ─────────────────────────────────
     const responseBody = {
       outcome: outcome.outcome,
       message: outcome.message,
@@ -310,7 +312,7 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
       },
     };
 
-    // ── HTTP response first, WebSocket after ──────────
+    // HTTP response first — WebSocket after
     res.json(responseBody);
 
     SocketNotify.statUpdate(firebaseUid, {

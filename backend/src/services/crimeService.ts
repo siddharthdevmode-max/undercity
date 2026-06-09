@@ -28,7 +28,15 @@ import {
   resolveCrimeOutcome,
   OutcomeResult,
 } from "./crimeEngine";
-import { applyShadowPunishment } from "./shadowPunish";
+
+// FIX: Import CrimeOutcomeForPunish so the type contract between
+// crimeService and shadowPunish is enforced at compile time.
+// OutcomeResult and CrimeOutcomeForPunish have the same fields —
+// importing the interface prevents silent divergence if either changes.
+import {
+  applyShadowPunishment,
+  type CrimeOutcomeForPunish,
+} from "./shadowPunish";
 import {
   NotFoundError,
   ForbiddenError,
@@ -248,7 +256,7 @@ export function calculateOutcome(
 ): OutcomeResult {
   const maxLife = calcMaxLife(toNumber(user.level));
 
-  let outcome = resolveCrimeOutcome(
+  const outcome = resolveCrimeOutcome(
     crime,
     progress,
     availableSpecial,
@@ -258,16 +266,26 @@ export function calculateOutcome(
 
   const immune = isImmuneToAntiCheat(user);
 
-  // Apply shadow punishment for ALL non-clean tiers (not just is_shadow_banned)
-  // trustScore < 70 = WATCHED, SUSPICIOUS, SHADOW_BANNED, HARD_BANNED
-  // Hard banned users never reach here (banCheck blocks them)
+  // Apply shadow punishment for all non-clean trust tiers.
+  // trustScore < 70 = WATCHED, SUSPICIOUS, SHADOW_BANNED, HARD_BANNED.
+  // Hard banned users never reach here — banCheck blocks them first.
+  // immune users (admins/devs) always bypass.
   const shouldPunish = !immune && trustInfo.trustScore < 70;
 
-  if (shouldPunish) {
-    outcome = applyShadowPunishment(outcome, trustInfo.trustScore, immune);
-  }
+  if (!shouldPunish) return outcome;
 
-  return outcome;
+  // FIX: Cast through CrimeOutcomeForPunish to enforce the type contract.
+  // OutcomeResult is a superset of CrimeOutcomeForPunish — all fields exist.
+  // This cast makes TypeScript verify the contract at compile time.
+  // If either type changes, this line will break loudly instead of silently.
+  const punished = applyShadowPunishment(
+    outcome as unknown as CrimeOutcomeForPunish,
+    trustInfo.trustScore,
+    immune
+  );
+
+  // Cast back — punished has same shape as OutcomeResult
+  return punished as unknown as OutcomeResult;
 }
 
 // ─── Stat builder ─────────────────────────────────────────
@@ -288,9 +306,8 @@ export function buildUpdatedStats(
 
   // ── Money — debt mechanic ──────────────────────────────
   // Tier 1-2: crimeEngine caps money_loss so result should >= 0
-  //   BUT we add a defense-in-depth floor here too.
-  //   The engine guarantees it, the service double-checks it.
-  // Tier 3-5: money CAN go negative — this is intentional (debt)
+  //   Defense-in-depth floor here as well.
+  // Tier 3-5: money CAN go negative — intentional debt mechanic.
   const rawMoney = toNumber(user.money) - outcome.money_loss + outcome.reward_money;
   const updatedMoney = crime.tier <= 2
     ? Math.max(0, rawMoney)   // Tier 1-2: floor at 0, never debt

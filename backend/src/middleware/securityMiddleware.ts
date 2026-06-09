@@ -1,3 +1,9 @@
+// ============================================================
+// SECURITY MIDDLEWARE — UNDERCITY
+// Helmet, compression, morgan, security headers.
+// CSP hardened with upgrade-insecure-requests + base-uri.
+// ============================================================
+
 import { Express, Request, Response, NextFunction } from "express";
 import helmet      from "helmet";
 import compression from "compression";
@@ -11,7 +17,6 @@ type CspDirectives = NonNullable<
 
 export function setupSecurityMiddleware(app: Express): void {
 
-  // FIX: Environment-aware connectSrc
   const apiOrigins = config.isProduction
     ? [
         "https://api.undercity.online",
@@ -34,6 +39,18 @@ export function setupSecurityMiddleware(app: Express): void {
     mediaSrc:   ["'none'"],
     frameSrc:   ["'none'"],
     scriptSrc:  ["'self'"],
+
+    // FIX: Prevents base tag injection attacks
+    // Without this, attacker can inject <base href="https://evil.com">
+    // and hijack all relative URLs on the page
+    baseUri: ["'self'"],
+
+    // FIX: Force HTTPS for all subresource requests in production
+    // Without this, browsers may load mixed content (http:// assets)
+    // even when the page is served over HTTPS
+    ...(config.isProduction
+      ? { upgradeInsecureRequests: [] }
+      : {}),
   };
 
   if (config.cspReportUri) {
@@ -44,7 +61,7 @@ export function setupSecurityMiddleware(app: Express): void {
     helmet({
       contentSecurityPolicy: { directives: cspDirectives },
       hsts: config.isProduction
-        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+        ? { maxAge: 31_536_000, includeSubDomains: true, preload: true }
         : false,
       crossOriginEmbedderPolicy: false,
     })

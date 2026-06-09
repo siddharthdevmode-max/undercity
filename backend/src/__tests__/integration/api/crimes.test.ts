@@ -1,55 +1,42 @@
 // ============================================================
 // CRIMES ENDPOINT TESTS — UNDERCITY
-// Tests crime routes with mocked Firebase.
+// FIX: mock path was ../../config/firebase (wrong)
+//      corrected to ../../../config/firebase
 // ============================================================
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import request from "supertest";
 import { pool } from "../../../config/database";
-import redis from "../../../config/redis";
-
-// ============================================================
-// MOCK FIREBASE
-// ============================================================
+import redis   from "../../../config/redis";
 
 const TEST_UID = `test-crimes-${Date.now()}`;
 
-vi.mock("../../config/firebase", () => ({
+// FIX: correct relative path from src/__tests__/integration/api/
+vi.mock("../../../config/firebase", () => ({
   authAdmin: {
     verifyIdToken: vi.fn().mockResolvedValue({
-      uid:   TEST_UID,
-      email: `${TEST_UID}@test.com`,
+      uid:            TEST_UID,
+      email:          `${TEST_UID}@test.com`,
+      email_verified: true,
     }),
   },
 }));
 
 const { default: app } = await import("../../../app");
 
-// ============================================================
-// HELPERS
-// ============================================================
+// ── Helpers ───────────────────────────────────────────────
 
 async function isDBAvailable(): Promise<boolean> {
-  try {
-    await pool.query("SELECT 1");
-    return true;
-  } catch {
-    return false;
-  }
+  try { await pool.query("SELECT 1"); return true; }
+  catch { return false; }
 }
 
 async function isRedisAvailable(): Promise<boolean> {
-  try {
-    const pong = await redis.ping();
-    return pong === "PONG";
-  } catch {
-    return false;
-  }
+  try { return (await redis.ping()) === "PONG"; }
+  catch { return false; }
 }
 
-// ============================================================
-// SETUP
-// ============================================================
+// ── Setup ─────────────────────────────────────────────────
 
 beforeAll(async () => {
   if (!await isDBAvailable()) {
@@ -58,19 +45,17 @@ beforeAll(async () => {
   }
   await pool.query(
     `INSERT INTO users (
-      firebase_uid, email, username,
-      money, level, points,
-      nerve, max_nerve, life, max_life,
-      trust_score, is_shadow_banned, is_hard_banned
-    ) VALUES ($1, $2, $3, 5000, 5, 0, 30, 30, 100, 100, 100, false, false)
-    ON CONFLICT (firebase_uid) DO NOTHING`,
+       firebase_uid, email, username,
+       money, level, points,
+       nerve, max_nerve, life, max_life,
+       trust_score, is_shadow_banned, is_hard_banned
+     ) VALUES ($1, $2, $3, 5000, 5, 0, 30, 30, 100, 100, 100, false, false)
+     ON CONFLICT (firebase_uid) DO NOTHING`,
     [TEST_UID, `${TEST_UID}@test.com`, `ct_${Date.now() % 100000}`]
   );
 });
 
-// ============================================================
-// GET /api/v1/crimes
-// ============================================================
+// ── GET /api/v1/crimes ────────────────────────────────────
 
 describe("GET /api/v1/crimes", () => {
   it("returns 401 without token", async () => {
@@ -145,16 +130,18 @@ describe("GET /api/v1/crimes", () => {
     const bannedUid = `test-banned-${Date.now()}`;
     await pool.query(
       `INSERT INTO users (
-        firebase_uid, email, username,
-        money, level, points, nerve, max_nerve, life, max_life,
-        trust_score, is_hard_banned
-      ) VALUES ($1, $2, $3, 100, 1, 0, 30, 30, 100, 100, 0, true)`,
+         firebase_uid, email, username,
+         money, level, points, nerve, max_nerve, life, max_life,
+         trust_score, is_hard_banned
+       ) VALUES ($1, $2, $3, 100, 1, 0, 30, 30, 100, 100, 0, true)`,
       [bannedUid, `banned@test.com`, `banned_${Date.now()}`]
     );
 
-    const { authAdmin } = await import("../../config/firebase");
+    // FIX: correct import path
+    const { authAdmin } = await import("../../../config/firebase");
     vi.mocked(authAdmin.verifyIdToken).mockResolvedValueOnce({
-      uid: bannedUid,
+      uid:            bannedUid,
+      email_verified: true,
     } as never);
 
     const res = await request(app)
@@ -169,33 +156,25 @@ describe("GET /api/v1/crimes", () => {
   });
 });
 
-// ============================================================
-// POST /api/v1/crimes/attempt
-// ============================================================
+// ── POST /api/v1/crimes/attempt ───────────────────────────
 
 describe("POST /api/v1/crimes/attempt", () => {
   it("returns 401 without token", async () => {
     const res = await request(app)
       .post("/api/v1/crimes/attempt")
       .send({ crimeKey: "beg_for_change" });
-
     expect(res.status).toBe(401);
   });
 
   it("returns 401 or 403 without challenge token", async () => {
-    // Auth middleware runs BEFORE challenge verification.
-    // Without a valid Firebase token the server returns 401.
-    // With a valid token but no challenge header it returns 403.
-    // Both are correct depending on whether Firebase mock resolves.
     const res = await request(app)
       .post("/api/v1/crimes/attempt")
       .set("Authorization", "Bearer fake-token")
       .send({ crimeKey: "beg_for_change" });
-
     expect([401, 403]).toContain(res.status);
   });
 
-  it("returns 400 or 403 for invalid crimeKey format (requires DB + Redis)", async () => {
+  it("returns 400 for invalid crimeKey format (requires DB + Redis)", async () => {
     if (!await isDBAvailable() || !await isRedisAvailable()) {
       console.log("⏭️  Skipping — DB or Redis unavailable");
       return;
@@ -219,7 +198,7 @@ describe("POST /api/v1/crimes/attempt", () => {
     expect([400, 422]).toContain(res.status);
   });
 
-  it("returns 400 or 403 for missing crimeKey (requires DB + Redis)", async () => {
+  it("returns 400 for missing crimeKey (requires DB + Redis)", async () => {
     if (!await isDBAvailable() || !await isRedisAvailable()) {
       console.log("⏭️  Skipping — DB or Redis unavailable");
       return;
@@ -243,7 +222,7 @@ describe("POST /api/v1/crimes/attempt", () => {
     expect([400, 422]).toContain(res.status);
   });
 
-  it("full crime attempt flow with real challenge token (requires DB + Redis)", async () => {
+  it("full crime attempt flow (requires DB + Redis)", async () => {
     if (!await isDBAvailable() || !await isRedisAvailable()) {
       console.log("⏭️  Skipping — DB or Redis unavailable");
       return;
@@ -258,12 +237,10 @@ describe("POST /api/v1/crimes/attempt", () => {
       return;
     }
 
-    const { token } = challengeRes.body;
-
     const res = await request(app)
       .post("/api/v1/crimes/attempt")
       .set("Authorization", "Bearer fake-token")
-      .set("x-uac-challenge", token)
+      .set("x-uac-challenge", challengeRes.body.token)
       .send({ crimeKey: "beg_for_change" });
 
     expect([200, 400, 404, 422, 429]).toContain(res.status);
@@ -328,18 +305,23 @@ describe("POST /api/v1/crimes/attempt", () => {
   });
 });
 
-// ============================================================
-// CLEANUP
-// ============================================================
+// ── Cleanup ───────────────────────────────────────────────
 
 afterAll(async () => {
   if (await isDBAvailable()) {
-    await pool.query(`DELETE FROM uac_violations WHERE firebase_uid LIKE 'test-%'`).catch(() => {});
-    await pool.query(`DELETE FROM device_fingerprints WHERE firebase_uid LIKE 'test-%'`).catch(() => {});
     await pool.query(
-      `DELETE FROM user_crime_progress WHERE user_id IN (SELECT id FROM users WHERE firebase_uid LIKE 'test-%')`
+      `DELETE FROM uac_violations WHERE firebase_uid LIKE 'test-%'`
     ).catch(() => {});
-    await pool.query(`DELETE FROM users WHERE firebase_uid LIKE 'test-%'`).catch(() => {});
+    await pool.query(
+      `DELETE FROM device_fingerprints WHERE firebase_uid LIKE 'test-%'`
+    ).catch(() => {});
+    await pool.query(
+      `DELETE FROM user_crime_progress
+       WHERE user_id IN (SELECT id FROM users WHERE firebase_uid LIKE 'test-%')`
+    ).catch(() => {});
+    await pool.query(
+      `DELETE FROM users WHERE firebase_uid LIKE 'test-%'`
+    ).catch(() => {});
   }
   await pool.end().catch(() => {});
   await redis.quit().catch(() => {});

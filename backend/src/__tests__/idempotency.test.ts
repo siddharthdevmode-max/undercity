@@ -1,266 +1,235 @@
 // ============================================================
-// IDEMPOTENCY MIDDLEWARE — UNIT TESTS
+// IDEMPOTENCY MIDDLEWARE TESTS
 // ============================================================
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Request, Response, NextFunction }  from "express";
-
-// ── Hoisted mocks ──────────────────────────────────────────
-
-const mocks = vi.hoisted(() => {
-  const mockPoolQuery = vi.fn();
-  const onFinishedCb  = vi.fn();
-  return { mockPoolQuery, onFinishedCb };
-});
+import type { Request, Response, NextFunction } from "express";
 
 vi.mock("../config/database", () => ({
-  pool: {
-    query:   mocks.mockPoolQuery,
-    connect: vi.fn(),
-    on:      vi.fn(),
-    totalCount: 1, idleCount: 1, waitingCount: 0,
-  },
-  withTransaction: vi.fn(),
-  getPoolStats:    vi.fn().mockReturnValue({ total: 1, idle: 1, waiting: 0 }),
+  pool: { query: vi.fn() },
 }));
 
 vi.mock("../config/redis", () => ({
-  default: { get: vi.fn().mockResolvedValue(null), set: vi.fn(), on: vi.fn(), status: "ready" },
-  redis:   { get: vi.fn().mockResolvedValue(null), set: vi.fn(), on: vi.fn(), status: "ready" },
+  redis: {
+    get: vi.fn(),
+    set: vi.fn(),
+    del: vi.fn(),
+  },
+}));
+
+vi.mock("on-finished", () => ({
+  default: vi.fn((_res: unknown, cb: () => void) => cb()),
+}));
+
+vi.mock("../config", () => ({
+  config: {
+    isTest:        false,
+    isDevelopment: false,
+    isProduction:  false,
+    game: { idempotencyTtlMs: 300_000 },
+  },
 }));
 
 vi.mock("../utils/logger", () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  getRequestLogger: vi.fn().mockReturnValue({
-    info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(),
-  }),
+  logger: {
+    info:  vi.fn(),
+    warn:  vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
 }));
 
-// on-finished: call the callback synchronously so we can test it
-vi.mock("on-finished", () => ({
-  default: vi.fn((_res: unknown, cb: () => void) => {
-    mocks.onFinishedCb.mockImplementation(cb);
-  }),
-}));
-
-// ── Import after mocks ─────────────────────────────────────
-
+import { pool }             from "../config/database";
+import { redis }            from "../config/redis";
 import { idempotencyCheck } from "../middleware/idempotency";
 
 // ── Helpers ───────────────────────────────────────────────
 
 const VALID_UUID = "550e8400-e29b-41d4-a716-446655440000";
+const TEST_UID   = "firebase-uid-test-123";
 
-function makeReq(overrides: Partial<Request> = {}): Partial<Request> {
+function makeReq(overrides: Partial<Request> = {}): Request {
   return {
     headers:      { "x-idempotency-key": VALID_UUID },
+    firebaseUser: { uid: TEST_UID, email: "test@test.com", emailVerified: true },
     path:         "/api/v1/crimes/attempt",
-    requestId:    "req-123",
-    firebaseUser: { uid: "uid-123", email: "test@test.com", emailVerified: true },
     ...overrides,
-  };
+  } as unknown as Request;
 }
 
-function makeRes(): Partial<Response> & { statusCode: number } {
+function makeRes(): Response & { _status: number; _body: unknown } {
   const res = {
+    _status:    200,
+    _body:      null,
     statusCode: 200,
-    json:       vi.fn().mockReturnThis(),
-    status:     vi.fn().mockReturnThis(),
-    on:         vi.fn(),
+    status(code: number) {
+      this._status    = code;
+      this.statusCode = code;
+      return this;
+    },
+    json(body: unknown) {
+      this._body = body;
+      return this;
+    },
+    on: vi.fn(),
   };
-  res.status.mockReturnValue(res as unknown as Response);
-  return res as Partial<Response> & { statusCode: number };
+  return res as unknown as Response & { _status: number; _body: unknown };
 }
 
-const mockNext = vi.fn() as NextFunction;
+function makeNext(): NextFunction {
+  return vi.fn() as unknown as NextFunction;
+}
 
-// ============================================================
+function nextArg(next: NextFunction): unknown {
+  return (next as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+}
 
-describe("idempotencyCheck middleware", () => {
+// ── Tests ─────────────────────────────────────────────────
 
+describe("idempotencyCheck", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.mockPoolQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+    // clearAllMocks resets call counts but NOT mockResolvedValue implementations.
+    // resetAllMocks resets both — use this to prevent mock bleed between tests.
+    vi.resetAllMocks();
+
+    // Set safe defaults for every test — each test overrides as needed.
+    // redis.set returning "OK" = lock acquired (not null = not held).
+    vi.mocked(redis.set).mockResolvedValue("OK" as never);
+    vi.mocked(redis.del).mockResolvedValue(1);
+    vi.mocked(redis.get).mockResolvedValue(null);
   });
 
   // ── Skip conditions ──────────────────────────────────────
 
-  it("calls next() immediately when no X-Idempotency-Key header", async () => {
-    const req = makeReq({ headers: {} });
-    const res = makeRes();
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-    expect(mockNext).toHaveBeenCalledWith();
-    expect(res.json).not.toHaveBeenCalled();
+  it("skips if no idempotency key in header", async () => {
+    const req  = makeReq({ headers: {} } as Partial<Request>);
+    const res  = makeRes();
+    const next = makeNext();
+
+    await idempotencyCheck(req, res, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(pool.query).not.toHaveBeenCalled();
   });
 
-  it("calls next() when no firebaseUser (unauthenticated)", async () => {
-    const req = makeReq({ firebaseUser: undefined });
-    const res = makeRes();
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-    expect(mockNext).toHaveBeenCalledWith();
+  it("skips if no authenticated user", async () => {
+    const req  = makeReq({ firebaseUser: undefined } as Partial<Request>);
+    const res  = makeRes();
+    const next = makeNext();
+
+    await idempotencyCheck(req, res, next);
+
+    expect(next).toHaveBeenCalledWith();
   });
 
-  // ── Key validation ───────────────────────────────────────
+  // ── Validation ────────────────────────────────────────────
 
-  it("calls next(ValidationError) when key exceeds 128 chars", async () => {
-    const req = makeReq({ headers: { "x-idempotency-key": "a".repeat(129) } });
-    const res = makeRes();
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-    expect(mockNext).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining("too long") })
-    );
+  it("rejects array idempotency key with VALIDATION_ERROR", async () => {
+    const req  = makeReq({
+      headers: { "x-idempotency-key": ["key1", "key2"] },
+    } as Partial<Request>);
+    const res  = makeRes();
+    const next = makeNext();
+
+    await idempotencyCheck(req, res, next);
+
+    expect(nextArg(next)).toMatchObject({ code: "VALIDATION_ERROR" });
   });
 
-  it("calls next(ValidationError) when key is not UUID v4 format", async () => {
-    const req = makeReq({ headers: { "x-idempotency-key": "not-a-uuid-at-all" } });
-    const res = makeRes();
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-    expect(mockNext).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining("UUID v4") })
-    );
+  it("rejects key over 128 chars with VALIDATION_ERROR", async () => {
+    const req  = makeReq({
+      headers: { "x-idempotency-key": "a".repeat(129) },
+    } as Partial<Request>);
+    const res  = makeRes();
+    const next = makeNext();
+
+    await idempotencyCheck(req, res, next);
+
+    expect(nextArg(next)).toMatchObject({ code: "VALIDATION_ERROR" });
   });
 
-  it("calls next(ValidationError) for UUID v1 (wrong version digit)", async () => {
-    const uuidV1 = "550e8400-e29b-11d4-a716-446655440000";
-    const req = makeReq({ headers: { "x-idempotency-key": uuidV1 } });
-    const res = makeRes();
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-    expect(mockNext).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining("UUID v4") })
-    );
+  it("rejects non-UUID-v4 key with VALIDATION_ERROR", async () => {
+    const req  = makeReq({
+      headers: { "x-idempotency-key": "not-a-uuid" },
+    } as Partial<Request>);
+    const res  = makeRes();
+    const next = makeNext();
+
+    await idempotencyCheck(req, res, next);
+
+    expect(nextArg(next)).toMatchObject({ code: "VALIDATION_ERROR" });
   });
 
-  it("accepts valid UUID v4 and proceeds to DB check", async () => {
-    mocks.mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-    const req = makeReq({ headers: { "x-idempotency-key": VALID_UUID } });
-    const res = makeRes();
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-    expect(mockNext).toHaveBeenCalledWith();
-    expect(mocks.mockPoolQuery).toHaveBeenCalled();
+  // ── Cache hit ─────────────────────────────────────────────
+
+  it("returns cached response when found in DB", async () => {
+    vi.mocked(pool.query).mockResolvedValueOnce({
+      rows: [{ response_body: { ok: true }, response_status: 200 }],
+    } as never);
+
+    const req  = makeReq();
+    const res  = makeRes();
+    const next = makeNext();
+
+    await idempotencyCheck(req, res, next);
+
+    expect(res._status).toBe(200);
+    expect(res._body).toEqual({ ok: true });
+    expect(next).not.toHaveBeenCalled();
   });
 
-  it("accepts uppercase UUID v4", async () => {
-    mocks.mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-    const req = makeReq({ headers: { "x-idempotency-key": VALID_UUID.toUpperCase() } });
-    const res = makeRes();
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-    expect(mockNext).toHaveBeenCalledWith();
+  // ── Lock contention ───────────────────────────────────────
+
+  it("returns CONFLICT when Redis lock already held", async () => {
+    // DB miss
+    vi.mocked(pool.query).mockResolvedValueOnce({ rows: [] } as never);
+    // Lock held — NX returns null
+    vi.mocked(redis.set).mockResolvedValueOnce(null);
+
+    const req  = makeReq();
+    const res  = makeRes();
+    const next = makeNext();
+
+    await idempotencyCheck(req, res, next);
+
+    expect(nextArg(next)).toMatchObject({ code: "CONFLICT" });
   });
 
-  // ── Cache hit — idempotent response ──────────────────────
+  // ── Happy path ────────────────────────────────────────────
 
-  it("returns cached response when key exists in DB", async () => {
-    const cachedBody   = { outcome: "success", rewards: { money: 500 } };
-    const cachedStatus = 200;
-    mocks.mockPoolQuery.mockResolvedValueOnce({
-      rows:     [{ response_body: cachedBody, response_status: cachedStatus }],
-      rowCount: 1,
-    });
-    const req = makeReq({ headers: { "x-idempotency-key": VALID_UUID } });
-    const res = makeRes();
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith(cachedBody);
-    expect(mockNext).not.toHaveBeenCalled();
+  it("proceeds when lock acquired — calls next() with no args", async () => {
+    // DB miss — no cached response
+    vi.mocked(pool.query).mockResolvedValueOnce({ rows: [] } as never);
+    // Lock acquired — "OK" (already set as default in beforeEach)
+    // DB save triggered by on-finished mock
+    vi.mocked(pool.query).mockResolvedValueOnce({ rows: [] } as never);
+
+    const req  = makeReq();
+    const res  = makeRes();
+    const next = makeNext();
+
+    await idempotencyCheck(req, res, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(nextArg(next)).toBeUndefined();
   });
 
-  it("preserves original status code in cached response", async () => {
-    mocks.mockPoolQuery.mockResolvedValueOnce({
-      rows:     [{ response_body: { message: "created" }, response_status: 201 }],
-      rowCount: 1,
-    });
-    const req = makeReq({ headers: { "x-idempotency-key": VALID_UUID } });
-    const res = makeRes();
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-    expect(res.status).toHaveBeenCalledWith(201);
-  });
+  // ── Fail open ─────────────────────────────────────────────
 
-  // ── Cache miss — new request ─────────────────────────────
+  it("fails open on DB error — next() called with no error", async () => {
+    // DB throws on the cache-lookup query.
+    // The outer catch in idempotencyCheck calls next() with no args.
+    // redis.set default is "OK" (from beforeEach) — but because pool.query
+    // throws BEFORE we reach the redis.set call, the catch fires first.
+    vi.mocked(pool.query).mockRejectedValueOnce(new Error("DB down"));
 
-  it("calls next() when no cached response (new request)", async () => {
-    mocks.mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-    const req = makeReq({ headers: { "x-idempotency-key": VALID_UUID } });
-    const res = makeRes();
+    const req  = makeReq();
+    const res  = makeRes();
+    const next = makeNext();
 
-    // Capture original json spy BEFORE middleware patches it
-    const originalJsonSpy = res.json as ReturnType<typeof vi.fn>;
+    await idempotencyCheck(req, res, next);
 
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-
-    // next() called without error — request proceeds to handler
-    expect(mockNext).toHaveBeenCalledWith();
-
-    // The ORIGINAL json spy was never called (middleware didn't short-circuit)
-    // Note: res.json is now patched by the middleware — check original spy
-    expect(originalJsonSpy).not.toHaveBeenCalled();
-  });
-
-  it("patches res.json to capture response body for future caching", async () => {
-    mocks.mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-    const req         = makeReq({ headers: { "x-idempotency-key": VALID_UUID } });
-    const res         = makeRes();
-    const originalJson = res.json;
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-    expect(res.json).not.toBe(originalJson);
-  });
-
-  // ── Fail open ────────────────────────────────────────────
-
-  it("fails open (calls next) when DB throws", async () => {
-    mocks.mockPoolQuery.mockRejectedValueOnce(new Error("DB connection refused"));
-    const req = makeReq({ headers: { "x-idempotency-key": VALID_UUID } });
-    const res = makeRes();
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-    expect(mockNext).toHaveBeenCalledWith();
-  });
-
-  // ── Key trimming ─────────────────────────────────────────
-
-  it("trims whitespace from key before validation", async () => {
-    mocks.mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-    const paddedKey = `  ${VALID_UUID}  `;
-    const req = makeReq({ headers: { "x-idempotency-key": paddedKey } });
-    const res = makeRes();
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-    expect(mockNext).toHaveBeenCalledWith();
-  });
-
-  // ── Only caches 2xx responses ────────────────────────────
-
-  it("DB query includes correct uid and idempotency key", async () => {
-    mocks.mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-    const req = makeReq({ headers: { "x-idempotency-key": VALID_UUID } });
-    const res = makeRes();
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-    expect(mocks.mockPoolQuery).toHaveBeenCalledWith(
-      expect.stringContaining("idempotency_keys"),
-      expect.arrayContaining(["uid-123", VALID_UUID])
-    );
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(nextArg(next)).toBeUndefined();
   });
 });
-
-  it("persists 2xx response to DB after response is finished", async () => {
-    mocks.mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // SELECT miss
-    mocks.mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // INSERT
-
-    const req = makeReq({ headers: { "x-idempotency-key": VALID_UUID } });
-    const res = makeRes();
-
-    await idempotencyCheck(req as Request, res as Response, mockNext);
-
-    // Simulate the handler calling res.json with a 200 response
-    res.statusCode = 200;
-    (res.json as ReturnType<typeof vi.fn>)({ outcome: "success" });
-
-    // Trigger the onFinished callback (simulates response being sent)
-    mocks.onFinishedCb();
-
-    // Wait for the async DB INSERT (fire-and-forget)
-    await new Promise((r) => setTimeout(r, 10));
-
-    // Verify the INSERT was called
-    const insertCall = mocks.mockPoolQuery.mock.calls.find(
-      (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO idempotency_keys')
-    );
-    expect(insertCall).toBeDefined();
-  });

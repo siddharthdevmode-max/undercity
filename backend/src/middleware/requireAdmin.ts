@@ -3,6 +3,14 @@
 // Factory-based role checking with Redis caching.
 // Roles are cached per-user for 60 seconds.
 // Attaches roles to req.userRoles for downstream use.
+//
+// SECURITY NOTE on requireAny():
+//   Custom role checkers created via requireAny() are ISOLATED —
+//   they do NOT automatically grant access to adminUids/devUids.
+//   Only requireAdmin/requireModerator/requireDeveloper grant
+//   env-list access. This is intentional: requireAny() is for
+//   game-specific role checks (gang leader, etc.) that must not
+//   silently elevate admins.
 // ============================================================
 
 import { Request, Response, NextFunction } from "express";
@@ -20,7 +28,6 @@ export interface UserRoles {
   is_moderator: boolean;
 }
 
-// Extend Express Request
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
@@ -35,22 +42,18 @@ declare global {
 const ROLE_CACHE_TTL_SEC = 60;
 const ROLE_CACHE_PREFIX  = "roles:";
 
-// ─── Role Fetcher (Cache → DB) ────────────────────────────
+// ─── Role Fetcher ─────────────────────────────────────────
 
 async function getUserRoles(uid: string): Promise<UserRoles | null> {
   const cacheKey = `${ROLE_CACHE_PREFIX}${uid}`;
 
-  // Try cache first
   try {
     const cached = await redis.get(cacheKey);
     if (cached !== null) {
       return JSON.parse(cached) as UserRoles;
     }
-  } catch {
-    // Redis down — fall through to DB
-  }
+  } catch { /* Redis down — fall through */ }
 
-  // DB lookup
   const result = await pool.query<UserRoles>(
     `SELECT is_admin, is_developer, is_moderator
      FROM users
@@ -63,34 +66,38 @@ async function getUserRoles(uid: string): Promise<UserRoles | null> {
 
   const roles = result.rows[0];
 
-  // Cache the result
   try {
     await redis.set(cacheKey, JSON.stringify(roles), "EX", ROLE_CACHE_TTL_SEC);
-  } catch {
-    // Cache write failure is non-critical
-  }
+  } catch { /* Non-critical */ }
 
   return roles;
 }
 
 // ─── Cache Invalidation ───────────────────────────────────
-// Call this when you change a user's role
 
 export async function invalidateRoleCache(uid: string): Promise<void> {
   try {
     await redis.del(`${ROLE_CACHE_PREFIX}${uid}`);
-  } catch {
-    // Non-critical
-  }
+  } catch { /* Non-critical */ }
 }
 
 // ─── Role Check Factory ───────────────────────────────────
 
 type RoleChecker = (roles: UserRoles, uid: string) => boolean;
 
+interface RoleMiddlewareOptions {
+  /**
+   * When true (default for built-in middleware): users in
+   * config.adminUids or config.devUids bypass the role check.
+   * When false (requireAny): ONLY the checkFn decides access.
+   */
+  allowEnvListBypass: boolean;
+}
+
 function makeRoleMiddleware(
-  name:        string,
-  checkFn:     RoleChecker
+  name:    string,
+  checkFn: RoleChecker,
+  options: RoleMiddlewareOptions = { allowEnvListBypass: true }
 ) {
   return async (
     req:  Request,
@@ -104,8 +111,7 @@ function makeRoleMiddleware(
     }
 
     try {
-      // Use cached roles if already fetched this request
-      const roles = req.userRoles ?? await getUserRoles(uid);
+      const roles = req.userRoles ?? (await getUserRoles(uid));
 
       if (!roles) {
         logger.warn(`🚫 ${name}: user not found in DB`, {
@@ -115,14 +121,16 @@ function makeRoleMiddleware(
         return next(new ForbiddenError());
       }
 
-      // Attach roles to request for downstream use
       req.userRoles = roles;
 
-      // Check env list first (fastest)
-      const inAdminEnvList = config.adminUids.includes(uid);
-      const inDevEnvList   = config.devUids.includes(uid);
+      // Env list bypass — only for built-in middleware
+      if (options.allowEnvListBypass) {
+        const inEnvList =
+          config.adminUids.includes(uid) || config.devUids.includes(uid);
+        if (inEnvList) return next();
+      }
 
-      if (checkFn(roles, uid) || inAdminEnvList || inDevEnvList) {
+      if (checkFn(roles, uid)) {
         return next();
       }
 
@@ -142,42 +150,51 @@ function makeRoleMiddleware(
         uid:   uid.slice(0, 8),
         error: err instanceof Error ? err.message : String(err),
       });
-      // Fail CLOSED — deny access on error
+      // Fail CLOSED — deny on error
       return next(new ForbiddenError());
     }
   };
 }
 
-// ─── Middleware Exports ───────────────────────────────────
+// ─── Built-in Middleware ──────────────────────────────────
 
-/** Admin or Developer only */
+/** Admin or Developer (+ env list bypass) */
 export const requireAdmin = makeRoleMiddleware(
   "requireAdmin",
-  (roles) => roles.is_admin || roles.is_developer
+  (roles) => roles.is_admin || roles.is_developer,
+  { allowEnvListBypass: true }
 );
 
-/** Moderator, Admin, or Developer */
+/** Moderator, Admin, or Developer (+ env list bypass) */
 export const requireModerator = makeRoleMiddleware(
   "requireModerator",
-  (roles) => roles.is_admin || roles.is_developer || roles.is_moderator
+  (roles) => roles.is_admin || roles.is_developer || roles.is_moderator,
+  { allowEnvListBypass: true }
 );
 
-/** Developer only */
+/** Developer only (+ env list bypass) */
 export const requireDeveloper = makeRoleMiddleware(
   "requireDeveloper",
-  (roles, uid) => roles.is_developer || config.devUids.includes(uid)
+  (roles, uid) => roles.is_developer || config.devUids.includes(uid),
+  { allowEnvListBypass: true }
 );
 
-// ─── Composable Role Checker ──────────────────────────────
+// ─── Custom Role Middleware ───────────────────────────────
 
 /**
- * Create custom role middleware for specific requirements.
+ * Create isolated role middleware for game-specific checks.
+ * Does NOT grant access to adminUids/devUids automatically.
+ * Only the provided checkFn decides access.
  *
  * Usage:
  *   const requireGangLeader = requireAny(
- *     (roles) => roles.is_admin || someCustomCheck
+ *     (roles) => someCustomCheck(roles)
  *   );
  */
 export function requireAny(checkFn: RoleChecker) {
-  return makeRoleMiddleware("requireAny", checkFn);
+  return makeRoleMiddleware(
+    "requireAny",
+    checkFn,
+    { allowEnvListBypass: false }  // isolated — no env list bypass
+  );
 }
