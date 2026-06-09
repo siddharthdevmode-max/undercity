@@ -1,3 +1,11 @@
+// ============================================================
+// SUPPORT ROUTES — UNDERCITY
+// FIX 1: replyTicketSchema.shape.body replaced with direct
+//         body schema extraction — more resilient to schema changes
+// FIX 2: MAX_OPEN_TICKETS error changed from 429 to 409 (CONFLICT)
+//         429 = rate limit, 409 = business rule conflict
+// ============================================================
+
 import { Router }              from "express";
 import { z }                   from "zod";
 import { pool }                from "../config/database";
@@ -12,26 +20,40 @@ import { asyncHandler }        from "../utils/asyncHandler";
 import { validate }            from "../middleware/validate";
 import {
   createSupportTicketSchema,
-  replyTicketSchema,
 }                              from "../utils/schemas";
 import { sanitizeString }      from "../utils/sanitize";
+import { safeMessage }         from "../utils/sanitize";
 import { logger }              from "../utils/logger";
 import { queueEmail }          from "../queues/index";
 import { getPagination, buildPaginatedResponse } from "../utils/pagination";
 import {
   NotFoundError,
   ValidationError,
-  AppError,
+  ConflictError,
 }                              from "../utils/errors";
 
 const router = Router();
 
-const TICKET_STATUSES = ["open", "in_progress", "resolved", "closed", "wont_fix"] as const;
+const TICKET_STATUSES = [
+  "open", "in_progress", "resolved", "closed", "wont_fix",
+] as const;
 type TicketStatus = typeof TICKET_STATUSES[number];
 
 const ticketIdParam = z.object({
   params: z.object({
     id: z.string().regex(/^\d+$/, "Ticket ID must be numeric"),
+  }),
+});
+
+// FIX: Define the reply body schema directly — do not use .shape
+// to extract from replyTicketSchema (fragile if schema structure changes)
+const replyBodySchema = z.object({
+  params: z.object({
+    id: z.string().regex(/^\d+$/, "Ticket ID must be numeric"),
+  }),
+  body: z.object({
+    message: safeMessage,
+    status:  z.enum(TICKET_STATUSES).optional().default("resolved"),
   }),
 });
 
@@ -61,7 +83,9 @@ router.post(
 
     if (userResult.rows.length === 0) throw new NotFoundError("User");
 
-    const user = userResult.rows[0] as { id: number; username: string; email: string };
+    const user = userResult.rows[0] as {
+      id: number; username: string; email: string;
+    };
 
     const openCount = await pool.query(
       `SELECT COUNT(*)::int AS count FROM support_tickets
@@ -70,11 +94,12 @@ router.post(
     );
 
     const count = (openCount.rows[0] as { count: number }).count;
+
     if (count >= MAX_OPEN_TICKETS) {
-      throw new AppError(
-        `You already have ${MAX_OPEN_TICKETS} open tickets. Wait for a response before opening more.`,
-        429,
-        "ERR_9003"
+      // FIX: 409 CONFLICT — this is a business rule limit, not a rate limit
+      // 429 = "Too Many Requests" (rate limiting), which is semantically wrong here
+      throw new ConflictError(
+        `You already have ${MAX_OPEN_TICKETS} open tickets. Wait for a response before opening more.`
       );
     }
 
@@ -114,7 +139,8 @@ router.get(
 
     const [countR, rowsR] = await Promise.all([
       pool.query(
-        `SELECT COUNT(*)::int AS total FROM support_tickets WHERE firebase_uid = $1`,
+        `SELECT COUNT(*)::int AS total FROM support_tickets
+         WHERE firebase_uid = $1`,
         [uid]
       ),
       pool.query(
@@ -146,7 +172,9 @@ router.get(
     const categoryFilter = req.query["category"] ? String(req.query["category"]) : null;
 
     if (statusFilter && !TICKET_STATUSES.includes(statusFilter as TicketStatus)) {
-      throw new ValidationError(`Invalid status. Valid: ${TICKET_STATUSES.join(", ")}`);
+      throw new ValidationError(
+        `Invalid status. Valid: ${TICKET_STATUSES.join(", ")}`
+      );
     }
 
     const [countR, rowsR] = await Promise.all([
@@ -202,31 +230,27 @@ router.get(
 
 // ============================================================
 // POST /api/support/tickets/:id/respond
-// FIX: was destructuring "response" but schema field is "message"
+// FIX: uses replyBodySchema directly instead of
+//      replyTicketSchema.shape.body (which is fragile)
 // ============================================================
 router.post(
   "/tickets/:id/respond",
   verifyFirebaseToken,
   requireModerator,
   adminLimiter,
-  validate(
-    z.object({
-      params: z.object({ id: z.string().regex(/^\d+$/) }),
-      body:   replyTicketSchema.shape.body,
-    })
-  ),
+  validate(replyBodySchema),
   asyncHandler(async (req, res) => {
     const ticketId = parseInt(String(req.params["id"]), 10);
     const adminUid = req.firebaseUser!.uid;
-
-    // ── FIXED: schema uses "message" not "response" ────────
     const { message, status = "resolved" } = req.body as {
       message: string;
       status?: string;
     };
 
     if (!TICKET_STATUSES.includes(status as TicketStatus)) {
-      throw new ValidationError(`Invalid status. Valid: ${TICKET_STATUSES.join(", ")}`);
+      throw new ValidationError(
+        `Invalid status. Valid: ${TICKET_STATUSES.join(", ")}`
+      );
     }
 
     const result = await pool.query(
@@ -317,7 +341,11 @@ router.post(
       `INSERT INTO admin_audit_log
          (admin_firebase_uid, action_type, details, ip_address)
        VALUES ($1, 'TICKET_CLOSED', $2, $3)`,
-      [adminUid, JSON.stringify({ ticketId }), req.ip ?? "unknown"]
+      [
+        adminUid,
+        JSON.stringify({ ticketId }),
+        req.ip ?? "unknown",
+      ]
     ).catch(() => {});
 
     res.json({ message: "Ticket closed", ticket: result.rows[0] });
