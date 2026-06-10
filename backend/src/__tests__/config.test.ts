@@ -44,11 +44,14 @@ function setDevBase() {
 }
 
 function setProdBase() {
-  process.env["NODE_ENV"]             = "production";
-  process.env["DATABASE_URL"]         = "postgres://localhost:5432/undercity_prod";
-  process.env["ALLOWED_ORIGINS"]      = "https://undercity.online";
-  process.env["FINGERPRINT_SALT"]     = "a-real-32-char-salt-value-here!!";
-  process.env["TURNSTILE_SECRET_KEY"] = "real-turnstile-key";
+  process.env["NODE_ENV"]                      = "production";
+  process.env["DATABASE_URL"]                  = "postgres://localhost:5432/undercity_prod";
+  process.env["ALLOWED_ORIGINS"]               = "https://undercity.online";
+  process.env["FINGERPRINT_SALT"]              = "a-real-32-char-salt-value-here!!";
+  process.env["TURNSTILE_SECRET_KEY"]          = "real-turnstile-key";
+  process.env["LEMONSQUEEZY_WEBHOOK_SECRET"]   = "whsec_test_secret";
+  process.env["LEMONSQUEEZY_API_KEY"]          = "api_key_test";
+  process.env["LEMONSQUEEZY_STORE_ID"]         = "store_12345";
 }
 
 // ── Helper: load config in a fresh module scope ───────────
