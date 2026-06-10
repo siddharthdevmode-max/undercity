@@ -46,8 +46,10 @@ import {
   trackRequests,
   isServerShuttingDown,
   registerCleanup,
+  setupGracefulShutdown,
 } from "../utils/gracefulShutdown";
 import type { IncomingMessage, ServerResponse } from "http";
+import { Server } from "http";
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -122,5 +124,20 @@ describe("registerCleanup", () => {
       registerCleanup(fn2);
       registerCleanup(fn3);
     }).not.toThrow();
+  });
+});
+
+describe("setupGracefulShutdown", () => {
+  it("registers SIGTERM and SIGINT handlers", () => {
+    const sigTerms = process.listeners("SIGTERM");
+    const sigInts  = process.listeners("SIGINT");
+    const beforeTerm = sigTerms.length;
+    const beforeInt  = sigInts.length;
+
+    const server = new Server();
+    setupGracefulShutdown(server);
+
+    expect(process.listeners("SIGTERM").length).toBe(beforeTerm + 1);
+    expect(process.listeners("SIGINT").length).toBe(beforeInt + 1);
   });
 });
