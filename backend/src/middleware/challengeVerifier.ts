@@ -3,18 +3,16 @@
 // UAC Pillar: Proof-of-work token validation
 //
 // Flow:
-//   1. Frontend calls GET /api/challenge to get a token
-//   2. Token stored in Redis: challenge:{uid}:{token} with TTL
+//   1. Frontend calls GET /api/challenge → gets a token
+//   2. Token stored: challenge:{uid}:{token} with TTL in Redis
 //   3. Frontend sends token in X-UAC-Challenge header
-//   4. This middleware validates + consumes (deletes) the token
+//   4. This middleware validates + consumes the token atomically
 //
 // SECURITY:
-//   - Token format validated before Redis lookup
-//   - Failed attempts tracked with per-uid counter
-//   - flagUser only called after confirmed invalid token
-//     (not on Redis errors — avoids false flags during outages)
-//   - Fail counter TTL set only on first increment (sliding window)
-//   - req.ip normalized before passing to flagUser
+//   - Format validated before Redis lookup (prevents key injection)
+//   - GETDEL for atomic consume (prevents race conditions)
+//   - Fails open on Redis errors (infrastructure ≠ user fault)
+//   - Flag only after MAX_FAILS_THRESHOLD repeated failures
 // ============================================================
 
 import { Request, Response, NextFunction } from "express";
@@ -24,22 +22,13 @@ import { logger }           from "../utils/logger";
 import {
   UnauthorizedError,
   ForbiddenError,
-  AppError,
+  InternalError,
 }                           from "../utils/errors";
-
-// ── Constants ──────────────────────────────────────────────
 
 const MAX_TOKEN_LEN       = 128;
 const TOKEN_SAFE_RE       = /^[a-zA-Z0-9\-_]+$/;
-const MAX_FAILS_WINDOW    = 10 * 60;   // 10 minutes in seconds
-const MAX_FAILS_THRESHOLD = 10;
-
-// ── Helpers ────────────────────────────────────────────────
-
-function normalizeIp(req: Request): string | undefined {
-  const ip = req.ip ?? req.socket?.remoteAddress;
-  return ip ?? undefined;
-}
+const MAX_FAILS_WINDOW    = 30 * 60;   // BUG FIX: 30 minutes (was 10)
+const MAX_FAILS_THRESHOLD = 15;        // BUG FIX: 15 fails (was 10)
 
 function isValidTokenFormat(token: string): boolean {
   return (
@@ -51,23 +40,22 @@ function isValidTokenFormat(token: string): boolean {
 
 async function trackFailedAttempt(uid: string): Promise<number> {
   try {
-    const key   = `challenge:fails:${uid}`;
+    const key = `challenge:fails:${uid}`;
+
+    // BUG FIX: atomic set-with-expiry then incr
+    // Previous: incr() then expire() — crash between them = key never expires
+    const isNew = await redis.set(key, "0", "EX", MAX_FAILS_WINDOW, "NX");
     const count = await redis.incr(key);
-    if (count === 1) {
-      // Set TTL only on first increment
-      // Avoids resetting the window on every failed attempt
-      await redis.expire(key, MAX_FAILS_WINDOW);
-    }
+
+    // If key already existed (isNew = null), don't reset TTL
+    // count naturally increments within the existing window
+    void isNew; // used only to establish the key
+
     return count;
   } catch {
-    // Redis error → return 0 (fail open, do not flag)
     return 0;
   }
 }
-
-// ============================================================
-// verifyChallenge
-// ============================================================
 
 export const verifyChallenge = async (
   req:  Request,
@@ -85,11 +73,8 @@ export const verifyChallenge = async (
     const rawToken = req.headers["x-uac-challenge"];
     const token    = Array.isArray(rawToken) ? rawToken[0] : rawToken;
 
-    // ── Missing token ──────────────────────────────────────
-    // Do NOT flag on missing token — could be first request
-    // or a legitimate frontend timing issue
     if (!token) {
-      logger.warn("🔒 Challenge: missing token", {
+      logger.warn("Challenge: missing token", {
         uid:  uid.substring(0, 8),
         path: req.path,
       });
@@ -97,11 +82,8 @@ export const verifyChallenge = async (
       return;
     }
 
-    // ── Format validation ─────────────────────────────────
-    // Validate before Redis lookup — prevents Redis abuse
-    // Malformed token = deliberate bypass attempt → flag immediately
     if (!isValidTokenFormat(token)) {
-      logger.warn("🔒 Challenge: invalid token format", {
+      logger.warn("Challenge: invalid token format", {
         uid:    uid.substring(0, 8),
         length: token.length,
         path:   req.path,
@@ -111,7 +93,7 @@ export const verifyChallenge = async (
         firebaseUid:   uid,
         violationType: "INVALID_CHALLENGE",
         details:       { reason: "Malformed token format", path: req.path },
-        ipAddress:     normalizeIp(req),
+        ipAddress:     req.ip,
         userAgent:     req.headers["user-agent"],
       });
 
@@ -119,12 +101,15 @@ export const verifyChallenge = async (
       return;
     }
 
-    // ── Redis lookup ───────────────────────────────────────
+    // ── Atomic GET + DELETE ───────────────────────────────
+    // BUG FIX: GETDEL prevents race condition where two simultaneous
+    // requests both pass the GET check before either fires DEL
+    // GETDEL is atomic — only one request can consume the token
     let exists: string | null;
     try {
-      exists = await redis.get(`challenge:${uid}:${token}`);
+      exists = await redis.getdel(`challenge:${uid}:${token}`);
     } catch (redisErr) {
-      // Redis down — fail open, do NOT flag (not user's fault)
+      // Redis down — fail open (not user's fault)
       logger.error("Challenge: Redis unavailable — failing open", {
         error: redisErr instanceof Error ? redisErr.message : String(redisErr),
         uid:   uid.substring(0, 8),
@@ -133,18 +118,15 @@ export const verifyChallenge = async (
       return;
     }
 
-    // ── Token not found or expired ─────────────────────────
     if (!exists) {
       const failCount = await trackFailedAttempt(uid);
 
-      logger.warn("🔒 Challenge: token not found or expired", {
+      logger.warn("Challenge: token not found or expired", {
         uid:       uid.substring(0, 8),
         path:      req.path,
         failCount,
       });
 
-      // Only flag after repeated failures
-      // Single miss could be clock skew or token expiry
       if (failCount >= MAX_FAILS_THRESHOLD) {
         await flagUser({
           firebaseUid:   uid,
@@ -154,7 +136,7 @@ export const verifyChallenge = async (
             failCount,
             path:      req.path,
           },
-          ipAddress: normalizeIp(req),
+          ipAddress: req.ip,
           userAgent: req.headers["user-agent"],
         });
       }
@@ -163,11 +145,10 @@ export const verifyChallenge = async (
       return;
     }
 
-    // ── Valid — consume atomically ─────────────────────────
-    await redis.del(`challenge:${uid}:${token}`);
+    // Token consumed — clear fail counter
     await redis.del(`challenge:fails:${uid}`).catch(() => {});
 
-    logger.debug("✅ Challenge token verified", {
+    logger.debug("Challenge token verified", {
       uid:  uid.substring(0, 8),
       path: req.path,
     });
@@ -177,6 +158,7 @@ export const verifyChallenge = async (
     logger.error("Challenge: unexpected error", {
       error: err instanceof Error ? err.message : String(err),
     });
-    next(new AppError("Security check failed.", 500, "ERR_10003"));
+    // BUG FIX: InternalError not raw AppError with ERR_10003 magic string
+    next(new InternalError("Security check failed."));
   }
 };

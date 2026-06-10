@@ -16,12 +16,44 @@ function optional(key: string, fallback: string): string {
   return process.env[key]?.trim() || fallback;
 }
 
-function optionalInt(key: string, fallback: number): number {
+function optionalInt(
+  key: string,
+  fallback: number,
+  min?: number,
+  max?: number
+): number {
   const val = process.env[key];
   if (!val) return fallback;
   const parsed = parseInt(val, 10);
   if (Number.isNaN(parsed)) {
     throw new Error(`[Config] ${key} must be an integer, got: "${val}"`);
+  }
+  if (min !== undefined && parsed < min) {
+    throw new Error(`[Config] ${key} must be >= ${min}, got: ${parsed}`);
+  }
+  if (max !== undefined && parsed > max) {
+    throw new Error(`[Config] ${key} must be <= ${max}, got: ${parsed}`);
+  }
+  return parsed;
+}
+
+function optionalFloat(
+  key: string,
+  fallback: number,
+  min?: number,
+  max?: number
+): number {
+  const val = process.env[key];
+  if (!val) return fallback;
+  const parsed = parseFloat(val);
+  if (Number.isNaN(parsed)) {
+    throw new Error(`[Config] ${key} must be a float, got: "${val}"`);
+  }
+  if (min !== undefined && parsed < min) {
+    throw new Error(`[Config] ${key} must be >= ${min}, got: ${parsed}`);
+  }
+  if (max !== undefined && parsed > max) {
+    throw new Error(`[Config] ${key} must be <= ${max}, got: ${parsed}`);
   }
   return parsed;
 }
@@ -59,28 +91,58 @@ const isTest        = nodeEnv === "test";
 // ── Config Builder ────────────────────────────────────────
 
 function buildConfig() {
+  // ALLOWED_ORIGINS — read once
+  const originList = optionalList("ALLOWED_ORIGINS");
   const allowedOrigins = isProduction
     ? (() => {
-        const list = optionalList("ALLOWED_ORIGINS");
-        if (list.length === 0) {
+        if (originList.length === 0) {
           throw new Error(
             "[Config] ALLOWED_ORIGINS is required in production. " +
-            "Set it to a comma-separated list of allowed origins, " +
+            "Set it to a comma-separated list, " +
             "e.g. https://undercity.online,https://www.undercity.online"
           );
         }
-        return list;
+        return originList;
       })()
-    : optionalList("ALLOWED_ORIGINS").length > 0
-      ? optionalList("ALLOWED_ORIGINS")
+    : originList.length > 0
+      ? originList
       : ["http://localhost:5173", "http://localhost:3000"];
 
+  // FINGERPRINT_SALT
   const fingerprintSalt = isProduction
     ? required("FINGERPRINT_SALT")
     : optional("FINGERPRINT_SALT", "dev-fingerprint-salt-change-in-prod");
 
+  // EMAIL
+  const emailProvider = optional("EMAIL_PROVIDER", "console") as
+    | "console"
+    | "sendgrid"
+    | "resend";
+  const emailApiKey =
+    optionalSecret("RESEND_API_KEY") ?? optionalSecret("EMAIL_API_KEY");
+
+  if (isProduction && emailProvider !== "console" && !emailApiKey) {
+    throw new Error(
+      `[Config] EMAIL_PROVIDER is "${emailProvider}" but no API key found. ` +
+      "Set RESEND_API_KEY or EMAIL_API_KEY."
+    );
+  }
+
+  // PAYMENTS
+  const paymentsEnabled = optionalBool("FEATURE_PAYMENTS", isProduction);
+  const lsWebhookSecret = optionalSecret("LEMONSQUEEZY_WEBHOOK_SECRET");
+
+  if (isProduction && paymentsEnabled && !lsWebhookSecret) {
+    throw new Error(
+      "[Config] LEMONSQUEEZY_WEBHOOK_SECRET is required when payments are enabled."
+    );
+  }
+
+  // GAME TICK — minimum 10 seconds
+  const tickIntervalMs = optionalInt("GAME_TICK_MS", 60_000, 10_000, 3_600_000);
+
   return {
-    port:           optionalInt("PORT", 5000),
+    port:           optionalInt("PORT", 5000, 1, 65535),
     nodeEnv,
     isProduction,
     isDevelopment,
@@ -92,12 +154,9 @@ function buildConfig() {
 
     redis: {
       host:     optional("REDIS_HOST", "127.0.0.1"),
-      port:     optionalInt("REDIS_PORT", 6379),
+      port:     optionalInt("REDIS_PORT", 6379, 1, 65535),
       password: optionalSecret("REDIS_PASSWORD"),
-      // TLS defaults to FALSE — explicit opt-in via REDIS_TLS=true
-      // Hetzner private network does not need TLS (same DC)
-      // Managed Redis (Upstash, Redis Cloud) needs TLS=true
-      tls: optionalBool("REDIS_TLS", false),
+      tls:      optionalBool("REDIS_TLS", false),
     },
 
     adminUids:     optionalList("ADMIN_UIDS"),
@@ -123,13 +182,13 @@ function buildConfig() {
       dsn:              optionalSecret("SENTRY_DSN"),
       release:          optional("SENTRY_RELEASE", "undercity-backend@dev"),
       tracesSampleRate: isProduction
-        ? parseFloat(optional("SENTRY_TRACES_SAMPLE_RATE", "0.1"))
+        ? optionalFloat("SENTRY_TRACES_SAMPLE_RATE", 0.1, 0.0, 1.0)
         : 1.0,
     },
 
     lemonSqueezy: {
       apiKey:        optionalSecret("LEMONSQUEEZY_API_KEY"),
-      webhookSecret: optionalSecret("LEMONSQUEEZY_WEBHOOK_SECRET"),
+      webhookSecret: lsWebhookSecret,
       storeId:       optionalSecret("LEMONSQUEEZY_STORE_ID"),
     },
 
@@ -142,38 +201,35 @@ function buildConfig() {
     fingerprintSalt,
 
     rateLimit: {
-      windowMs:        optionalInt("RATE_LIMIT_WINDOW_MS",      60_000),
-      maxRequests:     optionalInt("RATE_LIMIT_MAX",            100),
-      authWindowMs:    optionalInt("RATE_LIMIT_AUTH_WINDOW_MS", 900_000),
-      authMaxRequests: optionalInt("RATE_LIMIT_AUTH_MAX",       10),
+      windowMs:        optionalInt("RATE_LIMIT_WINDOW_MS",      60_000,  1_000),
+      maxRequests:     optionalInt("RATE_LIMIT_MAX",            100,     1),
+      authWindowMs:    optionalInt("RATE_LIMIT_AUTH_WINDOW_MS", 900_000, 1_000),
+      authMaxRequests: optionalInt("RATE_LIMIT_AUTH_MAX",       10,      1),
     },
 
     game: {
-      tickIntervalMs:   optionalInt("GAME_TICK_MS",         60_000),
-      idempotencyTtlMs: optionalInt("IDEMPOTENCY_TTL_MS",   300_000),
-      maxEnergyDefault: optionalInt("MAX_ENERGY_DEFAULT",   100),
-      maxNerveDefault:  optionalInt("MAX_NERVE_DEFAULT",    30),
-      energyRegenSec:   optionalInt("ENERGY_REGEN_SEC",     300),
-      nerveRegenSec:    optionalInt("NERVE_REGEN_SEC",      300),
+      tickIntervalMs,
+      idempotencyTtlMs: optionalInt("IDEMPOTENCY_TTL_MS",   300_000, 1_000),
+      maxEnergyDefault: optionalInt("MAX_ENERGY_DEFAULT",   100,     1, 10_000),
+      maxNerveDefault:  optionalInt("MAX_NERVE_DEFAULT",    30,      1, 10_000),
+      energyRegenSec:   optionalInt("ENERGY_REGEN_SEC",     300,     1),
+      nerveRegenSec:    optionalInt("NERVE_REGEN_SEC",       300,     1),
     },
 
     email: {
       from:     optional("EMAIL_FROM", "noreply@undercity.online"),
-      provider: optional("EMAIL_PROVIDER", "console") as
-        | "console"
-        | "sendgrid"
-        | "resend",
-      apiKey: optionalSecret("RESEND_API_KEY") ?? optionalSecret("EMAIL_API_KEY"),
+      provider: emailProvider,
+      apiKey:   emailApiKey,
     },
 
     features: {
       maintenanceMode:  optionalBool("FEATURE_MAINTENANCE",  false),
       registrationOpen: optionalBool("FEATURE_REGISTRATION", true),
-      paymentsEnabled:  optionalBool("FEATURE_PAYMENTS",     isProduction),
+      paymentsEnabled,
       vpnCheckEnabled:  optionalBool("FEATURE_VPN_CHECK",    isProduction),
       enableApiDocs:    optionalBool("FEATURE_API_DOCS",     !isProduction),
     },
-  } as const;
+  };
 }
 
 export const config = buildConfig();

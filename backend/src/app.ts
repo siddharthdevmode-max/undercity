@@ -3,14 +3,17 @@
 // Pure Express app factory. No boot logic, no process.exit,
 // no DB/Redis connections. Safe to import in tests.
 // Boot logic lives in server.ts.
-// Sentry init lives in server.ts (after validateEnv).
 // ============================================================
 
 import { Sentry } from "./config/sentry";
 
-import express, { Request, Response, NextFunction } from "express";
-import cors from "cors";
-import http from "http";
+import express, {
+  Request,
+  Response,
+  NextFunction,
+} from "express";
+import cors    from "cors";
+import http    from "http";
 
 import { config }  from "./config";
 import { logger }  from "./utils/logger";
@@ -45,6 +48,10 @@ import gdprRoutes      from "./routes/gdprRoutes";
 import mfaRoutes       from "./routes/mfaRoutes";
 import supportRoutes   from "./routes/supportRoutes";
 import paymentRoutes   from "./routes/paymentRoutes";
+import bankRoutes      from "./routes/bankRoutes";
+import marketRoutes    from "./routes/marketRoutes";
+import inventoryRoutes from "./routes/inventoryRoutes";
+import referralRoutes  from "./routes/referralRoutes";
 
 // ── App + HTTP server ──────────────────────────────────────
 
@@ -54,11 +61,62 @@ const httpServer = http.createServer(app);
 app.set("trust proxy", 1);
 
 const io = initSocket(httpServer);
+
+// ── Type-safe io access on req.app ───────────────────────
+// Usage in routes: const io = req.app.get("io") as SocketIOServer
+// This avoids `any` leaking through req.app.get()
+declare module "express-serve-static-core" {
+  interface Application {
+    get(name: "io"): ReturnType<typeof initSocket>;
+  }
+}
 app.set("io", io);
+
+// ── Request timeout (30s hard limit) ─────────────────────
+// Prevents slow DB queries from holding connections forever.
+// Health check exempted — it should always respond quickly.
+const REQUEST_TIMEOUT_MS = 30_000;
+
+function requestTimeout(req: Request, res: Response, next: NextFunction): void {
+  if (req.path.startsWith("/api/health") || req.path.startsWith("/api/v1/health")) {
+    return next();
+  }
+
+  const timer = setTimeout(() => {
+    if (!res.headersSent) {
+      logger.warn("Request timeout", {
+        method: req.method,
+        path:   req.path,
+        ip:     req.ip,
+      });
+      res.status(503).json({
+        error:   "Request timeout",
+        code:    "REQUEST_TIMEOUT",
+        details: null,
+      });
+    }
+  }, REQUEST_TIMEOUT_MS);
+
+  res.on("finish", () => clearTimeout(timer));
+  res.on("close",  () => clearTimeout(timer));
+  next();
+}
+
+// ── Maintenance mode check ────────────────────────────────
+const HEALTH_PATHS = ["/api/health", "/api/v1/health"] as const;
+
+function maintenanceCheck(req: Request, _res: Response, next: NextFunction): void {
+  const isHealthPath = HEALTH_PATHS.some((p) => req.path.startsWith(p));
+  if (!isHealthPath && config.features.maintenanceMode) {
+    return next(new MaintenanceError());
+  }
+  next();
+}
 
 // ── Middleware stack ───────────────────────────────────────
 
 app.use(trackRequests);
+app.use(requestTimeout);
 
 setupSecurityMiddleware(app);
 app.use(requestId);
@@ -68,10 +126,12 @@ app.use(globalLimiter);
 app.use(
   cors({
     origin: (origin, callback) => {
+      // Allow non-browser requests (curl, Postman, server-to-server)
       if (!origin) return callback(null, true);
       if (config.allowedOrigins.includes(origin)) return callback(null, true);
       logger.warn("CORS blocked", { origin });
-      return callback(new Error("Origin not allowed by CORS"));
+      // Never expose the origin in the error — generic message only
+      return callback(new Error("Not allowed by CORS policy"));
     },
     credentials:    true,
     methods:        ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -98,10 +158,8 @@ app.use(
   })
 );
 
-// ── IMPORTANT: Webhook route needs raw body ─────────────────
-// Mount BEFORE express.json() so the webhook handler receives
-// the raw Buffer needed for HMAC signature verification.
-// All other payment routes get parsed JSON normally.
+// ── IMPORTANT: Webhook needs raw body ────────────────────
+// Mount BEFORE express.json() — webhook HMAC needs raw Buffer.
 app.use(
   "/api/v1/payments/webhook",
   express.raw({ type: "*/*", limit: "100kb" })
@@ -118,29 +176,20 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+app.use(maintenanceCheck);
+
 setupApiDocs(app);
 
 // ── Routes ─────────────────────────────────────────────────
 
+// Health (no rate limit, no auth)
 app.use("/api/v1/health", healthRoutes);
 app.use("/api/health",    healthRoutes);
 
-app.use("/api/v1/auth", bruteForceProtection);
+// Auth (brute force protection on BOTH versioned + non-versioned paths)
+app.use("/api/v1/auth", bruteForceProtection, authRoutes);
 
-app.use((req: Request, _res: Response, next: NextFunction) => {
-  if (
-    req.path.startsWith("/api/health") ||
-    req.path.startsWith("/api/v1/health")
-  ) {
-    return next();
-  }
-  if (config.features.maintenanceMode) {
-    return next(new MaintenanceError());
-  }
-  next();
-});
-
-app.use("/api/v1/auth",      authRoutes);
+// Game routes
 app.use("/api/v1/crimes",    crimeRoutes);
 app.use("/api/v1/stats",     statsRoutes);
 app.use("/api/v1/challenge", challengeRoutes);
@@ -149,11 +198,16 @@ app.use("/api/v1/gdpr",      gdprRoutes);
 app.use("/api/v1/mfa",       mfaRoutes);
 app.use("/api/v1/support",   supportRoutes);
 app.use("/api/v1/payments",  paymentRoutes);
+app.use("/api/v1/bank",      bankRoutes);
+app.use("/api/v1/market",    marketRoutes);
+app.use("/api/v1/inventory", inventoryRoutes);
+app.use("/api/v1/referral",  referralRoutes);
 
-app.use("/api/v1", honeypotRoutes);
-app.use("/api",    honeypotRoutes);
+// Honeypot — single mount with wildcard to avoid double-firing
+// Catches scanner paths like /wp-admin, /phpMyAdmin, etc.
+app.use(honeypotRoutes);
 
-// ── Error handlers ────────────────────────────────────────
+// ── Error handlers ─────────────────────────────────────────
 app.use(notFoundHandler);
 Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);

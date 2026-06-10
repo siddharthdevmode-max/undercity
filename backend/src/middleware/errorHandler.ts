@@ -5,8 +5,8 @@
 // ============================================================
 
 import { Request, Response, NextFunction } from "express";
-import * as Sentry   from "@sentry/node";
-import { DatabaseError } from "pg";
+import * as Sentry       from "@sentry/node";
+import pg                from "pg";
 import { ZodError }      from "zod";
 import {
   AppError,
@@ -21,20 +21,24 @@ import {
 import { logger } from "../utils/logger";
 import { config } from "../config";
 
+// BUG FIX: use pg.DatabaseError (namespace access) for
+// compatibility across pg versions
+const { DatabaseError } = pg;
+
 // ─── PG Error → AppError ──────────────────────────────────
 
-function mapDatabaseError(err: DatabaseError): AppError {
+function mapDatabaseError(err: pg.DatabaseError): AppError {
   switch (err.code) {
     case "23505":
-      return new ConflictError(
-        err.detail
-          ? `Duplicate entry: ${err.detail}`
-          : "A record with this value already exists."
-      );
+      // BUG FIX: never include err.detail in response — leaks column + value
+      return new ConflictError("A record with this value already exists.");
     case "23503":
       return new ValidationError("Referenced record does not exist.");
     case "23502":
-      return new ValidationError(`Missing required field: ${err.column ?? "unknown"}`);
+      // Safe — column name is internal schema, acceptable to show
+      return new ValidationError(
+        `Missing required field: ${err.column ?? "unknown"}`
+      );
     case "22001":
       return new ValidationError("Input value is too long.");
     case "57014":
@@ -53,7 +57,8 @@ function buildResponseBody(
 ): Record<string, unknown> {
   const base: Record<string, unknown> = {
     ...err.toJSON(),
-    requestId,
+    // BUG FIX: only include requestId if defined — consistent shape
+    ...(requestId ? { requestId } : {}),
   };
 
   if (err instanceof RateLimitError && err.retryAfterSeconds) {
@@ -83,7 +88,9 @@ export const errorHandler = (
       "Validation failed",
       err.flatten().fieldErrors
     );
-    res.status(400).json(buildResponseBody(appErr, requestId, config.isDevelopment));
+    res
+      .status(400)
+      .json(buildResponseBody(appErr, requestId, config.isDevelopment));
     return;
   }
 
@@ -93,12 +100,12 @@ export const errorHandler = (
     logger.warn(`DB Error [${err.code}]: ${err.message}`, {
       requestId,
       pgCode: err.code,
-      detail: err.detail,
+      // Never log err.detail to avoid leaking user data
       table:  err.table,
     });
-    res.status(appErr.statusCode).json(
-      buildResponseBody(appErr, requestId, config.isDevelopment)
-    );
+    res
+      .status(appErr.statusCode)
+      .json(buildResponseBody(appErr, requestId, config.isDevelopment));
     return;
   }
 
@@ -114,23 +121,23 @@ export const errorHandler = (
 
     const resBody = buildResponseBody(err, requestId, config.isDevelopment);
 
+    // Set Retry-After header where appropriate
     if (err instanceof RateLimitError && err.retryAfterSeconds) {
       res.setHeader("Retry-After", String(err.retryAfterSeconds));
-    }
-
-    if (err instanceof CrimeCooldownError) {
+    } else if (err instanceof CrimeCooldownError) {
       res.setHeader("Retry-After", String(err.secondsRemaining));
-    }
-
-    if (err instanceof MaintenanceError) {
+    } else if (err instanceof MaintenanceError) {
       res.setHeader("Retry-After", "300");
     }
+    // BUG FIX: IdempotencyError — explicitly NO Retry-After
+    // A duplicate request should not be retried — it already succeeded
 
     res.status(err.statusCode).json(resBody);
     return;
   }
 
   // ── Unknown / programmer errors ───────────────────────
+  // These are not operational — they're bugs. Capture to Sentry.
   Sentry.captureException(err, {
     extra: {
       requestId,
@@ -149,17 +156,16 @@ export const errorHandler = (
   });
 
   res.status(500).json({
-    message:   "Internal server error",
-    code:      "INTERNAL_ERROR",
-    errorCode: "ERR_10003",
-    requestId,
+    statusCode: 500,
+    message:    "Internal server error",
+    code:       "INTERNAL_ERROR",
+    errorCode:  "ERR_10003",
+    ...(requestId ? { requestId } : {}),
     ...(config.isDevelopment ? { stack: err.stack } : {}),
   });
 };
 
 // ─── 404 Handler ──────────────────────────────────────────
-// MUST call next(err) — not res.json() directly.
-// This ensures Sentry sees 404s in the error pipeline.
 
 export const notFoundHandler = (
   req:  Request,

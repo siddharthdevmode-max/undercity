@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   toNumber,
   isFutureDate,
@@ -6,6 +6,12 @@ import {
   calcMaxNerve,
   canAttemptCrime,
   getCooldownRemaining,
+  isContributor,
+  isCitizen,
+  isFreePlayer,
+  hasPaidTier,
+  getUserByFirebaseUid,
+  isImmuneToAntiCheat,
 } from "../models/userModels";
 
 // ============================================================
@@ -162,5 +168,70 @@ describe("getCooldownRemaining", () => {
     const recent = new Date(Date.now() - 100).toISOString();
     const remaining = getCooldownRemaining(recent);
     expect(remaining).toBe(Math.ceil(remaining));
+  });
+});
+
+describe("isContributor / isCitizen / isFreePlayer / hasPaidTier", () => {
+  it("isContributor returns true for contributor", () => {
+    expect(isContributor({ user_tier: "contributor" })).toBe(true);
+    expect(isContributor({ user_tier: "player" })).toBe(false);
+    expect(isContributor({ user_tier: "citizen" })).toBe(false);
+  });
+
+  it("isCitizen returns true for citizen", () => {
+    expect(isCitizen({ user_tier: "citizen" })).toBe(true);
+    expect(isCitizen({ user_tier: "player" })).toBe(false);
+    expect(isCitizen({ user_tier: "contributor" })).toBe(false);
+  });
+
+  it("isFreePlayer returns true only for player", () => {
+    expect(isFreePlayer({ user_tier: "player" })).toBe(true);
+    expect(isFreePlayer({ user_tier: "citizen" })).toBe(false);
+    expect(isFreePlayer({ user_tier: "contributor" })).toBe(false);
+  });
+
+  it("hasPaidTier returns true for citizen and contributor", () => {
+    expect(hasPaidTier({ user_tier: "citizen" })).toBe(true);
+    expect(hasPaidTier({ user_tier: "contributor" })).toBe(true);
+    expect(hasPaidTier({ user_tier: "player" })).toBe(false);
+  });
+});
+
+describe("getUserByFirebaseUid", () => {
+  it("returns null when user not found", async () => {
+    const { pool } = await import("../config/database");
+    const { getUserByFirebaseUid } = await import("../models/userModels");
+    const mockClient = {
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }),
+    };
+    vi.mocked(pool as unknown as { connect: ReturnType<typeof vi.fn> });
+    const result = await getUserByFirebaseUid(mockClient as never, "uid-999");
+    expect(result).toBeNull();
+  });
+
+  it("returns user row when found", async () => {
+    const { getUserByFirebaseUid } = await import("../models/userModels");
+    const fakeUser = {
+      id: 1, firebase_uid: "uid-001", username: "testplayer",
+      level: 1, money: 750, points: 0,
+      nerve: 30, max_nerve: 30,
+      energy: 100, max_energy: 100,
+      life: 100, max_life: 100, happiness: 50,
+      hospital_until: null, jail_until: null,
+      federal_jail_until: null, last_crime_at: null,
+      is_shadow_banned: false, is_hard_banned: false,
+      is_admin: false, is_developer: false,
+      trust_score: 100, total_flags: 0,
+      created_at: new Date().toISOString(),
+      user_tier: "player", tier_expires_at: null,
+      tier_granted_at: null, tier_granted_by: null,
+      last_nerve_update: null, email: "test@test.com",
+    };
+    const mockClient = {
+      query: vi.fn().mockResolvedValueOnce({ rows: [fakeUser] }),
+    };
+    const result = await getUserByFirebaseUid(mockClient as never, "uid-001");
+    expect(result).not.toBeNull();
+    expect(result!.username).toBe("testplayer");
   });
 });

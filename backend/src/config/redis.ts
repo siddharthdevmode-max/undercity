@@ -2,14 +2,17 @@
 // REDIS CLIENT — UNDERCITY
 // ioredis with exponential backoff, TLS support,
 // lazy connect, and full event logging.
+// BullMQ connections are separate (see createBullMQConnection).
 // ============================================================
 
-import Redis from "ioredis";
+import Redis            from "ioredis";
 import type { RedisOptions } from "ioredis";
-import { logger } from "../utils/logger";
-import { config } from "./index";
+import { logger }       from "../utils/logger";
+import { config }       from "./index";
 
-const redisOptions: RedisOptions = {
+// ─── Shared Base Options ──────────────────────────────────
+
+const baseOptions: RedisOptions = {
   host:     config.redis.host,
   port:     config.redis.port,
   password: config.redis.password,
@@ -21,43 +24,81 @@ const redisOptions: RedisOptions = {
   keepAlive:       30_000,
   lazyConnect:     true,
 
-  // null = no per-request retry limit; retries handled by retryStrategy
-  // Required for pub/sub and blocking commands to work correctly
+  // Required: null disables per-request retry limit
+  // Needed for BullMQ blocking commands and pub/sub
   maxRetriesPerRequest: null,
+};
 
-  retryStrategy(times: number) {
+// ─── Retry Strategy Factory ───────────────────────────────
+
+function makeRetryStrategy(label: string) {
+  return (times: number): number | null => {
     if (times > 20) {
-      logger.error("Redis: max retry attempts reached, giving up");
+      logger.error(`Redis [${label}]: max retry attempts reached — giving up`);
+
+      // Alert asynchronously — do not block the retry strategy return
+      void import("../utils/alerts")
+        .then(({ Alerts }) => Alerts.redisDown(label))
+        .catch(() => {});
+
       return null;
     }
     const delay = Math.min(100 * Math.pow(2, times - 1), 5_000);
-    logger.warn(`Redis retry attempt ${times} in ${delay}ms`);
+    logger.warn(`Redis [${label}] retry attempt ${times} in ${delay}ms`);
     return delay;
-  },
+  };
+}
 
-  reconnectOnError(err: Error) {
+// ─── Attach Event Logging ─────────────────────────────────
+
+function attachEvents(client: Redis, label: string): void {
+  // BUG FIX: "connect" fires before AUTH — do not log "ready" here
+  // "ready" fires after AUTH succeeds — this is the usable state
+  client.on("connect",     () => logger.debug(`Redis [${label}] TCP connected (authenticating...)`));
+  client.on("ready",       () => logger.info(`Redis [${label}] ready`));
+  client.on("close",       () => logger.warn(`Redis [${label}] connection closed`));
+  client.on("end",         () => logger.warn(`Redis [${label}] connection ended — no more retries`));
+  client.on("reconnecting",(d: number) => logger.warn(`Redis [${label}] reconnecting`, { delayMs: d }));
+  client.on("error",       (err: Error) => {
+    logger.error(`Redis [${label}] error`, {
+      error: err.message,
+      code:  (err as NodeJS.ErrnoException).code,
+    });
+  });
+}
+
+// ─── Primary Client ───────────────────────────────────────
+// Used for: rate limiting, caching, session data, health checks
+// NOT used for BullMQ (see createBullMQConnection below)
+
+const redis = new Redis({
+  ...baseOptions,
+  retryStrategy:    makeRetryStrategy("primary"),
+  reconnectOnError: (err: Error) => {
     const retryErrors = ["READONLY", "ETIMEDOUT", "ECONNRESET", "ECONNREFUSED"];
     return retryErrors.some((e) => err.message.includes(e));
   },
-};
+});
 
-const redis = new Redis(redisOptions);
+attachEvents(redis, "primary");
 
-redis.on("connect",     () => logger.info("Redis connecting..."));
-redis.on("ready",       () => logger.info("✅ Redis ready"));
-redis.on("close",       () => logger.warn("Redis connection closed"));
-redis.on("end",         () => logger.warn("Redis connection ended — no more retries"));
+// ─── BullMQ Connection Factory ────────────────────────────
+// BUG FIX: BullMQ MUST have its own connections.
+// Sharing the primary client causes command timeout conflicts
+// with blocking commands (BRPOP, XREAD) used by BullMQ.
+// Each call creates a NEW connection — caller owns the lifecycle.
 
-redis.on("error", (err: Error) => {
-  logger.error("Redis error", {
-    error: err.message,
-    code:  (err as NodeJS.ErrnoException).code,
+export function createBullMQConnection(): Redis {
+  const client = new Redis({
+    ...baseOptions,
+    // BullMQ-specific: no command timeout (blocking commands)
+    commandTimeout:   undefined,
+    enableReadyCheck: false,
+    retryStrategy:    makeRetryStrategy("bullmq"),
   });
-});
-
-redis.on("reconnecting", (delay: number) => {
-  logger.warn("Redis reconnecting", { delayMs: delay });
-});
+  attachEvents(client, "bullmq");
+  return client;
+}
 
 // ─── Connect ──────────────────────────────────────────────
 
@@ -94,17 +135,26 @@ export async function testRedisConnection(): Promise<boolean> {
   }
 }
 
-// ─── Server Info (for health endpoint) ───────────────────
+// ─── Server + Memory Info (for health endpoint) ───────────
+// BUG FIX: includes memory info for monitoring
+// BUG FIX: parser is more robust (skips comment lines)
 
 export async function getRedisInfo(): Promise<Record<string, string>> {
   try {
-    const info  = await redis.info("server");
-    const lines = info.split("\r\n");
+    const [serverInfo, memoryInfo] = await Promise.all([
+      redis.info("server"),
+      redis.info("memory"),
+    ]);
+
     const result: Record<string, string> = {};
 
-    for (const line of lines) {
-      const [key, value] = line.split(":");
-      if (key && value) result[key.trim()] = value.trim();
+    for (const line of [...serverInfo.split("\r\n"), ...memoryInfo.split("\r\n")]) {
+      if (!line || line.startsWith("#")) continue;
+      const colonIdx = line.indexOf(":");
+      if (colonIdx === -1) continue;
+      const key   = line.slice(0, colonIdx).trim();
+      const value = line.slice(colonIdx + 1).trim();
+      if (key && value) result[key] = value;
     }
 
     return result;

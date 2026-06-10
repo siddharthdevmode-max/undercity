@@ -8,32 +8,28 @@
 // ============================================================
 
 import { Router } from "express";
-import { verifyFirebaseToken } from "../middleware/firebaseAuth";
+import { verifyFirebaseToken, revokeUserSession } from "../middleware/firebaseAuth";
 import {
   authSyncLimiter,
   authMeLimiter,
-  usernameCheckLimiter
+  usernameCheckLimiter,
 } from "../middleware/rateLimiter";
-import { validate } from "../middleware/validate";
-import { noCache }  from "../middleware/cacheHeaders";
-import {
-  syncUserSchema,
-  checkUsernameSchema
-} from "../utils/schemas";
+import { validate }           from "../middleware/validate";
+import { noCache }            from "../middleware/cacheHeaders";
+import { syncUserSchema, checkUsernameSchema } from "../utils/schemas";
 import { asyncHandler }       from "../utils/asyncHandler";
 import { pool }               from "../config/database";
 import { getRequestLogger }   from "../utils/logger";
 import {
   ConflictError,
   NotFoundError,
-  ValidationError
+  ValidationError,
 } from "../utils/errors";
 import { queueEmail }         from "../queues/index";
 import { invalidateBanCache } from "../middleware/banCheck";
 import { invalidateRoleCache } from "../middleware/requireAdmin";
 
 const router = Router();
-
 router.use(noCache);
 
 const USER_FIELDS = `
@@ -42,11 +38,13 @@ const USER_FIELDS = `
   energy, max_energy, happiness,
   jail_until, hospital_until, federal_jail_until,
   last_crime_at, last_seen_at,
-  onboarding_completed,
+  onboarding_completed, onboarding_completed_at,
   is_admin, is_developer, is_moderator,
   created_at
 `;
 
+// BUG FIX: happiness default is 100 (not 50)
+// Migration 015 sets default: 100 — INSERT must match
 const NEW_USER_DEFAULTS = {
   money:      750,
   level:      1,
@@ -57,13 +55,8 @@ const NEW_USER_DEFAULTS = {
   max_life:   100,
   energy:     100,
   max_energy: 100,
-  happiness:  50,
+  happiness:  100,
 } as const;
-
-// ── Username generation for Google SSO ────────────────────
-// Generates a base username from email prefix.
-// If the base collides, we append a random suffix and retry once.
-// Max 2 attempts total — if both collide, throw ConflictError.
 
 function generateBaseUsername(email: string | undefined): string {
   const base = (email ?? "user")
@@ -74,7 +67,6 @@ function generateBaseUsername(email: string | undefined): string {
 }
 
 function generateFallbackUsername(base: string): string {
-  // Append 4-digit random suffix, truncate total to 20 chars
   const suffix = String(Math.floor(Math.random() * 9000) + 1000);
   return base.slice(0, 16) + suffix;
 }
@@ -89,15 +81,11 @@ router.post(
   asyncHandler(async (req, res) => {
     const log = getRequestLogger(req.requestId);
     const { uid, email } = req.firebaseUser!;
-    const { username } = req.body as { username?: string };
+    const { username }   = req.body as { username?: string };
 
-    // Return existing user immediately — no re-registration
     const existing = await pool.query(
-      `SELECT ${USER_FIELDS}
-       FROM users
-       WHERE firebase_uid = $1
-         AND deleted_at IS NULL
-       LIMIT 1`,
+      `SELECT ${USER_FIELDS} FROM users
+       WHERE firebase_uid = $1 AND deleted_at IS NULL LIMIT 1`,
       [uid]
     );
 
@@ -107,13 +95,11 @@ router.post(
       return;
     }
 
-    // ── Resolve username ─────────────────────────────────
     let resolvedUsername = username?.trim();
     if (!resolvedUsername) {
       resolvedUsername = generateBaseUsername(email);
     }
 
-    // ── Validate username ─────────────────────────────────
     let isValidUsername:
       | ((u: string) => { valid: boolean; reason?: string })
       | undefined;
@@ -122,15 +108,11 @@ router.post(
       ({ isValidUsername } = (await import("../utils/profanityFilter")) as {
         isValidUsername: (u: string) => { valid: boolean; reason?: string };
       });
-    } catch {
-      // profanity filter optional
-    }
+    } catch { /* profanity filter optional */ }
 
     if (isValidUsername) {
       const check = isValidUsername(resolvedUsername);
-      if (!check.valid) {
-        throw new ValidationError(check.reason ?? "Invalid username");
-      }
+      if (!check.valid) throw new ValidationError(check.reason ?? "Invalid username");
     } else {
       if (resolvedUsername.length < 3 || resolvedUsername.length > 20) {
         throw new ValidationError("Username must be 3-20 characters");
@@ -140,12 +122,8 @@ router.post(
       }
     }
 
-    // ── Insert with retry on collision ────────────────────
-    // FIX: On username collision (23505), generate a fallback username
-    // and retry once. This handles Google SSO users who share email
-    // prefixes without surfacing a confusing ConflictError to them.
-    const insertUser = async (usernameToUse: string) => {
-      return pool.query(
+    const insertUser = async (usernameToUse: string) =>
+      pool.query(
         `INSERT INTO users (
            firebase_uid, email, username,
            money, level, points,
@@ -156,21 +134,11 @@ router.post(
            jail_until, hospital_until, federal_jail_until,
            last_crime_at, onboarding_completed
          )
-         VALUES (
-           $1, $2, $3,
-           $4, $5, $6,
-           $7, $8,
-           $9, $10,
-           $11, $12,
-           $13,
-           NULL, NULL, NULL,
-           NULL, FALSE
-         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                 NULL, NULL, NULL, NULL, FALSE)
          RETURNING ${USER_FIELDS}`,
         [
-          uid,
-          email,
-          usernameToUse,
+          uid, email, usernameToUse,
           NEW_USER_DEFAULTS.money,
           NEW_USER_DEFAULTS.level,
           NEW_USER_DEFAULTS.points,
@@ -183,7 +151,6 @@ router.post(
           NEW_USER_DEFAULTS.happiness,
         ]
       );
-    };
 
     let newUser;
     let usernameUsed = resolvedUsername;
@@ -192,13 +159,9 @@ router.post(
       newUser = await insertUser(resolvedUsername);
     } catch (err: unknown) {
       const pgErr = err as { code?: string };
-
       if (pgErr.code !== "23505") throw err;
 
-      // Username collision — try once with fallback
-      // Only auto-retry if the username was auto-generated (no explicit username provided)
       if (username?.trim()) {
-        // User explicitly chose this username — surface the conflict
         throw new ConflictError("Username is already taken");
       }
 
@@ -210,39 +173,24 @@ router.post(
       } catch (err2: unknown) {
         const pgErr2 = err2 as { code?: string };
         if (pgErr2.code === "23505") {
-          // Two collisions in a row — extremely unlikely, surface it
           throw new ConflictError("Username is already taken. Please choose a different one.");
         }
         throw err2;
       }
     }
 
-    // ── Audit log ─────────────────────────────────────────
     void pool.query(
       `INSERT INTO admin_audit_log
          (admin_firebase_uid, action_type, details, ip_address)
        VALUES ($1, 'USER_REGISTERED', $2, $3)`,
-      [
-        "system",
-        JSON.stringify({ username: usernameUsed, uid: uid.substring(0, 8) }),
-        req.ip ?? "unknown",
-      ]
+      ["system", JSON.stringify({ username: usernameUsed, uid: uid.substring(0, 8) }), req.ip ?? "unknown"]
     ).catch(() => {});
 
-    // ── Welcome email ─────────────────────────────────────
     if (email) {
-      void queueEmail({
-        type:     "welcome",
-        to:       email,
-        username: usernameUsed,
-      }).catch(() => {});
+      void queueEmail({ type: "welcome", to: email, username: usernameUsed }).catch(() => {});
     }
 
-    log.info("New user registered", {
-      username: usernameUsed,
-      uid:      uid.substring(0, 8),
-    });
-
+    log.info("New user registered", { username: usernameUsed, uid: uid.substring(0, 8) });
     res.status(201).json(newUser.rows[0]);
   })
 );
@@ -257,18 +205,12 @@ router.get(
     const { uid } = req.firebaseUser!;
 
     const result = await pool.query(
-      `SELECT ${USER_FIELDS}
-       FROM users
-       WHERE firebase_uid = $1
-         AND deleted_at IS NULL
-       LIMIT 1`,
+      `SELECT ${USER_FIELDS} FROM users
+       WHERE firebase_uid = $1 AND deleted_at IS NULL LIMIT 1`,
       [uid]
     );
 
-    if (result.rows.length === 0) {
-      throw new NotFoundError("User");
-    }
-
+    if (result.rows.length === 0) throw new NotFoundError("User");
     res.json(result.rows[0]);
   })
 );
@@ -282,19 +224,19 @@ router.post(
   asyncHandler(async (req, res) => {
     const { uid } = req.firebaseUser!;
 
+    // BUG FIX: set onboarding_completed_at timestamp
     const result = await pool.query(
       `UPDATE users
-       SET onboarding_completed = TRUE,
-           updated_at = NOW()
+       SET onboarding_completed     = TRUE,
+           onboarding_completed_at  = NOW(),
+           updated_at               = NOW()
        WHERE firebase_uid = $1
-         AND deleted_at IS NULL
-       RETURNING id, onboarding_completed`,
+         AND deleted_at   IS NULL
+       RETURNING id, onboarding_completed, onboarding_completed_at`,
       [uid]
     );
 
-    if (result.rows.length === 0) {
-      throw new NotFoundError("User");
-    }
+    if (result.rows.length === 0) throw new NotFoundError("User");
 
     res.json({
       message:              "Onboarding complete. Welcome to the Undercity.",
@@ -318,10 +260,7 @@ router.get(
     }
 
     if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
-      res.json({
-        available: false,
-        reason:    "Only letters, numbers, _ and - allowed",
-      });
+      res.json({ available: false, reason: "Only letters, numbers, _ and - allowed" });
       return;
     }
 
@@ -334,16 +273,11 @@ router.get(
         res.json({ available: false, reason: check.reason });
         return;
       }
-    } catch {
-      // profanity filter optional
-    }
+    } catch { /* profanity filter optional */ }
 
     const result = await pool.query(
-      `SELECT id
-       FROM users
-       WHERE LOWER(username) = LOWER($1)
-         AND deleted_at IS NULL
-       LIMIT 1`,
+      `SELECT id FROM users
+       WHERE LOWER(username) = LOWER($1) AND deleted_at IS NULL LIMIT 1`,
       [username]
     );
 
@@ -358,27 +292,20 @@ router.delete(
   authMeLimiter,
   verifyFirebaseToken,
   asyncHandler(async (req, res) => {
-    const { uid, email }  = req.firebaseUser!;
-    const { confirm }     = req.body as { confirm?: string };
+    const { uid, email } = req.firebaseUser!;
+    const { confirm }    = req.body as { confirm?: string };
 
     if (confirm !== "DELETE MY ACCOUNT") {
-      throw new ValidationError(
-        'Send { "confirm": "DELETE MY ACCOUNT" } to confirm deletion'
-      );
+      throw new ValidationError('Send { "confirm": "DELETE MY ACCOUNT" } to confirm deletion');
     }
 
     const userResult = await pool.query(
-      `SELECT id, username
-       FROM users
-       WHERE firebase_uid = $1
-         AND deleted_at IS NULL
-       LIMIT 1`,
+      `SELECT id, username FROM users
+       WHERE firebase_uid = $1 AND deleted_at IS NULL LIMIT 1`,
       [uid]
     );
 
-    if (userResult.rows.length === 0) {
-      throw new NotFoundError("User");
-    }
+    if (userResult.rows.length === 0) throw new NotFoundError("User");
 
     const user = userResult.rows[0] as { id: number; username: string };
 
@@ -391,14 +318,13 @@ router.delete(
            is_hard_banned  = TRUE,
            updated_at      = NOW()
        WHERE firebase_uid  = $1`,
-      [
-        uid,
-        `deleted_${Date.now()}@deleted.invalid`,
-        `deleted_${user.id}`,
-      ]
+      [uid, `deleted_${Date.now()}@deleted.invalid`, `deleted_${user.id}`]
     );
 
+    // BUG FIX: revoke Firebase token — without this, deleted user's
+    // token is valid for up to 60 more minutes
     await Promise.allSettled([
+      revokeUserSession(uid),
       invalidateBanCache(uid),
       invalidateRoleCache(uid),
     ]);
@@ -407,11 +333,7 @@ router.delete(
       `INSERT INTO admin_audit_log
          (admin_firebase_uid, action_type, details, ip_address)
        VALUES ($1, 'PLAYER_SELF_DELETION', $2, $3)`,
-      [
-        uid,
-        JSON.stringify({ userId: user.id, username: user.username }),
-        req.ip ?? "unknown",
-      ]
+      [uid, JSON.stringify({ userId: user.id, username: user.username }), req.ip ?? "unknown"]
     ).catch(() => {});
 
     if (email && user.username) {

@@ -1,110 +1,106 @@
 // ============================================================
 // NERVE SERVICE — UNDERCITY
 //
-// Tier-aware nerve regeneration.
+// Tier-aware nerve regeneration via per-user timestamp.
+// The game tick calls regenNerveByTier() every 60s.
+// Each tier runs a batched UPDATE — efficient, no per-user loops.
 //
-// STRATEGY:
-//   Instead of one global timer for all users, we use
-//   per-tier SQL updates with different time thresholds.
-//
-//   The game tick runs every 60s. On each tick, this service
-//   checks each tier group:
-//     - player/citizen:  regen if last_nerve_update >= 5 min ago
-//     - contributor:     regen if last_nerve_update >= 3 min ago
-//
-//   Uses a per-user `last_nerve_update` timestamp so regen
-//   is accurate even across server restarts.
-//
-// WHY PER-USER TIMESTAMP?
-//   A global Redis timer breaks when:
-//   - Server restarts mid-cycle
-//   - Users log in after being offline
-//   - Different tiers need different intervals
-//
-//   Per-user `last_nerve_update` in the DB is the source of truth.
-//   No Redis dependency for correctness.
+// citizen and player share the same regen rate (300s).
+// They are combined into a single query for efficiency.
 // ============================================================
 
-import { pool }                       from "../config/database";
-import { logger }                     from "../utils/logger";
+import { Pool, PoolClient } from "pg";
+import { pool }             from "../config/database";
+import { logger }           from "../utils/logger";
 import { TIER_CONFIG, type UserTier } from "../config/tiers";
 
 // ── Types ──────────────────────────────────────────────────
 
 export interface NerveRegenResult {
-  player:      number;
-  citizen:     number;
-  contributor: number;
-  total:       number;
+  player_citizen: number;   // combined (same regen rate)
+  contributor:    number;
+  total:          number;
 }
 
 // ── Main regen function (called from gameTick) ─────────────
 
 export async function regenNerveByTier(): Promise<NerveRegenResult> {
-  const results: NerveRegenResult = {
-    player:      0,
-    citizen:     0,
-    contributor: 0,
-    total:       0,
+  // BUG FIX: player and citizen share 300s regen rate — combine into one query
+  // contributor is 180s — separate query
+
+  const [combinedResult, contribResult] = await Promise.allSettled([
+    regenNerveForTiers(["player", "citizen"], TIER_CONFIG.player.nerveRegenSec),
+    regenNerveForTiers(["contributor"],       TIER_CONFIG.contributor.nerveRegenSec),
+  ]);
+
+  const playerCitizen = combinedResult.status === "fulfilled"
+    ? combinedResult.value
+    : (logger.error("Nerve regen failed for player/citizen", {
+        error: (combinedResult as PromiseRejectedResult).reason?.message,
+      }), 0);
+
+  const contributor = contribResult.status === "fulfilled"
+    ? contribResult.value
+    : (logger.error("Nerve regen failed for contributor", {
+        error: (contribResult as PromiseRejectedResult).reason?.message,
+      }), 0);
+
+  return {
+    player_citizen: playerCitizen,
+    contributor,
+    total: playerCitizen + contributor,
   };
-
-  const tiers: UserTier[] = ["player", "citizen", "contributor"];
-
-  // Run each tier update concurrently
-  const updates = await Promise.allSettled(
-    tiers.map((tier) => regenNerveForTier(tier))
-  );
-
-  updates.forEach((result, i) => {
-    const tier = tiers[i]!;
-    if (result.status === "fulfilled") {
-      results[tier] = result.value;
-      results.total += result.value;
-    } else {
-      logger.error(`❌ Nerve regen failed for tier: ${tier}`, {
-        error: result.reason?.message,
-      });
-    }
-  });
-
-  return results;
 }
 
-// ── Per-tier regen ─────────────────────────────────────────
+// ── Per-tier-group regen ───────────────────────────────────
 
-async function regenNerveForTier(tier: UserTier): Promise<number> {
-  const regenSec = TIER_CONFIG[tier].nerveRegenSec;
+async function regenNerveForTiers(
+  tiers:    UserTier[],
+  regenSec: number
+): Promise<number> {
+  // Process in batches to reduce lock contention on large tables
+  // BUG FIX: LIMIT 500 per batch — avoids locking thousands of rows simultaneously
+  const BATCH_SIZE = 500;
+  let totalUpdated = 0;
 
-  // UPDATE users whose nerve is below max AND enough time has passed
-  // since their last nerve update for their tier's regen interval.
-  //
-  // COALESCE handles users who have never had last_nerve_update set
-  // (defaults to epoch 0 → will always qualify for regen).
-  const result = await pool.query(
-    `UPDATE users
-     SET    nerve             = LEAST(nerve + 1, max_nerve),
-            last_nerve_update = NOW(),
-            updated_at        = NOW()
-     WHERE  user_tier         = $1
-       AND  nerve             < max_nerve
-       AND  deleted_at        IS NULL
-       AND  EXTRACT(EPOCH FROM (NOW() - COALESCE(last_nerve_update, '1970-01-01'::timestamptz)))
-              >= $2
-     RETURNING id`,
-    [tier, regenSec]
-  );
+  const tierParams = tiers.map((_, i) => `$${i + 2}`).join(", ");
 
-  const count = result.rowCount ?? 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const result = await pool.query(
+      `UPDATE users
+       SET    nerve             = LEAST(nerve + 1, max_nerve),
+              last_nerve_update = NOW(),
+              updated_at        = NOW()
+       WHERE  id IN (
+         SELECT id FROM users
+         WHERE  user_tier  = ANY(ARRAY[${tierParams}]::varchar[])
+           AND  nerve      < max_nerve
+           AND  deleted_at IS NULL
+           AND  EXTRACT(EPOCH FROM (
+                  NOW() - COALESCE(last_nerve_update, '1970-01-01'::timestamptz)
+                )) >= $1
+         LIMIT ${BATCH_SIZE}
+       )
+       RETURNING id`,
+      [regenSec, ...tiers]
+    );
 
-  if (count > 0) {
-    logger.debug(`🧠 Nerve regen [${tier}]: ${count} users (+1 nerve)`, {
-      tier,
+    const batchCount = result.rowCount ?? 0;
+    totalUpdated += batchCount;
+
+    if (batchCount < BATCH_SIZE) break; // no more rows to process
+  }
+
+  if (totalUpdated > 0) {
+    logger.debug(`Nerve regen [${tiers.join("/")}]: ${totalUpdated} users (+1 nerve)`, {
+      tiers,
       regenSec,
-      updated: count,
+      updated: totalUpdated,
     });
   }
 
-  return count;
+  return totalUpdated;
 }
 
 // ── Deduct nerve (used by crimeService) ────────────────────
@@ -112,7 +108,8 @@ async function regenNerveForTier(tier: UserTier): Promise<number> {
 export async function deductNerve(
   userId: number,
   amount: number,
-  client?: import("pg").PoolClient
+  // BUG FIX: correct union type — both Pool and PoolClient have .query()
+  client?: PoolClient | Pool
 ): Promise<{ success: boolean; currentNerve: number }> {
   const db = client ?? pool;
 
@@ -127,8 +124,7 @@ export async function deductNerve(
     [userId, amount]
   );
 
-  if (result.rowCount === 0) {
-    // Not enough nerve — fetch current value
+  if ((result.rowCount ?? 0) === 0) {
     const current = await db.query(
       `SELECT nerve FROM users WHERE id = $1`,
       [userId]
@@ -141,7 +137,7 @@ export async function deductNerve(
 
   return {
     success:      true,
-    currentNerve: result.rows[0].nerve,
+    currentNerve: result.rows[0].nerve as number,
   };
 }
 
@@ -159,7 +155,7 @@ export async function getNerveStatus(userId: number): Promise<NerveStatus | null
   const result = await pool.query(
     `SELECT nerve, max_nerve, user_tier, last_nerve_update
      FROM   users
-     WHERE  id = $1
+     WHERE  id         = $1
        AND  deleted_at IS NULL`,
     [userId]
   );
@@ -170,17 +166,17 @@ export async function getNerveStatus(userId: number): Promise<NerveStatus | null
   const tier      = (row.user_tier as UserTier) ?? "player";
   const regenSec  = TIER_CONFIG[tier].nerveRegenSec;
   const lastUpdate = row.last_nerve_update
-    ? new Date(row.last_nerve_update).getTime()
+    ? new Date(row.last_nerve_update as string).getTime()
     : 0;
 
-  const elapsed         = (Date.now() - lastUpdate) / 1_000;
-  const secondsUntilNext = row.nerve >= row.max_nerve
+  const elapsed          = (Date.now() - lastUpdate) / 1_000;
+  const secondsUntilNext = (row.nerve as number) >= (row.max_nerve as number)
     ? 0
     : Math.max(0, Math.ceil(regenSec - elapsed));
 
   return {
-    nerve:            row.nerve,
-    maxNerve:         row.max_nerve,
+    nerve:            row.nerve as number,
+    maxNerve:         row.max_nerve as number,
     tier,
     regenRateSec:     regenSec,
     secondsUntilNext,

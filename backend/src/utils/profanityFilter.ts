@@ -1,15 +1,10 @@
 // ============================================================
 // PROFANITY FILTER — UNDERCITY
-// Smarter than raw bad-words library — uses word boundaries
-// to avoid false positives on common substrings.
+// Dependency-free username filter.
+// We intentionally avoid runtime dependencies here because:
+// - username validation must never fail due to module format issues
+// - this code is called in auth flows and must stay stable
 // ============================================================
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const BadWords = require("bad-words") as {
-  new(): { isProfane(s: string): boolean }
-};
-
-const filter = new BadWords();
 
 // ─── Reserved Names ──────────────────────────────────────
 // Exact match only — case-insensitive
@@ -21,13 +16,32 @@ const RESERVED_NAMES = new Set([
   "anonymous", "user", "test", "guest", "official",
 ]);
 
+// ─── Profanity Lexicon ───────────────────────────────────
+// We only match WHOLE PARTS after splitting on separators.
+// This avoids false positives like "scunthorpe"-style issues.
+const PROFANE_PARTS = new Set([
+  "shit",
+  "fuck",
+  "bitch",
+  "cunt",
+  "nigger",
+  "nigga",
+  "fag",
+  "faggot",
+  "whore",
+  "slut",
+  "retard",
+  "rape",
+  "rapist",
+  "hitler",
+  "nazi",
+]);
+
 // ─── Profanity Check ─────────────────────────────────────
-// Only flag if username contains a profane WORD (with separators)
-// — NOT just any substring match.
-// This prevents false positives like "IDONTKNOWYOU" being flagged
-// because "know" or similar appears as a substring.
-//
-// Strategy: split username on common separators and check each part.
+// Strategy:
+// - exact reserved-name block
+// - split username on separators (_, -, digits)
+// - check each resulting part as a whole token
 
 export function isProfane(username: string): boolean {
   const lower = username.toLowerCase();
@@ -35,13 +49,11 @@ export function isProfane(username: string): boolean {
   // Exact reserved name match
   if (RESERVED_NAMES.has(lower)) return true;
 
-  // Split on common separators (_, -, digits) and check each part
-  // A part is only flagged if the WHOLE part is profane.
+  // Split on common separators and digits
   const parts = lower.split(/[_\-0-9]+/).filter(Boolean);
 
   for (const part of parts) {
-    // Only check parts that are 3+ chars (avoid false positives on tiny fragments)
-    if (part.length >= 3 && filter.isProfane(part)) {
+    if (part.length >= 3 && PROFANE_PARTS.has(part)) {
       return true;
     }
   }
@@ -57,17 +69,21 @@ export function isValidUsername(username: string): {
   if (username.length < 3) {
     return { valid: false, reason: "Username must be at least 3 characters" };
   }
+
   if (username.length > 20) {
     return { valid: false, reason: "Username must be 20 characters or less" };
   }
+
   if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
     return {
       valid:  false,
       reason: "Username can only contain letters, numbers, underscores, and hyphens",
     };
   }
+
   if (isProfane(username)) {
     return { valid: false, reason: "Username is not allowed" };
   }
+
   return { valid: true };
 }

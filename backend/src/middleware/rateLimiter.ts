@@ -1,8 +1,7 @@
 // ============================================================
 // RATE LIMITER — UNDERCITY
 // Redis-backed rate limiting with memory fallback alerting.
-// Falls back to memory store if Redis is unavailable, but
-// fires a Discord/Slack alert so you know about it.
+// Falls back to memory store if Redis is unavailable.
 // ============================================================
 
 import rateLimit, { Options, Store } from "express-rate-limit";
@@ -14,27 +13,31 @@ import { logger }     from "../utils/logger";
 import { sendAlert }  from "../utils/alerts";
 
 // ─── Alert state ──────────────────────────────────────────
+// BUG FIX: track per-prefix, reset after 10 minutes
+// so re-failures after recovery still alert
 
-let _redisStoreAlertFired = false;
+const fallbackAlertedAt = new Map<string, number>();
+const FALLBACK_ALERT_COOLDOWN_MS = 10 * 60 * 1_000;
 
 function alertRedisStoreFallback(prefix: string): void {
-  if (_redisStoreAlertFired) return;
-  _redisStoreAlertFired = true;
+  const last = fallbackAlertedAt.get(prefix) ?? 0;
+  if (Date.now() - last < FALLBACK_ALERT_COOLDOWN_MS) return;
+
+  fallbackAlertedAt.set(prefix, Date.now());
 
   logger.error(
     `[RateLimit] RedisStore unavailable for "${prefix}" — ` +
-    `falling back to memory store. ` +
-    `Effective limit is max * numWorkers per process.`
+    `falling back to memory store.`
   );
 
-  sendAlert({
-    title:    "⚠️ Rate Limit Store Fallback",
+  void sendAlert({
+    title:    "Rate Limit Store Fallback",
     message:
       `RedisStore failed for \`${prefix}\`. ` +
       `Falling back to in-memory store. ` +
-      `Rate limits are now per-process — effective limit multiplied by worker count.`,
+      `Rate limits are now per-process — effective limit may be multiplied by worker count.`,
     severity:  "warning",
-    dedupeKey: "rl-redis-fallback",
+    dedupeKey: `rl-redis-fallback:${prefix}`,
   });
 }
 
@@ -73,26 +76,27 @@ const skipHealthCheck = (req: Request): boolean =>
   req.path.startsWith("/api/health") ||
   req.path.startsWith("/api/v1/health");
 
+// ─── Trust proxy config ────────────────────────────────────
+// BUG FIX: env-driven instead of a code comment
+// CLOUDFLARE_PROXY=true → validate X-Forwarded-For header
+// This allows rate limiting on real client IP behind Cloudflare
+
+const behindCloudflare =
+  process.env["CLOUDFLARE_PROXY"]?.trim() === "true";
+
 // ─── Limiter factory ───────────────────────────────────────
-// FIX: store is built once and passed as a single property.
-// Previous version spread options AFTER store, which caused
-// the store key to appear twice — TS1117 duplicate property error.
 
 function makeLimiter(
   prefix:  string,
   options: Partial<Options> & { windowMs: number; max: number }
 ) {
   const store = makeRedisStore(prefix);
-
   const { ...restOptions } = options;
 
   return rateLimit({
     standardHeaders: true,
     legacyHeaders:   false,
-    // SWAP_ON_VPS: Behind Cloudflare, set xForwardedForHeader: true
-    // Cloudflare sends real client IP in CF-Connecting-IP header
-    // Also set app.set("trust proxy", "loopback, linklocal, uniquelocal") in app.ts
-    validate:        { xForwardedForHeader: false },
+    validate:        { xForwardedForHeader: behindCloudflare },
     skip:            skipHealthCheck,
     keyGenerator:    keyByUidOrIp,
     handler: (req: Request, res: Response) => {
@@ -102,14 +106,15 @@ function makeLimiter(
         path: req.path,
       });
       res.status(429).json({
-        message:   restOptions.message ?? "Too many requests. Please slow down.",
-        code:      "RATE_LIMIT",
-        errorCode: "ERR_9001",
-        requestId: req.requestId,
+        statusCode: 429,
+        message:    restOptions.message ?? "Too many requests. Please slow down.",
+        code:       "RATE_LIMIT",
+        errorCode:  "ERR_9001",
+        ...(req.requestId ? { requestId: req.requestId } : {}),
       });
     },
     ...restOptions,
-    store, // store always last — never overwritten by spread
+    store, // always last
   });
 }
 
@@ -182,9 +187,11 @@ export const supportLimiter = makeLimiter("support", {
   message:      "Too many support requests. Please wait.",
 });
 
+// BUG FIX: raised from 3 to 10 — 3/day was too strict for beta
+// Players accidentally triggering GDPR endpoints get locked out for 24h
 export const gdprLimiter = makeLimiter("gdpr", {
   windowMs:     24 * 60 * 60 * 1_000,
-  max:          3,
+  max:          10,
   keyGenerator: keyByUidOrIp,
   message:      "Too many GDPR requests. Please wait 24 hours.",
 });
@@ -194,6 +201,34 @@ export const mfaLimiter = makeLimiter("mfa", {
   max:          10,
   keyGenerator: keyByUidOrIp,
   message:      "Too many MFA attempts. Please wait.",
+});
+
+export const bankLimiter = makeLimiter("bank", {
+  windowMs:     60 * 1_000,
+  max:          30,
+  keyGenerator: keyByUidOrIp,
+  message:      "Too many bank requests. Slow down.",
+});
+
+export const marketLimiter = makeLimiter("market", {
+  windowMs:     60 * 1_000,
+  max:          30,
+  keyGenerator: keyByUidOrIp,
+  message:      "Too many market requests. Slow down.",
+});
+
+export const inventoryLimiter = makeLimiter("inventory", {
+  windowMs:     60 * 1_000,
+  max:          30,
+  keyGenerator: keyByUidOrIp,
+  message:      "Too many inventory requests. Slow down.",
+});
+
+export const referralLimiter = makeLimiter("referral", {
+  windowMs:     60 * 1_000,
+  max:          10,
+  keyGenerator: keyByUidOrIp,
+  message:      "Too many referral requests. Slow down.",
 });
 
 // ─── IP Blacklist ──────────────────────────────────────────
@@ -206,7 +241,7 @@ export const ipBlacklist = async (
   if (config.isTest) { next(); return; }
 
   const raw = req.ip ?? "";
-  if (!raw)          { next(); return; }
+  if (!raw) { next(); return; }
 
   const ip = raw.replace(/^::ffff:/, "");
 
@@ -215,9 +250,10 @@ export const ipBlacklist = async (
     if (blocked) {
       logger.warn("Blacklisted IP blocked", { ip, path: req.path });
       res.status(403).json({
-        message:   "Access denied.",
-        code:      "FORBIDDEN",
-        errorCode: "ERR_1002",
+        statusCode: 403,
+        message:    "Access denied.",
+        code:       "FORBIDDEN",
+        errorCode:  "ERR_1002",
       });
       return;
     }
@@ -239,18 +275,19 @@ export const bruteForceProtection = async (
   const ip       = (req.ip ?? "unknown").replace(/^::ffff:/, "");
   const failKey  = `brute:fail:${ip}`;
   const lockKey  = `brute:lock:${ip}`;
-  const WINDOW   = 15 * 60;
-  const LOCKOUT  = 60 * 60;
+  const WINDOW   = 15 * 60;    // 15 minutes
+  const LOCKOUT  = 60 * 60;    // 1 hour
   const MAX_FAIL = 10;
 
   try {
     const locked = await redis.get(lockKey);
     if (locked) {
-      logger.warn("Brute force lockout", { ip });
+      logger.warn("Brute force lockout active", { ip });
       res.status(429).json({
-        message:   "Too many failed attempts. Try again in 1 hour.",
-        code:      "RATE_LIMIT",
-        errorCode: "ERR_9001",
+        statusCode: 429,
+        message:    "Too many failed attempts. Try again in 1 hour.",
+        code:       "RATE_LIMIT",
+        errorCode:  "ERR_9001",
       });
       return;
     }
@@ -258,7 +295,9 @@ export const bruteForceProtection = async (
     res.on("finish", () => {
       const status = res.statusCode;
 
-      if (status === 401 || status === 403) {
+      // BUG FIX: only increment on 401 (wrong credentials)
+      // NOT on 403 (banned users — that's not a brute force attempt)
+      if (status === 401) {
         redis
           .multi()
           .incr(failKey)
@@ -267,13 +306,14 @@ export const bruteForceProtection = async (
           .then((results) => {
             const count = results?.[0]?.[1] as number | null;
             if (count && count >= MAX_FAIL) {
-              redis.set(lockKey, "1", "EX", LOCKOUT).catch(() => {});
+              void redis.set(lockKey, "1", "EX", LOCKOUT).catch(() => {});
               logger.warn("Brute force lockout triggered", { ip, count });
             }
           })
           .catch(() => {});
       } else if (status >= 200 && status < 300) {
-        redis.del(failKey).catch(() => {});
+        // Successful auth — reset fail counter
+        void redis.del(failKey).catch(() => {});
       }
     });
 

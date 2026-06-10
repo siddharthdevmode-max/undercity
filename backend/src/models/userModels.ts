@@ -1,7 +1,6 @@
 // ============================================================
 // USER MODELS — UNDERCITY
 // UserRow type, DB query helpers, and game formula functions.
-// Single source of truth for all user-related types.
 // ============================================================
 
 import { PoolClient } from "pg";
@@ -17,19 +16,27 @@ export interface UserRow {
   points:              number | string;
   nerve:               number | string;
   max_nerve:           number | string;
-  energy:              number | string;   // Added
-  max_energy:          number | string;   // Added
+  energy:              number | string;
+  max_energy:          number | string;
   life:                number | string;
   max_life:            number | string;
-  happiness:           number | string;   // Added
+  happiness:           number | string;
   hospital_until:      string | null;
   jail_until:          string | null;
   federal_jail_until:  string | null;
   last_crime_at:       string | null;
+  // BUG FIX: missing columns added
+  last_nerve_update:   string | null;
+  last_energy_update:  string | null;
+  last_seen_at:        string | null;
   is_shadow_banned:    boolean;
   is_hard_banned:      boolean;
   is_admin:            boolean;
   is_developer:        boolean;
+  is_moderator:        boolean;
+  ban_type:            "soft" | "hard" | "shadow" | null;
+  ban_reason:          string | null;
+  ban_expires_at:      string | null;
   trust_score:         number | string;
   total_flags:         number | string;
   created_at:          string;
@@ -37,7 +44,6 @@ export interface UserRow {
   tier_expires_at:     string | null;
   tier_granted_at:     string | null;
   tier_granted_by:     string | null;
-  last_nerve_update:   string | null;
 }
 
 export function toNumber(value: unknown): number {
@@ -66,19 +72,26 @@ export async function getUserByFirebaseUid(
     `SELECT
        id, firebase_uid, email, username,
        level, money, points,
-       nerve, max_nerve, energy, max_energy,
-       life, max_life, happiness,
+       nerve, max_nerve,
+       energy, max_energy,
+       life, max_life,
+       happiness,
        hospital_until,
-       jail_until, federal_jail_until, last_crime_at,
+       jail_until, federal_jail_until,
+       last_crime_at,
+       last_nerve_update,
+       last_energy_update,
+       last_seen_at,
        is_shadow_banned, is_hard_banned,
-       is_admin, is_developer,
+       is_admin, is_developer, is_moderator,
+       ban_type, ban_reason, ban_expires_at,
        trust_score, total_flags,
        created_at,
-       user_tier, tier_expires_at, tier_granted_at, tier_granted_by,
-       last_nerve_update
-     FROM users
-     WHERE firebase_uid = $1
-     LIMIT 1`,
+       user_tier, tier_expires_at, tier_granted_at, tier_granted_by
+     FROM   users
+     WHERE  firebase_uid = $1
+       AND  deleted_at   IS NULL
+     LIMIT  1`,
     [firebaseUid]
   );
   return result.rows[0] ?? null;

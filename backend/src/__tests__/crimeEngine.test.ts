@@ -191,7 +191,8 @@ describe("calcCritPenalties", () => {
 
 describe("applySanityCap", () => {
   it("passes through normal rewards unchanged", () => {
-    const mockLog = vi.fn();
+    const mockWarn = vi.fn();
+    const mockLog  = { warn: mockWarn };
     const result  = {
       outcome:       "success" as const,
       reward_money:  5_000,
@@ -208,11 +209,12 @@ describe("applySanityCap", () => {
 
     const capped = applySanityCap(result, "pickpocket", mockLog);
     expect(capped.reward_money).toBe(5_000);
-    expect(mockLog).not.toHaveBeenCalled();
+    expect(mockWarn).not.toHaveBeenCalled();
   });
 
   it("caps reward at MAX_SINGLE_CRIME_REWARD and logs", () => {
-    const mockLog = vi.fn();
+    const mockWarn = vi.fn();
+    const mockLog  = { warn: mockWarn };
     const result  = {
       outcome:       "success" as const,
       reward_money:  MAX_SINGLE_CRIME_REWARD + 1,
@@ -229,8 +231,8 @@ describe("applySanityCap", () => {
 
     const capped = applySanityCap(result, "bugged_crime", mockLog);
     expect(capped.reward_money).toBe(MAX_SINGLE_CRIME_REWARD);
-    expect(mockLog).toHaveBeenCalledWith(
-      "🚨 Crime reward sanity cap triggered",
+    expect(mockWarn).toHaveBeenCalledWith(
+      "Crime reward sanity cap triggered",
       expect.objectContaining({ crimeId: "bugged_crime" })
     );
   });

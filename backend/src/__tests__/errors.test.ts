@@ -45,6 +45,7 @@ describe("AppError", () => {
   it("toJSON returns message, code, errorCode", () => {
     const err = new AppError("msg", 500, "CODE", "ERR_1");
     expect(err.toJSON()).toEqual({
+      statusCode: 500,
       message:   "msg",
       code:      "CODE",
       errorCode: "ERR_1",
@@ -144,7 +145,7 @@ describe("ValidationError", () => {
 describe("JailError", () => {
   it("sets secondsRemaining and jailType", () => {
     const err = new JailError(300, "normal");
-    expect(err.statusCode).toBe(423);
+    expect(err.statusCode).toBe(403);
     expect(err.secondsRemaining).toBe(300);
     expect(err.jailType).toBe("normal");
     expect(err.toJSON()).toHaveProperty("secondsRemaining", 300);
@@ -161,7 +162,7 @@ describe("JailError", () => {
 describe("HospitalError", () => {
   it("sets secondsRemaining", () => {
     const err = new HospitalError(120);
-    expect(err.statusCode).toBe(423);
+    expect(err.statusCode).toBe(403);
     expect(err.secondsRemaining).toBe(120);
   });
 });
@@ -207,8 +208,8 @@ describe("InsufficientFundsError", () => {
   it("includes money values", () => {
     const err  = new InsufficientFundsError(100, 500);
     const json = err.toJSON();
-    expect(json.currentMoney).toBe(100);
-    expect(json.requiredMoney).toBe(500);
+    expect(json.currentMoney).toBe("100");
+    expect(json.requiredMoney).toBe("500");
     expect(err.statusCode).toBe(422);
   });
 });
@@ -216,7 +217,7 @@ describe("InsufficientFundsError", () => {
 describe("DebtError", () => {
   it("includes currentBalance", () => {
     const err = new DebtError(-5000);
-    expect(err.toJSON()).toHaveProperty("currentBalance", -5000);
+    expect(err.toJSON()).toHaveProperty("currentBalance", "-5000");
     expect(err.statusCode).toBe(422);
   });
 });

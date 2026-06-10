@@ -26,32 +26,27 @@ import {
 import {
   calcCrimeLevel,
   resolveCrimeOutcome,
+  applySanityCap,
   OutcomeResult,
 } from "./crimeEngine";
-
-// FIX: Import CrimeOutcomeForPunish so the type contract between
-// crimeService and shadowPunish is enforced at compile time.
-// OutcomeResult and CrimeOutcomeForPunish have the same fields —
-// importing the interface prevents silent divergence if either changes.
-import {
-  applyShadowPunishment,
-  type CrimeOutcomeForPunish,
-} from "./shadowPunish";
+import { applyShadowPunishment } from "./shadowPunish";
 import {
   NotFoundError,
-  ForbiddenError,
-  ValidationError,
+  NerveError,
+  CrimeLockError,
   JailError,
   HospitalError,
   RateLimitError,
 } from "../utils/errors";
+import { logger } from "../utils/logger";
 
 // ─── Pre-flight checks ────────────────────────────────────
 
 export function assertCanAttempt(user: UserRow): void {
   if (!canAttemptCrime(user.last_crime_at)) {
     throw new RateLimitError(
-      `Slow down. Cooldown ${getCooldownRemaining(user.last_crime_at)}ms`
+      `Slow down. Cooldown ${getCooldownRemaining(user.last_crime_at)}ms`,
+      Math.ceil(getCooldownRemaining(user.last_crime_at) / 1000)
     );
   }
 
@@ -78,17 +73,14 @@ export function assertCanAttempt(user: UserRow): void {
 }
 
 export function assertCrimeRequirements(user: UserRow, crime: CrimeDefinition): void {
+  // BUG FIX: CrimeLockError not ForbiddenError — correct code + unlockLevel field
   if (toNumber(user.level) < crime.unlock_level) {
-    throw new ForbiddenError(
-      `You need to be level ${crime.unlock_level} to attempt this crime.`
-    );
+    throw new CrimeLockError(crime.unlock_level);
   }
 
+  // BUG FIX: NerveError not ValidationError — correct code + nerve fields
   if (toNumber(user.nerve) < crime.nerve_cost) {
-    throw new ValidationError("Not enough nerve.", {
-      currentNerve:  toNumber(user.nerve),
-      requiredNerve: crime.nerve_cost,
-    });
+    throw new NerveError(toNumber(user.nerve), crime.nerve_cost);
   }
 }
 
@@ -142,7 +134,8 @@ export async function pickAvailableSpecial(
     [crimeId, crimeLevel, userId]
   );
   if (result.rows.length === 0) return null;
-  const idx = Math.floor(Math.random() * result.rows.length);
+  const { randomInt } = await import("crypto");
+  const idx = randomInt(0, result.rows.length);
   return parseSpecial(result.rows[idx] as Record<string, unknown>);
 }
 
@@ -188,7 +181,7 @@ export async function updateProgress(
          failures             = $6,
          crit_failures        = $7,
          specials_found_count = $8,
-         updated_at           = CURRENT_TIMESTAMP
+         updated_at           = NOW()
      WHERE user_id = $9 AND crime_id = $10`,
     [
       data.crimeXp, data.crimeLevel, data.hiddenCpl,
@@ -223,7 +216,11 @@ export async function updateUserStats(
          max_life           = $6,
          jail_until         = $7,
          federal_jail_until = $8,
-         last_crime_at      = CURRENT_TIMESTAMP
+         last_crime_at      = NOW(),
+         -- BUG FIX: update last_nerve_update so regen tick
+         -- knows nerve changed (prevents premature regen)
+         last_nerve_update  = NOW(),
+         updated_at         = NOW()
      WHERE id = $9`,
     [
       data.money, data.points, data.nerve, data.maxNerve,
@@ -256,7 +253,7 @@ export function calculateOutcome(
 ): OutcomeResult {
   const maxLife = calcMaxLife(toNumber(user.level));
 
-  const outcome = resolveCrimeOutcome(
+  let outcome = resolveCrimeOutcome(
     crime,
     progress,
     availableSpecial,
@@ -264,28 +261,35 @@ export function calculateOutcome(
     maxLife
   );
 
-  const immune = isImmuneToAntiCheat(user);
+  // Apply sanity cap before shadow punishment
+  outcome = applySanityCap(outcome, String(crime.id), logger);
 
-  // Apply shadow punishment for all non-clean trust tiers.
-  // trustScore < 70 = WATCHED, SUSPICIOUS, SHADOW_BANNED, HARD_BANNED.
-  // Hard banned users never reach here — banCheck blocks them first.
-  // immune users (admins/devs) always bypass.
+  const immune = isImmuneToAntiCheat(user);
   const shouldPunish = !immune && trustInfo.trustScore < 70;
 
   if (!shouldPunish) return outcome;
 
-  // FIX: Cast through CrimeOutcomeForPunish to enforce the type contract.
-  // OutcomeResult is a superset of CrimeOutcomeForPunish — all fields exist.
-  // This cast makes TypeScript verify the contract at compile time.
-  // If either type changes, this line will break loudly instead of silently.
+  // BUG FIX: explicit field mapping instead of double cast
+  // Builds CrimeOutcomeForPunish from OutcomeResult fields explicitly
   const punished = applyShadowPunishment(
-    outcome as unknown as CrimeOutcomeForPunish,
+    {
+      outcome:      outcome.outcome,
+      reward_money: outcome.reward_money,
+      money_loss:   outcome.money_loss,
+      xp_gained:    outcome.xp_gained,
+      xp_lost:      outcome.xp_lost,
+    },
     trustInfo.trustScore,
     immune
   );
 
-  // Cast back — punished has same shape as OutcomeResult
-  return punished as unknown as OutcomeResult;
+  return {
+    ...outcome,
+    reward_money: punished.reward_money,
+    money_loss:   punished.money_loss,
+    xp_gained:    punished.xp_gained,
+    xp_lost:      punished.xp_lost,
+  };
 }
 
 // ─── Stat builder ─────────────────────────────────────────
@@ -304,20 +308,15 @@ export function buildUpdatedStats(
   const updatedNerve = Math.max(0, toNumber(user.nerve) - crime.nerve_cost);
   const finalNerve   = Math.min(updatedNerve, updatedMaxNerve);
 
-  // ── Money — debt mechanic ──────────────────────────────
-  // Tier 1-2: crimeEngine caps money_loss so result should >= 0
-  //   Defense-in-depth floor here as well.
-  // Tier 3-5: money CAN go negative — intentional debt mechanic.
   const rawMoney = toNumber(user.money) - outcome.money_loss + outcome.reward_money;
   const updatedMoney = crime.tier <= 2
-    ? Math.max(0, rawMoney)   // Tier 1-2: floor at 0, never debt
-    : rawMoney;               // Tier 3-5: allow negative (debt mechanic)
+    ? Math.max(0, rawMoney)
+    : rawMoney;
 
   const updatedPoints = Math.max(0,
     toNumber(user.points) + outcome.reward_points
   );
 
-  // Life: minimum 1 — players cannot die, just get very low
   const updatedLife = Math.max(1, toNumber(user.life) - outcome.life_loss);
 
   const updatedCrimeXp    = Math.max(0,

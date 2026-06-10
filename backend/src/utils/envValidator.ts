@@ -8,10 +8,6 @@
 // IMPORTANT:
 // Empty strings from .env (e.g. SENTRY_DSN=) are treated as
 // "unset" for optional variables, not as invalid values.
-//
-// PAYMENTS:
-// Stripe support removed (Indian solo dev limitation).
-// Lemon Squeezy will be integrated in Phase 3 (Sept 2026).
 // ============================================================
 
 import { z }          from "zod";
@@ -20,16 +16,36 @@ import { logger }     from "./logger";
 
 // ─── Helpers ──────────────────────────────────────────────
 
-const numericString = z.string().regex(/^\d+$/, "Must be a numeric string");
-const urlString     = z.string().url("Must be a valid URL");
-const boolString    = z.enum(["true", "false", "1", "0"]);
+// BUG FIX: allow negative integers (e.g. -1 for "disabled" semantics)
+const numericString = z
+  .string()
+  .regex(/^-?\d+$/, "Must be a numeric string (integer)");
+
+const urlString  = z.string().url("Must be a valid URL");
+const boolString = z.enum(["true", "false", "1", "0"]);
+
+// Postgres URL validator
+const postgresUrl = z
+  .string()
+  .min(1, "DATABASE_URL is required")
+  .refine(
+    (val) => val.startsWith("postgres://") || val.startsWith("postgresql://"),
+    { message: "DATABASE_URL must start with postgres:// or postgresql://" }
+  );
+
+// JSON string validator
+const jsonString = z.string().refine(
+  (val) => {
+    try { JSON.parse(val); return true; }
+    catch { return false; }
+  },
+  { message: "Must be valid JSON" }
+);
 
 // Convert blank strings ("") to undefined for optional vars
 function optionalEnv<T extends z.ZodTypeAny>(schema: T) {
   return z.preprocess((value) => {
-    if (typeof value === "string" && value.trim() === "") {
-      return undefined;
-    }
+    if (typeof value === "string" && value.trim() === "") return undefined;
     return value;
   }, schema.optional());
 }
@@ -43,7 +59,8 @@ const envSchema = z.object({
   PORT:     numericString.default("5000"),
 
   // ── Database ──────────────────────────────────────────
-  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  // BUG FIX: validates it's actually a postgres URL
+  DATABASE_URL: postgresUrl,
 
   // ── Redis ─────────────────────────────────────────────
   REDIS_HOST:     z.string().default("127.0.0.1"),
@@ -60,7 +77,8 @@ const envSchema = z.object({
     .default("info"),
 
   // ── Firebase ──────────────────────────────────────────
-  FIREBASE_SERVICE_ACCOUNT_JSON: optionalEnv(z.string()),
+  // BUG FIX: validates it's actually valid JSON if provided
+  FIREBASE_SERVICE_ACCOUNT_JSON: optionalEnv(jsonString),
 
   // ── Cloudflare Turnstile ──────────────────────────────
   TURNSTILE_SECRET_KEY: optionalEnv(z.string()),
@@ -70,11 +88,14 @@ const envSchema = z.object({
   SENTRY_RELEASE:            optionalEnv(z.string()),
   SENTRY_TRACES_SAMPLE_RATE: optionalEnv(z.string()),
 
-  // ── Payments (Lemon Squeezy — Phase 3) ────────────────
-  // TODO: Add in Phase 3 (September 2026)
-  LEMONSQUEEZY_API_KEY:        optionalEnv(z.string()),
-  LEMONSQUEEZY_STORE_ID:       optionalEnv(z.string()),
-  LEMONSQUEEZY_WEBHOOK_SECRET: optionalEnv(z.string()),
+  // ── Payments (Lemon Squeezy) ──────────────────────────
+  LEMONSQUEEZY_API_KEY:              optionalEnv(z.string()),
+  LEMONSQUEEZY_STORE_ID:             optionalEnv(z.string()),
+  LEMONSQUEEZY_WEBHOOK_SECRET:       optionalEnv(z.string()),
+  LEMONSQUEEZY_BLACK_CARD_VARIANT_ID:  optionalEnv(z.string()),
+  LEMONSQUEEZY_CONTRIBUTOR_VARIANT_ID: optionalEnv(z.string()),
+  LEMONSQUEEZY_BLACK_CARD_URL:         optionalEnv(z.string()),
+  LEMONSQUEEZY_CONTRIBUTOR_URL:        optionalEnv(z.string()),
 
   // ── Alerts ────────────────────────────────────────────
   DISCORD_ALERT_WEBHOOK: optionalEnv(urlString),
@@ -101,26 +122,13 @@ const envSchema = z.object({
   NERVE_REGEN_SEC:    optionalEnv(numericString),
 
   // ── Email ─────────────────────────────────────────────
-  // z.string().min(5) used instead of z.string().email()
-  // because .gg TLDs can fail some RFC validators
   EMAIL_FROM:     optionalEnv(z.string().min(5)),
   EMAIL_PROVIDER: optionalEnv(z.enum(["console", "sendgrid", "resend"])),
   EMAIL_API_KEY:  optionalEnv(z.string()),
-  // Resend is our email provider — separate from generic EMAIL_API_KEY
   RESEND_API_KEY: optionalEnv(z.string()),
 
-  // ── Payments — Razorpay (India, Phase 11) ────────────────
-  RAZORPAY_KEY_ID:     optionalEnv(z.string()),
-  RAZORPAY_KEY_SECRET: optionalEnv(z.string()),
-
-  // ── Payments — Lemon Squeezy Variant IDs (Phase 11) ──────
-  LEMONSQUEEZY_BLACK_CARD_VARIANT_ID:  optionalEnv(z.string()),
-  LEMONSQUEEZY_CONTRIBUTOR_VARIANT_ID: optionalEnv(z.string()),
-  LEMONSQUEEZY_BLACK_CARD_URL:         optionalEnv(z.string()),
-  LEMONSQUEEZY_CONTRIBUTOR_URL:        optionalEnv(z.string()),
-
-  // ── Database SSL (Phase 16) ───────────────────────────────
-  DATABASE_SSL:                    optionalEnv(boolString),
+  // ── Database SSL ──────────────────────────────────────
+  DATABASE_SSL:                     optionalEnv(boolString),
   DATABASE_SSL_REJECT_UNAUTHORIZED: optionalEnv(boolString),
 
   // ── Feature Flags ─────────────────────────────────────
@@ -134,11 +142,13 @@ const envSchema = z.object({
   ADMIN_UIDS:     optionalEnv(z.string()),
   DEV_UIDS:       optionalEnv(z.string()),
   MODERATOR_UIDS: optionalEnv(z.string()),
+
+  // ── Misc ──────────────────────────────────────────────
+  ENABLE_GAME_TICK: optionalEnv(boolString),
+  LOG_DIR:          optionalEnv(z.string()),
 });
 
-// ─── Production-only required fields ─────────────────────
-// NOTE: Payment provider keys removed for now.
-// Will be added back in Phase 3 (Lemon Squeezy integration).
+// ─── Production-required fields ───────────────────────────
 
 const PROD_REQUIRED: Array<keyof z.infer<typeof envSchema>> = [
   "DATABASE_URL",
@@ -150,8 +160,8 @@ const PROD_REQUIRED: Array<keyof z.infer<typeof envSchema>> = [
 // ─── Validator ────────────────────────────────────────────
 
 export function validateEnv(): void {
-  const isProduction = process.env.NODE_ENV === "production";
-  const isTest       = process.env.NODE_ENV === "test";
+  const isProduction = process.env["NODE_ENV"] === "production";
+  const isTest       = process.env["NODE_ENV"] === "test";
 
   // ── Parse and validate schema ────────────────────────
   const result = envSchema.safeParse(process.env);
@@ -161,7 +171,7 @@ export function validateEnv(): void {
       (issue) => `  • ${issue.path.join(".")}: ${issue.message}`
     );
     logger.error(
-      "❌ Environment validation failed:\n" + errors.join("\n")
+      "Environment validation failed:\n" + errors.join("\n")
     );
     process.exit(1);
   }
@@ -176,7 +186,7 @@ export function validateEnv(): void {
 
     if (missing.length > 0) {
       logger.error(
-        "❌ Missing required production environment variables:\n" +
+        "Missing required production environment variables:\n" +
         missing.map((k) => `  • ${k}`).join("\n")
       );
       process.exit(1);
@@ -185,58 +195,57 @@ export function validateEnv(): void {
 
   // ── Firebase credential check ─────────────────────────
   if (!isTest) {
-    const hasEnvJson = !!process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+    const hasEnvJson = !!process.env["FIREBASE_SERVICE_ACCOUNT_JSON"]?.trim();
     const hasFile    = existsSync("firebase-service-account.json");
 
     if (!hasEnvJson && !hasFile) {
       logger.error(
-        "❌ Firebase credentials missing.\n" +
+        "Firebase credentials missing.\n" +
         "  Set FIREBASE_SERVICE_ACCOUNT_JSON env var\n" +
-        "  or place firebase-service-account.json in backend/"
+        "  or place firebase-service-account.json in backend/\n" +
+        "  NEVER commit firebase-service-account.json to git."
       );
       process.exit(1);
     }
   }
 
   // ── Production warnings ───────────────────────────────
+  // BUG FIX: FINGERPRINT_SALT warning removed — config/index.ts
+  // already throws (required()) if missing in production.
+  // This warning would never fire — it's dead code.
+
   if (isProduction) {
     if (!env.SENTRY_DSN) {
-      logger.warn("⚠️  SENTRY_DSN not set — error monitoring disabled");
+      logger.warn("SENTRY_DSN not set — error monitoring disabled");
     }
     if (!env.DISCORD_ALERT_WEBHOOK && !env.SLACK_ALERT_WEBHOOK) {
       logger.warn(
-        "⚠️  No alert webhooks — DISCORD_ALERT_WEBHOOK or SLACK_ALERT_WEBHOOK recommended"
+        "No alert webhooks configured — " +
+        "set DISCORD_ALERT_WEBHOOK or SLACK_ALERT_WEBHOOK"
       );
     }
-    if (!env.ALLOWED_ORIGINS) {
-      logger.warn("⚠️  ALLOWED_ORIGINS not set — CORS may block all requests");
-    }
-    if (!env.FINGERPRINT_SALT) {
-      logger.warn("⚠️  FINGERPRINT_SALT not set — fingerprinting will use insecure default");
-    }
     if (!env.LEMONSQUEEZY_API_KEY) {
-      logger.warn("⚠️  LEMONSQUEEZY_API_KEY not set — payments disabled (add in Phase 3)");
+      logger.warn("LEMONSQUEEZY_API_KEY not set — payments disabled");
     }
-    if (!process.env.RESEND_API_KEY?.trim()) {
-      logger.warn("⚠️  RESEND_API_KEY not set — transactional emails disabled");
+    if (!env.RESEND_API_KEY && !env.EMAIL_API_KEY) {
+      logger.warn("No email API key set — transactional emails disabled");
     }
   }
 
-  // ── Dev/staging warnings ──────────────────────────────
   if (!isProduction && !isTest) {
     if (!env.TURNSTILE_SECRET_KEY) {
-      logger.warn("⚠️  TURNSTILE_SECRET_KEY not set — using test bypass token");
+      logger.warn("TURNSTILE_SECRET_KEY not set — using test bypass token");
     }
   }
 
-  logger.info("✅ Environment variables validated", {
-    env:          env.NODE_ENV,
-    port:         env.PORT,
-    firebase:     isTest ? "skipped" : "configured",
-    sentry:       !!env.SENTRY_DSN,
-    alerts:       !!(env.DISCORD_ALERT_WEBHOOK || env.SLACK_ALERT_WEBHOOK),
-    payments:     !!env.LEMONSQUEEZY_API_KEY,
-    maintenance:  env.FEATURE_MAINTENANCE === "true",
-    apiDocs:      env.FEATURE_API_DOCS === "true",
+  logger.info("Environment variables validated", {
+    env:         env.NODE_ENV,
+    port:        env.PORT,
+    firebase:    isTest ? "skipped" : "configured",
+    sentry:      !!env.SENTRY_DSN,
+    alerts:      !!(env.DISCORD_ALERT_WEBHOOK || env.SLACK_ALERT_WEBHOOK),
+    payments:    !!env.LEMONSQUEEZY_API_KEY,
+    maintenance: env.FEATURE_MAINTENANCE === "true",
+    apiDocs:     env.FEATURE_API_DOCS === "true",
   });
 }

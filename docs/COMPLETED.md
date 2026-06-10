@@ -75,3 +75,46 @@ Never reopen locked files unless critical security vulnerability.**
 ---
 
 *Next entry: Phase 1 — Database + Migrations*
+
+---
+
+## Phase 1 — Database + Migrations ✅ LOCKED June 2026
+
+**DONE SIGNAL passed:**
+- 23 migrations, all with exports.down (rollback safe)
+- No duplicate timestamps
+- 0 TypeScript errors
+- 558/558 tests passing
+- All tables referenced by services exist in schema
+- All column types match code contracts
+
+**Date locked:** June 2026
+**Migrations at lock:** 23
+
+**What was audited:**
+- Initial schema: users, crimes, crime_specials,
+  user_crime_progress, user_crime_specials,
+  uac_violations, device_fingerprints
+- Auth: auth_access_log (unique constraint dropped)
+- Economy: money INTEGER→BIGINT, hidden_cpl REAL→NUMERIC
+- Security: idempotency_keys (nullable user_id, firebase_uid,
+  response_status, key length 64→128)
+- Tiers: user_tier_enum, tier columns, nerve regen timestamp
+- Admin: admin_audit_log, support_tickets
+- Payments: payment_logs v2 (Lemon Squeezy columns)
+- Recovery: trust_recovery_log, trust_regen_streak
+
+**New migrations added during audit:**
+- 1700000020000: idempotency_key varchar(64) → varchar(128)
+- 1700000021000: payment_logs ON DELETE CASCADE → SET NULL
+
+**Critical bugs found and fixed:**
+- idempotency_key column too narrow (64 chars) for middleware
+  MAX_KEY_LENGTH (128 chars) — would cause PG 22001 errors
+- payment_logs CASCADE deletes financial records on user
+  deletion — violates audit/legal requirements
+
+**Locked:**
+- backend/migrations/* — 23 files (append only, never modify)
+
+*Next entry: Phase 2 — Backend Core — Auth*

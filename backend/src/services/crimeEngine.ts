@@ -6,12 +6,12 @@
 //   Tier 1-2: percentage of cash on hand, capped, never negative
 //   Tier 3-5: flat amount taken directly, CAN go negative (debt)
 //
-// When money goes negative (tier 3+):
-//   - Player can still commit crimes and earn money
-//   - Player CANNOT buy anything until money >= 0
-//   - Creates real risk for high-tier crime attempts
+// SECURITY: Uses crypto.randomInt for all outcome rolls.
+// Math.random() is predictable — a sophisticated attacker could
+// fingerprint the PRNG state and predict crime outcomes.
 // ============================================================
 
+import { randomInt } from "crypto";
 import {
   CrimeDefinition,
   CrimeProgress,
@@ -39,15 +39,28 @@ export interface OutcomeResult {
 }
 
 // ============================================================
-// HELPERS
+// SECURE RANDOM HELPERS
+// BUG FIX: crypto.randomInt instead of Math.random()
+// Math.random() is a predictable PRNG — attackers can fingerprint
+// the RNG state after enough observations and predict outcomes.
 // ============================================================
 
+/**
+ * Cryptographically secure integer in [min, max] inclusive.
+ */
 function randomBetween(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  if (min === max) return min;
+  return randomInt(min, max + 1);
 }
 
+/**
+ * Cryptographically secure float in [min, max).
+ * Uses randomInt scaled to 1,000,000 resolution.
+ */
 function randomFloat(min: number, max: number): number {
-  return Math.random() * (max - min) + min;
+  const RESOLUTION = 1_000_000;
+  const scaled = randomInt(0, RESOLUTION);
+  return min + (scaled / RESOLUTION) * (max - min);
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -60,14 +73,14 @@ function clamp(value: number, min: number, max: number): number {
 
 export function calcCrimeLevel(xp: number): number {
   if (xp <= 0) return 0;
-  const level = Math.floor(100 * Math.pow(xp / 500000, 0.45));
+  const level = Math.floor(100 * Math.pow(xp / 500_000, 0.45));
   return clamp(level, 0, 100);
 }
 
 export function xpForNextLevel(currentLevel: number): number {
   if (currentLevel >= 100) return 0;
   const nextLevel = currentLevel + 1;
-  return Math.ceil(500000 * Math.pow(nextLevel / 100, 1 / 0.45));
+  return Math.ceil(500_000 * Math.pow(nextLevel / 100, 1 / 0.45));
 }
 
 // ============================================================
@@ -126,7 +139,15 @@ function buildOutcomeWeights(
 
 function rollOutcome(weights: Record<OutcomeType, number>): OutcomeType {
   const total = Object.values(weights).reduce((a, b) => a + b, 0);
-  const roll  = Math.random() * total;
+
+  // BUG FIX: guard against zero or negative total (weight bug upstream)
+  if (total <= 0) {
+    return "fail";
+  }
+
+  // BUG FIX: use crypto.randomInt for the roll
+  // Scale to integer space to use randomInt
+  const roll = randomInt(0, total);
 
   let cumulative = 0;
   for (const [outcome, weight] of Object.entries(weights)) {
@@ -134,6 +155,7 @@ function rollOutcome(weights: Record<OutcomeType, number>): OutcomeType {
     if (roll < cumulative) return outcome as OutcomeType;
   }
 
+  // Should never reach here with valid weights — defensive fallback
   return "fail";
 }
 
@@ -211,21 +233,6 @@ function calcReward(crime: CrimeDefinition): number {
 
 // ============================================================
 // CRIT FAIL PENALTIES
-//
-// TIER 1-2: Percentage-based (safe for beginners)
-//   Tier 1: lose 5-25% of cash, capped at $2,000, floor $0
-//   Tier 2: lose 10-35% of cash, capped at $30,000, floor $0
-//   Money NEVER goes below $0 for tier 1-2.
-//
-// TIER 3-5: Flat amount (brutal for veterans)
-//   Tier 3: lose $50,000   - $200,000
-//   Tier 4: lose $500,000  - $1,250,000
-//   Tier 5: lose $2,500,000 - $5,000,000
-//   Money CAN go negative (debt mechanic).
-//
-// CONTRACT: EITHER money loss OR life loss OR jail, never combined.
-// If life loss is chosen, jail_seconds MUST be 0.
-// If money loss is chosen, jail_seconds is computed normally.
 // ============================================================
 
 const TIER_PCT_CONFIG: Record<number, { minPct: number; maxPct: number; cap: number }> = {
@@ -240,10 +247,9 @@ const TIER_FLAT_CONFIG: Record<number, [number, number]> = {
 };
 
 export interface CritPenalties {
-  money_loss:   number;
-  life_loss:    number;
-  /** When true, jail_seconds must be set to 0 (life loss = no jail) */
-  skipJail:     boolean;
+  money_loss: number;
+  life_loss:  number;
+  skipJail:   boolean;
 }
 
 export function calcCritPenalties(
@@ -251,12 +257,11 @@ export function calcCritPenalties(
   cashOnHand: number,
   maxLife:    number
 ): CritPenalties {
-  // 50/50: money loss OR life loss
-  const loseMoney = Math.random() < 0.5;
+  // BUG FIX: crypto.randomInt for the 50/50 split
+  const loseMoney = randomInt(0, 2) === 0;
 
   if (!loseMoney) {
-    // Life loss path — NO jail time (player is incapacitated, not arrested)
-    const lifeLossPct = randomFloat(0.2, 0.9);
+    const lifeLossPct = randomFloat(0.2, 0.75); // capped at 75% max life loss
     return {
       money_loss: 0,
       life_loss:  Math.floor(maxLife * lifeLossPct),
@@ -264,7 +269,6 @@ export function calcCritPenalties(
     };
   }
 
-  // Tier 1-2: percentage of cash on hand, capped, never negative
   const pctConfig = TIER_PCT_CONFIG[tier];
   if (pctConfig) {
     const pct  = randomFloat(pctConfig.minPct, pctConfig.maxPct);
@@ -276,7 +280,6 @@ export function calcCritPenalties(
     };
   }
 
-  // Tier 3-5: flat loss, CAN go negative (debt mechanic)
   const flatRange = TIER_FLAT_CONFIG[tier];
   if (flatRange) {
     return {
@@ -286,7 +289,6 @@ export function calcCritPenalties(
     };
   }
 
-  // Fallback (should never hit)
   return { money_loss: 0, life_loss: 0, skipJail: false };
 }
 
@@ -346,8 +348,6 @@ export function resolveCrimeOutcome(
       money_loss = penalties.money_loss;
       life_loss  = penalties.life_loss;
 
-      // FIX: Only compute jail time when money loss path (not life loss path)
-      // Life loss = player is incapacitated/escapes, not arrested
       if (!penalties.skipJail) {
         jail_seconds = calcJailSeconds(crime, crime_level, hidden_cpl);
       }
@@ -355,12 +355,12 @@ export function resolveCrimeOutcome(
       if (money_loss > 0) {
         const wouldBeNegative = tier >= 3 && cashOnHand - money_loss < 0;
         if (wouldBeNegative) {
-          message = `You got caught during ${crime.name}! Lost $${money_loss.toLocaleString()}. Your balance has gone negative — you're in debt until you earn it back.`;
+          message = `You got caught during ${crime.name}! Lost $${money_loss.toLocaleString()}. You're now in debt.`;
         } else {
-          message = `You got caught during ${crime.name}! Lost $${money_loss.toLocaleString()} and significant experience.`;
+          message = `You got caught during ${crime.name}! Lost $${money_loss.toLocaleString()}.`;
         }
       } else {
-        message = `You got caught during ${crime.name}! You took serious damage and lost significant experience.`;
+        message = `You got caught during ${crime.name}! You took serious damage.`;
       }
       break;
     }
@@ -389,8 +389,8 @@ export function calcLevelProgress(xp: number): number {
   if (xp <= 0) return 0;
   const currentLevel   = calcCrimeLevel(xp);
   if (currentLevel >= 100) return 100;
-  const currentLevelXp = Math.ceil(500000 * Math.pow(currentLevel / 100, 1 / 0.45));
-  const nextLevelXp    = Math.ceil(500000 * Math.pow((currentLevel + 1) / 100, 1 / 0.45));
+  const currentLevelXp = Math.ceil(500_000 * Math.pow(currentLevel / 100, 1 / 0.45));
+  const nextLevelXp    = Math.ceil(500_000 * Math.pow((currentLevel + 1) / 100, 1 / 0.45));
   const range          = nextLevelXp - currentLevelXp;
   const progress       = xp - currentLevelXp;
   return Math.min(100, Math.max(0, Math.round((progress / range) * 100)));
@@ -398,10 +398,6 @@ export function calcLevelProgress(xp: number): number {
 
 // ============================================================
 // REWARD SANITY CAP
-// Absolute server-side ceiling regardless of engine output.
-// Protects economy if crime data is corrupted or bugged.
-// Tier 5 max is $10M — we cap at 2x that as a safety net.
-// Log any hit so we know immediately if the engine is broken.
 // ============================================================
 
 export const MAX_SINGLE_CRIME_REWARD = 20_000_000;
@@ -409,10 +405,11 @@ export const MAX_SINGLE_CRIME_REWARD = 20_000_000;
 export function applySanityCap(
   result:  OutcomeResult,
   crimeId: string,
-  log:     (msg: string, meta: Record<string, unknown>) => void
+  // BUG FIX: accept logger object directly — avoids 'this' context loss
+  log:     { warn: (msg: string, meta: Record<string, unknown>) => void }
 ): OutcomeResult {
   if (result.reward_money > MAX_SINGLE_CRIME_REWARD) {
-    log("🚨 Crime reward sanity cap triggered", {
+    log.warn("Crime reward sanity cap triggered", {
       crimeId,
       rawReward: result.reward_money,
       cappedAt:  MAX_SINGLE_CRIME_REWARD,

@@ -1,26 +1,45 @@
 # ============================================================
 # UNDERCITY — DEV OVERRIDES
 # Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-# NOTE: nginx disabled in dev — frontend uses Vite dev server
-#       backend accessed directly on localhost:5000
+#
+# What this does:
+#   - Exposes postgres on 5432, redis on 6380 (host conflict avoidance)
+#   - Enables hot-reload via ts-node-dev (mounts src/)
+#   - Mounts firebase service account file for local dev
+#   - Disables nginx (Vite dev server handles frontend)
+#   - Backend exposed directly on localhost:5000
 # ============================================================
 
 services:
 
   postgres:
+    # BUG FIX: expose postgres in dev (base no longer exposes it)
     ports:
       - "5432:5432"
 
   redis:
+    # Port 6380 avoids conflict with system Redis on 6379
     ports:
-      - "6379:6379"
+      - "6380:6379"
 
   backend:
     environment:
       NODE_ENV: development
+    # BUG FIX: use ts-node-dev for hot reload in dev
+    command: npm run dev
+    # BUG FIX: mount source files so ts-node-dev can watch them
+    volumes:
+      - ./backend/src:/app/src:ro
+      - backup_data:/app/backups
+      # BUG FIX: firebase service account for local dev
+      # In production: use FIREBASE_SERVICE_ACCOUNT_JSON env var
+      - ./backend/firebase-service-account.json:/app/firebase-service-account.json:ro
     ports:
       - "${PORT:-5000}:${PORT:-5000}"
 
+  # Nginx disabled in dev — Vite handles frontend on localhost:5173
+  # Run with: docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile nginx up
+  # to enable nginx for local SSL testing
   nginx:
     profiles:
       - nginx

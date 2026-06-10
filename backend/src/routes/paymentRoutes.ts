@@ -1,109 +1,89 @@
 // ============================================================
 // PAYMENT ROUTES — UNDERCITY
-// Lemon Squeezy integration (Phase 3)
+// Lemon Squeezy integration
 //
-// GET  /tiers     — Public: what tiers cost and include
-// GET  /checkout  — Returns checkout URLs for each tier
-// POST /webhook   — Lemon Squeezy signed webhook handler
-//
-// WEBHOOK SECURITY:
-//   Lemon Squeezy signs webhooks with HMAC-SHA256.
-//   We verify the signature before processing ANY event.
-//   Raw body must be read BEFORE express.json() parses it.
-//   app.ts mounts express.raw() for /webhook before express.json().
-//
-// IDEMPOTENCY:
-//   Webhook events are deduplicated via payment_session_id
-//   ON CONFLICT in payment_logs.
-//   LS may deliver the same event multiple times.
+// GET  /tiers     — Public tier info
+// GET  /checkout  — Checkout URL with user ID embedded
+// POST /webhook   — HMAC-signed webhook handler
 // ============================================================
 
 import { Router, Request, Response } from "express";
-import crypto                        from "crypto";
-import { verifyFirebaseToken }        from "../middleware/firebaseAuth";
-import { paymentLimiter }             from "../middleware/rateLimiter";
-import { noCache }                    from "../middleware/cacheHeaders";
-import { asyncHandler }               from "../utils/asyncHandler";
-import { logger }                     from "../utils/logger";
-import { Alerts }                     from "../utils/alerts";
-import { config }                     from "../config";
-import { TIER_CONFIG }                from "../config/tiers";
-import { CHECKOUT_URLS }              from "../config/payments";
-import { queuePaymentWebhook }        from "../queues/index";
-import type { LemonSqueezyWebhookPayload } from "../services/paymentService";
+import crypto                         from "crypto";
+import { verifyFirebaseToken }         from "../middleware/firebaseAuth";
+import { paymentLimiter }              from "../middleware/rateLimiter";
+import { noCache }                     from "../middleware/cacheHeaders";
+import { asyncHandler }                from "../utils/asyncHandler";
+import { logger }                      from "../utils/logger";
+import { Alerts }                      from "../utils/alerts";
+import { config }                      from "../config";
+import { TIER_CONFIG }                 from "../config/tiers";
+import { CHECKOUT_URLS, HANDLED_WEBHOOK_EVENTS } from "../config/payments";
+import { queuePaymentWebhook }         from "../queues/index";
 
 const router = Router();
 
-// ============================================================
-// GET /api/payments/tiers
-// Public — shows what each tier costs and includes
-// ============================================================
-router.get(
-  "/tiers",
-  noCache,
-  (_req: Request, res: Response) => {
-    res.json({
-      tiers: [
-        {
-          id:       "player",
-          name:     "Player",
-          price:    "Free",
-          priceUsd: 0,
-          duration: "Forever",
-          features: [
-            "Full access to all crimes",
-            "1 nerve every 5 minutes",
-            "5 energy every 15 minutes",
-            "Standard game experience",
-          ],
-          cta: null,
-        },
-        {
-          id:       "citizen",
-          name:     "Black Card",
-          price:    "$4.99",
-          priceUsd: 4.99,
-          duration: "31 days",
-          features: [
-            "Everything in Player",
-            "1 nerve every 5 minutes",
-            "5 energy every 12 minutes",
-            "Black Card badge",
-            "Support the game",
-          ],
-          popular: false,
-          cta:     "Get Black Card",
-        },
-        {
-          id:       "contributor",
-          name:     "Contributor",
-          price:    "$7.99/month",
-          priceUsd: 7.99,
-          duration: "Monthly",
-          features: [
-            "Everything in Black Card",
-            "1 nerve every 3 minutes 🔥",
-            "5 energy every 10 minutes 🔥",
-            "Contributor badge",
-            "Early access to new features",
-            "Priority support",
-          ],
-          popular: true,
-          cta:     "Become a Contributor",
-        },
-      ],
-      paymentsEnabled: config.features.paymentsEnabled,
-      note: config.features.paymentsEnabled
-        ? null
-        : "Payments launch with the game on December 15, 2026.",
-    });
-  }
-);
+// ── GET /api/payments/tiers ───────────────────────────────
 
-// ============================================================
-// GET /api/payments/checkout
-// Returns Lemon Squeezy checkout URL with firebase_uid embedded
-// ============================================================
+router.get("/tiers", noCache, (_req: Request, res: Response) => {
+  res.json({
+    tiers: [
+      {
+        id:       "player",
+        name:     "Player",
+        price:    "Free",
+        priceUsd: 0,
+        duration: "Forever",
+        features: [
+          "Full access to all crimes",
+          "1 nerve every 5 minutes",
+          "5 energy every 15 minutes",
+          "Standard game experience",
+        ],
+        cta: null,
+      },
+      {
+        id:       "citizen",
+        name:     "Black Card",
+        price:    "$4.99",
+        priceUsd: TIER_CONFIG.citizen.priceUsd,
+        duration: "31 days",
+        features: [
+          "Everything in Player",
+          "1 nerve every 5 minutes",
+          "5 energy every 12 minutes",
+          "Black Card badge",
+          "Support the game",
+        ],
+        popular: false,
+        cta:     "Get Black Card",
+      },
+      {
+        id:       "contributor",
+        name:     "Contributor",
+        price:    "$7.99/month",
+        priceUsd: TIER_CONFIG.contributor.priceUsd,
+        duration: "Monthly",
+        features: [
+          "Everything in Black Card",
+          "1 nerve every 3 minutes 🔥",
+          "5 energy every 10 minutes 🔥",
+          "Contributor badge",
+          "Early access to new features",
+          "Priority support",
+        ],
+        popular: true,
+        cta:     "Become a Contributor",
+      },
+    ],
+    paymentsEnabled: config.features.paymentsEnabled,
+    note: config.features.paymentsEnabled
+      ? null
+      : "Payments launch with the game on December 15, 2026.",
+  });
+});
+
+// ── GET /api/payments/checkout ────────────────────────────
+
 router.get(
   "/checkout",
   noCache,
@@ -141,29 +121,28 @@ router.get(
       return;
     }
 
-    // Embed firebase_uid as custom_data — passed through to webhook
     const checkoutUrl = `${baseUrl}?checkout[custom][firebase_uid]=${encodeURIComponent(uid)}`;
 
-    logger.info("💳 Checkout URL requested", {
-      uid:  uid.substring(0, 8),
-      tier,
-    });
+    logger.info("Checkout URL requested", { uid: uid.substring(0, 8), tier });
 
-    res.json({
-      tier,
-      checkoutUrl,
-      tierConfig: TIER_CONFIG[tier as keyof typeof TIER_CONFIG],
-    });
+    // BUG FIX: don't expose internal tierConfig in response
+    res.json({ tier, checkoutUrl });
   })
 );
 
-// ============================================================
-// POST /api/payments/webhook
-// Lemon Squeezy signed webhook handler
-//
-// express.raw() is applied in app.ts BEFORE express.json()
-// for this route only — so req.body arrives as a Buffer.
-// ============================================================
+// ── POST /api/payments/webhook ────────────────────────────
+
+interface WebhookPayload {
+  meta?: {
+    event_name?: string;
+    custom_data?: Record<string, unknown>;
+  };
+  data?: {
+    id?:         string;
+    attributes?: Record<string, unknown>;
+  };
+}
+
 router.post(
   "/webhook",
   asyncHandler(async (req: Request, res: Response) => {
@@ -175,18 +154,16 @@ router.post(
       return;
     }
 
-    // ── Get raw body for HMAC verification ────────────────
     const rawBody: string = Buffer.isBuffer(req.body)
       ? req.body.toString("utf-8")
       : typeof req.body === "string"
         ? req.body
         : JSON.stringify(req.body);
 
-    // ── Verify HMAC-SHA256 signature ───────────────────────
     const signature = req.headers["x-signature"] as string | undefined;
 
     if (!signature) {
-      logger.warn("Payment: webhook missing x-signature header");
+      logger.warn("Payment: webhook missing x-signature");
       res.status(401).json({ error: "MISSING_SIGNATURE" });
       return;
     }
@@ -196,7 +173,6 @@ router.post(
       .update(rawBody, "utf-8")
       .digest("hex");
 
-    // Constant-time comparison prevents timing attacks
     const sigBuffer = Buffer.from(signature,   "hex");
     const expBuffer = Buffer.from(expectedSig, "hex");
 
@@ -211,10 +187,9 @@ router.post(
       return;
     }
 
-    // ── Parse payload ──────────────────────────────────────
-    let payload: LemonSqueezyWebhookPayload;
+    let payload: WebhookPayload;
     try {
-      payload = JSON.parse(rawBody) as LemonSqueezyWebhookPayload;
+      payload = JSON.parse(rawBody) as WebhookPayload;
     } catch {
       res.status(400).json({ error: "INVALID_JSON" });
       return;
@@ -222,16 +197,18 @@ router.post(
 
     const eventName = payload.meta?.event_name ?? "unknown";
 
-    logger.info("💳 Webhook received", {
-      event:  eventName,
-      dataId: payload.data?.id,
-    });
+    // BUG FIX: check against HANDLED_WEBHOOK_EVENTS before queuing
+    if (!HANDLED_WEBHOOK_EVENTS.has(eventName)) {
+      logger.info("Payment: ignoring unhandled webhook event", { eventName });
+      res.status(200).json({ received: true, handled: false });
+      return;
+    }
 
-    // ── Respond immediately — process async ───────────────
-    // Lemon Squeezy expects 200 within 5 seconds.
-    res.status(200).json({ received: true });
+    logger.info("Webhook received", { event: eventName, dataId: payload.data?.id });
 
-    // Queue for processing (idempotent via jobId deduplication)
+    // Respond immediately — LS expects 200 within 5s
+    res.status(200).json({ received: true, handled: true });
+
     void queuePaymentWebhook({
       paymentEventId:   payload.data?.id ?? `unknown-${Date.now()}`,
       paymentEventType: eventName,
@@ -239,7 +216,7 @@ router.post(
       receivedAt:       new Date().toISOString(),
     }).catch((err) => {
       logger.error("Payment: failed to queue webhook", {
-        error:     err instanceof Error ? err.message : String(err),
+        error: err instanceof Error ? err.message : String(err),
         eventName,
       });
       void Alerts.systemError(

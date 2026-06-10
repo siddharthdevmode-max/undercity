@@ -8,6 +8,21 @@ services:
   postgres:
     restart: always
     ports: []
+    environment:
+      # Postgres tuning for 4GB VPS (CX22/CX32)
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command: >
+      postgres
+        -c shared_buffers=128MB
+        -c effective_cache_size=384MB
+        -c work_mem=4MB
+        -c maintenance_work_mem=64MB
+        -c max_connections=100
+        -c log_min_duration_statement=500
+        -c log_line_prefix='%t [%p]: [%l-1] '
+        -c random_page_cost=1.1
+        -c checkpoint_completion_target=0.9
+        -c wal_buffers=16MB
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
@@ -18,6 +33,8 @@ services:
       resources:
         limits:
           memory: 512M
+        reservations:
+          memory: 256M
     logging:
       driver: "json-file"
       options:
@@ -26,19 +43,19 @@ services:
 
   redis:
     restart: always
-    # FIX: requirepass passed in command + REDISCLI_AUTH used in healthcheck
-    # password never appears in process list
     command: >
       redis-server
-      --requirepass ${REDIS_PASSWORD}
-      --maxmemory 200mb
-      --maxmemory-policy allkeys-lru
-      --save 900 1
-      --save 300 10
-      --appendonly yes
-      --appendfsync everysec
+        --requirepass ${REDIS_PASSWORD}
+        --maxmemory 200mb
+        --maxmemory-policy allkeys-lru
+        --appendonly yes
+        --appendfsync everysec
+        --no-appendfsync-on-rewrite yes
+        --auto-aof-rewrite-percentage 100
+        --auto-aof-rewrite-min-size 64mb
+        --save ""
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -48,6 +65,8 @@ services:
       resources:
         limits:
           memory: 256M
+        reservations:
+          memory: 64M
     logging:
       driver: "json-file"
       options:
@@ -56,6 +75,12 @@ services:
 
   backend:
     restart: always
+    # Must wait for postgres + redis to be healthy before starting
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:${PORT:-5000}/api/health || exit 1"]
       interval: 30s
@@ -63,10 +88,16 @@ services:
       retries: 3
       start_period: 40s
     ports: []
+    # Graceful shutdown drains up to 30s — give Docker 45s before SIGKILL
+    stop_grace_period: 45s
     deploy:
       resources:
         limits:
-          memory: 512M
+          # BUG FIX: 512M was too tight for WS + BullMQ + game tick
+          # Raised to 768M. Alert in monitoring when > 80% (614M)
+          memory: 768M
+        reservations:
+          memory: 256M
     logging:
       driver: "json-file"
       options:
@@ -75,8 +106,9 @@ services:
 
   nginx:
     restart: always
+    # Nginx healthcheck: check nginx's own status page, not via proxy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost/api/health || exit 1"]
+      test: ["CMD-SHELL", "nginx -t 2>/dev/null && curl -f http://localhost/api/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -85,8 +117,18 @@ services:
       resources:
         limits:
           memory: 64M
+        reservations:
+          memory: 16M
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  nginx_logs:
+    driver: local

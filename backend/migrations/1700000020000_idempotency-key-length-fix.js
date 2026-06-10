@@ -3,14 +3,15 @@
 // ============================================================
 // FIX: idempotency_keys.idempotency_key varchar(64) → varchar(128)
 //
-// The middleware validates keys up to MAX_KEY_LENGTH = 128 chars.
-// The DB column was only varchar(64) — keys between 65-128 chars
-// would hit a string_data_right_truncation error (PG code 22001).
+// Fresh deployments: migration 005 already creates varchar(128).
+// This ALTER is idempotent — varchar(128) → varchar(128) is a no-op.
 //
-// UUID v4 is 36 chars — well within the old limit.
-// But we validate up to 128 chars in middleware for forward compatibility.
-// Align DB to match middleware contract.
+// Existing deployments with old migration 005 (varchar(64)):
+// This correctly expands the column.
+// Note: expanding varchar in Postgres does NOT rewrite the table.
 // ============================================================
+
+exports.shorthands = undefined;
 
 exports.up = (pgm) => {
   pgm.alterColumn("idempotency_keys", "idempotency_key", {
@@ -20,6 +21,21 @@ exports.up = (pgm) => {
 };
 
 exports.down = (pgm) => {
+  // BUG FIX: guard against data loss — keys > 64 chars cannot be truncated
+  pgm.sql(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM idempotency_keys
+        WHERE LENGTH(idempotency_key) > 64
+      ) THEN
+        RAISE EXCEPTION
+          'Cannot rollback: idempotency keys exist with length > 64 chars. '
+          'Truncating would corrupt data.';
+      END IF;
+    END $$;
+  `);
+
   pgm.alterColumn("idempotency_keys", "idempotency_key", {
     type:    "varchar(64)",
     notNull: true,

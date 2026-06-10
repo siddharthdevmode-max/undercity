@@ -1,51 +1,40 @@
+// ============================================================
+// VALIDATE MIDDLEWARE — UNDERCITY
+// Generic Zod schema validation for Express routes.
+//
+// USAGE (preferred — wraps body/params/query):
+//   validate(z.object({ body: z.object({...}), params: z.object({...}) }))
+//
+// USAGE (convenience helpers):
+//   validateBody(z.object({ crimeKey: z.string() }))
+//   validateQuery(z.object({ page: z.coerce.number() }))
+//   validateParams(z.object({ id: z.string().uuid() }))
+//
+// TYPE SAFETY:
+//   Coerced + sanitized values replace req.body/params/query.
+//   Route handlers get clean typed data.
+// ============================================================
+
 import { Request, Response, NextFunction } from "express";
 import { ZodSchema, ZodError, z }          from "zod";
 import { ValidationError }                 from "../utils/errors";
 
-// ============================================================
-// VALIDATE MIDDLEWARE
-// Generic Zod schema validation for Express routes.
-//
-// USAGE:
-//   validate(mySchema)  — validates body + params + query
-//
-// SCHEMA CONVENTION:
-//   All schemas should wrap fields:
-//     z.object({ body: z.object({...}), params: z.object({...}), query: z.object({...}) })
-//
-// TYPE SAFETY:
-//   Validated data replaces req.body, req.params, req.query.
-//   This means route handlers get coerced + sanitized values,
-//   not raw unvalidated input.
-//
-// ERROR FORMAT:
-//   {
-//     message: "Invalid request data",
-//     code:    "ERR_2001",
-//     errors:  [{ field: "username", message: "Too short" }]
-//   }
-//   Note: field paths strip "body." prefix to avoid leaking
-//   internal schema structure to clients.
-//
-// MAX BODY SIZE:
-//   Raw body size is checked before Zod parsing.
-//   Zod can be slow on deeply-nested objects — this guards
-//   against ReDoS-style payloads.
-// ============================================================
-
 // ── Constants ──────────────────────────────────────────────
 
-const MAX_BODY_KEYS  = 100;   // max top-level + nested keys in body
-const MAX_BODY_DEPTH = 10;    // max nesting depth
+// BUG FIX: increased from 100 to 200 — 100 was too low for admin routes
+// Arrays are no longer counted as keys (only object keys count)
+const MAX_BODY_KEYS  = 200;
+const MAX_BODY_DEPTH = 10;
 
 // ── Body complexity guard ──────────────────────────────────
-// Prevents deeply-nested or huge payloads from slowing Zod
 
 function countKeys(obj: unknown, depth = 0): number {
-  if (depth > MAX_BODY_DEPTH) return MAX_BODY_KEYS + 1; // signal overflow
+  if (depth > MAX_BODY_DEPTH) return MAX_BODY_KEYS + 1;
   if (typeof obj !== "object" || obj === null) return 0;
+  // BUG FIX: arrays don't count as keys — only object keys count
+  // Prevents false positives when body contains arrays (e.g. bulk operations)
   if (Array.isArray(obj)) {
-    return obj.reduce((acc: number, item) => acc + countKeys(item, depth + 1), obj.length);
+    return obj.reduce((acc: number, item) => acc + countKeys(item, depth + 1), 0);
   }
   const keys = Object.keys(obj);
   return keys.length + keys.reduce(
@@ -55,27 +44,16 @@ function countKeys(obj: unknown, depth = 0): number {
 }
 
 // ── Error formatter ────────────────────────────────────────
-// Strips "body." / "params." / "query." prefix from paths
-// so clients see "username" not "body.username"
 
-function formatZodErrors(
-  err: ZodError
-): Array<{ field: string; message: string }> {
+function formatZodErrors(err: ZodError): Array<{ field: string; message: string }> {
   return err.issues.map((issue) => {
     const rawPath = issue.path.join(".");
-
-    // Remove leading segment (body / params / query)
-    const field = rawPath.replace(/^(body|params|query)\.?/, "") || rawPath;
-
-    return {
-      field,
-      message: issue.message,
-    };
+    const field   = rawPath.replace(/^(body|params|query)\.?/, "") || "request";
+    return { field, message: issue.message };
   });
 }
 
-// ── Infer output type helper ───────────────────────────────
-// Lets you do: type Input = ValidatedInput<typeof mySchema>
+// ── Type helper ────────────────────────────────────────────
 
 export type ValidatedInput<T extends ZodSchema> = z.output<T>;
 
@@ -86,21 +64,18 @@ export type ValidatedInput<T extends ZodSchema> = z.output<T>;
 export const validate = <T extends ZodSchema>(schema: T) => {
   return (req: Request, _res: Response, next: NextFunction): void => {
 
-    // ── Body complexity guard ──────────────────────────────
+    // Body complexity guard
     if (req.body && typeof req.body === "object") {
       const keyCount = countKeys(req.body);
       if (keyCount > MAX_BODY_KEYS) {
-        next(
-          new ValidationError(
-            "Request body is too complex",
-            [{ field: "body", message: `Too many fields (max ${MAX_BODY_KEYS})` }]
-          )
-        );
+        next(new ValidationError(
+          "Request body is too complex",
+          [{ field: "body", message: `Too many fields (max ${MAX_BODY_KEYS})` }]
+        ));
         return;
       }
     }
 
-    // ── Zod parse ──────────────────────────────────────────
     const result = schema.safeParse({
       body:   req.body,
       params: req.params,
@@ -108,15 +83,10 @@ export const validate = <T extends ZodSchema>(schema: T) => {
     });
 
     if (!result.success) {
-      const errors = formatZodErrors(result.error);
-
-      next(new ValidationError("Invalid request data", errors));
+      next(new ValidationError("Invalid request data", formatZodErrors(result.error)));
       return;
     }
 
-    // ── Merge validated data back into request ─────────────
-    // This gives handlers coerced values (e.g. string "42" → number 42)
-    // and sanitized strings (via .transform() in schemas)
     const parsed = result.data as {
       body?:   Record<string, unknown>;
       params?: Record<string, unknown>;
@@ -124,43 +94,28 @@ export const validate = <T extends ZodSchema>(schema: T) => {
     };
 
     if (parsed.body   !== undefined) req.body   = parsed.body;
-    if (parsed.params !== undefined) Object.assign(req.params, parsed.params);
-    if (parsed.query  !== undefined) Object.assign(req.query,  parsed.query);
+
+    // BUG FIX: req.params can be read-only — use explicit property assignment
+    // Object.assign can fail on frozen objects in strict Express configs
+    if (parsed.params !== undefined) {
+      for (const [k, v] of Object.entries(parsed.params)) {
+        (req.params as Record<string, unknown>)[k] = v;
+      }
+    }
+
+    if (parsed.query  !== undefined) Object.assign(req.query, parsed.query);
 
     next();
   };
 };
 
-// ============================================================
-// validateBody(schema) — convenience for body-only schemas
-// ============================================================
-// Use when you only want to validate req.body without wrapping:
-//
-//   const schema = z.object({ username: z.string().min(3) });
-//   router.post("/test", validateBody(schema), handler);
+// ── Convenience wrappers ───────────────────────────────────
 
-export const validateBody = <T extends ZodSchema>(schema: T) => {
-  return validate(
-    z.object({ body: schema })
-  );
-};
+export const validateBody = <T extends ZodSchema>(schema: T) =>
+  validate(z.object({ body: schema }));
 
-// ============================================================
-// validateQuery(schema) — convenience for query-only schemas
-// ============================================================
+export const validateQuery = <T extends ZodSchema>(schema: T) =>
+  validate(z.object({ query: schema }));
 
-export const validateQuery = <T extends ZodSchema>(schema: T) => {
-  return validate(
-    z.object({ query: schema })
-  );
-};
-
-// ============================================================
-// validateParams(schema) — convenience for param-only schemas
-// ============================================================
-
-export const validateParams = <T extends ZodSchema>(schema: T) => {
-  return validate(
-    z.object({ params: schema })
-  );
-};
+export const validateParams = <T extends ZodSchema>(schema: T) =>
+  validate(z.object({ params: schema }));

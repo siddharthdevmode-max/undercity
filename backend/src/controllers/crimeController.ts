@@ -49,13 +49,13 @@ export const getCrimes = async (req: Request, res: Response): Promise<void> => {
     const crimesResult = await client.query(
       `SELECT
         c.*,
-        COALESCE(ucp.crime_xp, 0)              AS crime_xp,
-        COALESCE(ucp.crime_level, 0)            AS crime_level,
-        COALESCE(ucp.attempts, 0)               AS attempts,
-        COALESCE(ucp.successes, 0)              AS successes,
-        COALESCE(ucp.failures, 0)               AS failures,
-        COALESCE(ucp.crit_failures, 0)          AS crit_failures,
-        COALESCE(ucp.specials_found_count, 0)   AS specials_found_count,
+        COALESCE(ucp.crime_xp, 0)            AS crime_xp,
+        COALESCE(ucp.crime_level, 0)          AS crime_level,
+        COALESCE(ucp.attempts, 0)             AS attempts,
+        COALESCE(ucp.successes, 0)            AS successes,
+        COALESCE(ucp.failures, 0)             AS failures,
+        COALESCE(ucp.crit_failures, 0)        AS crit_failures,
+        COALESCE(ucp.specials_found_count, 0) AS specials_found_count,
         CASE WHEN $2 >= c.unlock_level THEN TRUE ELSE FALSE END AS unlocked,
         (
           SELECT COUNT(*)
@@ -68,11 +68,11 @@ export const getCrimes = async (req: Request, res: Response): Promise<void> => {
               WHERE ucs.user_id = $1 AND ucs.crime_special_id = cs.id
             )
         )::int AS available_specials_count
-      FROM crimes c
-      LEFT JOIN user_crime_progress ucp
-        ON ucp.crime_id = c.id AND ucp.user_id = $1
-      WHERE c.is_active = TRUE
-      ORDER BY c.tier ASC, c.id ASC`,
+       FROM crimes c
+       LEFT JOIN user_crime_progress ucp
+         ON ucp.crime_id = c.id AND ucp.user_id = $1
+       WHERE c.is_active = TRUE
+       ORDER BY c.tier ASC, c.id ASC`,
       [user.id, playerLevel]
     );
 
@@ -80,6 +80,7 @@ export const getCrimes = async (req: Request, res: Response): Promise<void> => {
       id:          toNumber(row["id"]),
       key:         row["crime_key"],
       name:        row["name"],
+      description: row["description"],
       tier:        toNumber(row["tier"]),
       unlockLevel: toNumber(row["unlock_level"]),
       nerveCost:   toNumber(row["nerve_cost"]),
@@ -105,11 +106,6 @@ export const getCrimes = async (req: Request, res: Response): Promise<void> => {
 
     const totalCrimeXp = await getTotalCrimeXp(client, user.id);
     const maxNerve     = calcMaxNerve(totalCrimeXp);
-
-    // FIX: Removed unused calcMaxLife call from getCrimes.
-    // maxLife is not in the GET /crimes response — it's in the
-    // POST /crimes/attempt response via buildUpdatedStats.
-    // Keeping dead code with void suppression trains bad habits.
 
     res.json({
       user: {
@@ -140,10 +136,6 @@ export const getCrimes = async (req: Request, res: Response): Promise<void> => {
 export const attemptCrime = async (req: Request, res: Response): Promise<void> => {
   const log = getRequestLogger(req.requestId);
 
-  // Auth check BEFORE acquiring DB connection — prevents connection
-  // leak when unauthorized requests hit this endpoint.
-  // verifyFirebaseToken middleware should have already blocked these,
-  // but this is defense-in-depth.
   const firebaseUid = req.firebaseUser?.uid;
   if (!firebaseUid) throw new UnauthorizedError();
 
@@ -152,9 +144,6 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
   const userAgent = req.headers["user-agent"] as string | undefined;
   const { crimeKey } = req.body as { crimeKey: string };
 
-  // Anti-cheat: fire BEFORE transaction — writes to separate tracking
-  // tables that must NOT be rolled back if crime tx fails.
-  // All fire-and-forget via .catch().
   recordFingerprint(firebaseUid, ipAddress, userAgent, visitorId).catch(
     (e: Error) => log.warn("Fingerprint record failed", { error: e.message })
   );
@@ -166,12 +155,12 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
   checkMultiAccount(firebaseUid, ipAddress, userAgent, visitorId)
     .then(({ otherAccountsCount, otherUids }) => {
       if (otherAccountsCount > 0) {
-        log.warn("🚨 Multi-account detected", {
+        log.warn("Multi-account detected", {
           uid:           firebaseUid.substring(0, 8),
           otherAccounts: otherAccountsCount,
           otherUids:     otherUids.map((u) => u.substring(0, 8)),
         });
-        flagUser({
+        void flagUser({
           firebaseUid,
           violationType: "IMPOSSIBLE_ACTION",
           details:       { reason: "Multi-account detected", otherAccountsCount },
@@ -182,7 +171,6 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
     })
     .catch((e: Error) => log.warn("Multi-account check failed", { error: e.message }));
 
-  // Acquire connection AFTER anti-cheat fires and AFTER auth check
   const client: PoolClient = await pool.connect();
 
   try {
@@ -194,10 +182,13 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
       throw new NotFoundError("User");
     }
 
+    // BUG FIX: conservative fallback — if trustInfo is missing,
+    // use low trust (60) not full trust (100)
+    // This prevents shadow punishment bypass if banCheck is skipped
     const trustInfo = req.trustInfo ?? {
       isShadowBanned: false,
-      trustScore:     100,
-      tier:           "CLEAN" as const,
+      trustScore:     60,   // WATCHED tier — conservative
+      tier:           "WATCHED" as const,
       isHardBanned:   false,
     };
 
@@ -283,14 +274,16 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
             ? crime.is_federal ? "federal" : "normal"
             : null,
       },
-      special: outcome.special ? {
-        id:                 outcome.special.id,
-        title:              outcome.special.title,
-        description:        outcome.special.description,
-        rewardMoney:        outcome.special.reward_money,
-        rewardPoints:       outcome.special.reward_points,
-        wasNewlyDiscovered: specialDiscovered,
-      } : null,
+      special: outcome.special
+        ? {
+            id:                 outcome.special.id,
+            title:              outcome.special.title,
+            description:        outcome.special.description,
+            rewardMoney:        outcome.special.reward_money,
+            rewardPoints:       outcome.special.reward_points,
+            wasNewlyDiscovered: specialDiscovered,
+          }
+        : null,
       progress: {
         crimeXp:            stats.crimeXp,
         crimeLevel:         stats.crimeLevel,
@@ -312,7 +305,6 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
       },
     };
 
-    // HTTP response first — WebSocket after
     res.json(responseBody);
 
     SocketNotify.statUpdate(firebaseUid, {
@@ -324,9 +316,11 @@ export const attemptCrime = async (req: Request, res: Response): Promise<void> =
       points:   stats.points,
     });
 
+    // BUG FIX: convert reward to string — SocketNotify.crimeResult
+    // expects reward: string (BIGINT from DB = string in pg driver)
     SocketNotify.crimeResult(firebaseUid, {
-      success:  outcome.outcome === "success" || outcome.outcome === "special",
-      reward:   outcome.reward_money,
+      success:  wasSuccess,
+      reward:   String(outcome.reward_money),
       message:  outcome.message,
       crime:    crime.name,
       xpGained: outcome.xp_gained,

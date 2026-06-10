@@ -69,6 +69,8 @@ import {
   RateLimitError,
   ForbiddenError,
   ValidationError,
+  CrimeLockError,
+  NerveError,
 } from "../utils/errors";
 
 // ============================================================
@@ -241,13 +243,13 @@ describe("assertCrimeRequirements", () => {
   it("throws ForbiddenError when level too low", () => {
     const user = makeUser({ level: 1 });
     const crime = makeCrime({ unlock_level: 5 });
-    expect(() => assertCrimeRequirements(user, crime)).toThrow(ForbiddenError);
+    expect(() => assertCrimeRequirements(user, crime)).toThrow(CrimeLockError);
   });
 
   it("throws ValidationError when not enough nerve", () => {
     const user = makeUser({ nerve: 1 });
     const crime = makeCrime({ nerve_cost: 10 });
-    expect(() => assertCrimeRequirements(user, crime)).toThrow(ValidationError);
+    expect(() => assertCrimeRequirements(user, crime)).toThrow(NerveError);
   });
 
   it("does not throw when level exactly equals unlock_level", () => {
@@ -280,7 +282,7 @@ describe("assertCrimeRequirements", () => {
       assertCrimeRequirements(user, crime);
       expect.fail("should have thrown");
     } catch (err) {
-      expect(err).toBeInstanceOf(ValidationError);
+      expect(err).toBeInstanceOf(NerveError);
     }
   });
 });

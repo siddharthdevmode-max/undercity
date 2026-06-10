@@ -1,15 +1,17 @@
 // ============================================================
 // SECURITY MIDDLEWARE — UNDERCITY
-// Helmet, compression, morgan, security headers.
-// CSP hardened with upgrade-insecure-requests + base-uri.
+// Helmet CSP, Morgan logging, security headers.
+//
+// NOTE: compression middleware is intentionally NOT used.
+// nginx handles gzip in production — double compression breaks responses.
+// In development, Vite handles compression for the frontend.
 // ============================================================
 
 import { Express, Request, Response, NextFunction } from "express";
-import helmet      from "helmet";
-import compression from "compression";
-import morgan      from "morgan";
-import { config }  from "../config";
-import { logger }  from "../utils/logger";
+import helmet from "helmet";
+import morgan from "morgan";
+import { config } from "../config";
+import { logger } from "../utils/logger";
 
 type CspDirectives = NonNullable<
   NonNullable<Parameters<typeof helmet.contentSecurityPolicy>[0]>["directives"]
@@ -17,11 +19,13 @@ type CspDirectives = NonNullable<
 
 export function setupSecurityMiddleware(app: Express): void {
 
+  // BUG FIX: read API origins from config (not hardcoded domain)
   const apiOrigins = config.isProduction
-    ? [
-        "https://api.undercity.online",
-        "wss://api.undercity.online",
-      ]
+    ? config.allowedOrigins.flatMap((origin) => [
+        origin,
+        origin.replace("https://", "wss://"),
+        origin.replace("http://", "ws://"),
+      ])
     : [
         "http://localhost:5000",
         "ws://localhost:5000",
@@ -39,27 +43,24 @@ export function setupSecurityMiddleware(app: Express): void {
     mediaSrc:   ["'none'"],
     frameSrc:   ["'none'"],
     scriptSrc:  ["'self'"],
-
-    // FIX: Prevents base tag injection attacks
-    // Without this, attacker can inject <base href="https://evil.com">
-    // and hijack all relative URLs on the page
-    baseUri: ["'self'"],
-
-    // FIX: Force HTTPS for all subresource requests in production
-    // Without this, browsers may load mixed content (http:// assets)
-    // even when the page is served over HTTPS
-    ...(config.isProduction
-      ? { upgradeInsecureRequests: [] }
-      : {}),
+    baseUri:    ["'self'"],
+    ...(config.isProduction ? { upgradeInsecureRequests: [] } : {}),
   };
 
   if (config.cspReportUri) {
     cspDirectives["reportUri"] = [config.cspReportUri];
   }
 
+  // BUG FIX: let Helmet own ALL security headers
+  // Remove manual header setting below — Helmet already sets these
+  // Helmet frameguard default is SAMEORIGIN — we override to DENY
   app.use(
     helmet({
-      contentSecurityPolicy: { directives: cspDirectives },
+      contentSecurityPolicy:   { directives: cspDirectives },
+      frameguard:              { action: "deny" },       // X-Frame-Options: DENY
+      noSniff:                 true,                     // X-Content-Type-Options: nosniff
+      xssFilter:               false,                   // X-XSS-Protection: 0 (modern browsers use CSP)
+      referrerPolicy:          { policy: "strict-origin-when-cross-origin" },
       hsts: config.isProduction
         ? { maxAge: 31_536_000, includeSubDomains: true, preload: true }
         : false,
@@ -67,32 +68,8 @@ export function setupSecurityMiddleware(app: Express): void {
     })
   );
 
-  if (config.isProduction) {
-    app.use(
-      compression({
-        filter: (req: Request, res: Response) => {
-          if (req.headers["x-no-compression"]) return false;
-          return compression.filter(req, res);
-        },
-        level: 6,
-      })
-    );
-  }
-
-  if (!config.isTest) {
-    app.use(
-      morgan(config.isProduction ? "combined" : "dev", {
-        stream: { write: (msg: string) => logger.http(msg.trim()) },
-        skip:   (req: Request) => req.path.startsWith("/api/health"),
-      })
-    );
-  }
-
+  // Permissions-Policy — not yet in Helmet 7, set manually
   app.use((_req: Request, res: Response, next: NextFunction) => {
-    res.setHeader("X-Content-Type-Options",  "nosniff");
-    res.setHeader("X-Frame-Options",         "DENY");
-    res.setHeader("X-XSS-Protection",        "0");
-    res.setHeader("Referrer-Policy",         "strict-origin-when-cross-origin");
     res.setHeader(
       "Permissions-Policy",
       "camera=(), microphone=(), geolocation=(), payment=()"
@@ -100,9 +77,37 @@ export function setupSecurityMiddleware(app: Express): void {
     next();
   });
 
+  // BUG FIX: compression removed — nginx handles gzip in production
+  // Adding compression here causes double-gzip (nginx gzips already-gzipped data)
+
+  // Morgan HTTP logging
+  if (!config.isTest) {
+    // BUG FIX: custom format strips query strings to avoid token leakage
+    // e.g. /api/v1/auth/reset-password?token=SECRET → /api/v1/auth/reset-password
+    morgan.token("clean-url", (req: Request) => {
+      const url = req.url ?? "";
+      const queryStart = url.indexOf("?");
+      return queryStart !== -1 ? url.slice(0, queryStart) : url;
+    });
+
+    const logFormat = config.isProduction
+      ? ":remote-addr :method :clean-url :status :res[content-length] :response-time ms"
+      : "dev";
+
+    app.use(
+      morgan(logFormat, {
+        stream: { write: (msg: string) => logger.http(msg.trim()) },
+        skip:   (req: Request) =>
+          req.path.startsWith("/api/health") ||
+          req.path.startsWith("/api/v1/health"),
+      })
+    );
+  }
+
   logger.info("Security middleware configured", {
     hsts:        config.isProduction,
-    compression: config.isProduction,
+    compression: false,  // nginx handles gzip
     morgan:      !config.isTest,
+    cspReport:   !!config.cspReportUri,
   });
 }

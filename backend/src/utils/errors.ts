@@ -10,9 +10,22 @@
 //   ERR_5xxx  — Social (gangs, players)
 //   ERR_6xxx  — Economy (funds, market, debt)
 //   ERR_7xxx  — System (maintenance, feature flags)
+//   ERR_8xxx  — Idempotency & Concurrency
 //   ERR_9xxx  — Rate & Abuse
 //   ERR_10xxx — Generic (not found, conflict, internal)
 // ============================================================
+
+// ─── Money type ───────────────────────────────────────────
+// BUG FIX: DB BIGINT returns as string — money must support
+// string | number | bigint to avoid precision loss
+
+type MoneyValue = string | number | bigint;
+
+function formatMoney(val: MoneyValue): string {
+  return typeof val === "bigint"
+    ? val.toLocaleString()
+    : Number(val).toLocaleString();
+}
 
 // ─── Base Error ───────────────────────────────────────────
 
@@ -39,9 +52,11 @@ export class AppError extends Error {
 
   toJSON(): Record<string, unknown> {
     return {
-      message:   this.message,
-      code:      this.code,
-      errorCode: this.errorCode,
+      // BUG FIX: include statusCode so frontend can use it without parsing body
+      statusCode: this.statusCode,
+      message:    this.message,
+      code:       this.code,
+      errorCode:  this.errorCode,
     };
   }
 }
@@ -92,10 +107,23 @@ export class BannedError extends AppError {
   toJSON() {
     return {
       ...super.toJSON(),
-      // Never reveal ban type to shadow-banned players
+      // Security: never reveal ban type to shadow-banned players
       banType:   this.banType === "shadow" ? undefined : this.banType,
       expiresAt: this.expiresAt?.toISOString(),
     };
+  }
+}
+
+// BUG FIX: specific error for onboarding-not-completed
+// Frontend uses this to redirect to /onboarding instead of /login
+export class OnboardingRequiredError extends AppError {
+  constructor() {
+    super(
+      "Please complete onboarding before accessing this feature.",
+      403,
+      "ONBOARDING_REQUIRED",
+      "ERR_1004"
+    );
   }
 }
 
@@ -127,7 +155,8 @@ export class JailError extends AppError {
     const prefix = jailType === "federal" ? "federal " : "";
     super(
       `You are currently in ${prefix}jail.`,
-      423,
+      // Using 403 (not 423 WebDAV) — more standard, fewer client issues
+      403,
       "IN_JAIL",
       jailType === "federal" ? "ERR_3002" : "ERR_3001"
     );
@@ -150,7 +179,7 @@ export class HospitalError extends AppError {
   constructor(secondsRemaining: number) {
     super(
       "You are in the hospital and cannot perform this action.",
-      423,
+      403,
       "IN_HOSPITAL",
       "ERR_3003"
     );
@@ -255,15 +284,37 @@ export class CrimeCooldownError extends AppError {
   }
 }
 
+// ─── Idempotency & Concurrency (ERR_8xxx) ─────────────────
+// BUG FIX: new named class — was previously a raw AppError(409)
+
+export class IdempotencyError extends AppError {
+  constructor(message = "Duplicate request detected. This action has already been processed.") {
+    super(message, 409, "IDEMPOTENCY_CONFLICT", "ERR_8001");
+  }
+}
+
+export class ConcurrentModificationError extends AppError {
+  constructor(resource = "Resource") {
+    super(
+      `${resource} was modified by another request. Please retry.`,
+      409,
+      "CONCURRENT_MODIFICATION",
+      "ERR_8002"
+    );
+  }
+}
+
 // ─── Economy (ERR_6xxx) ───────────────────────────────────
 
 export class InsufficientFundsError extends AppError {
-  public readonly currentMoney:  number;
-  public readonly requiredMoney: number;
+  // BUG FIX: MoneyValue supports string | number | bigint
+  // DB BIGINT returns as string — using number causes precision loss
+  public readonly currentMoney:  MoneyValue;
+  public readonly requiredMoney: MoneyValue;
 
-  constructor(currentMoney: number, requiredMoney: number) {
+  constructor(currentMoney: MoneyValue, requiredMoney: MoneyValue) {
     super(
-      `Not enough money. You have $${currentMoney.toLocaleString()}, need $${requiredMoney.toLocaleString()}.`,
+      `Not enough money. You have $${formatMoney(currentMoney)}, need $${formatMoney(requiredMoney)}.`,
       422,
       "INSUFFICIENT_FUNDS",
       "ERR_6001"
@@ -275,18 +326,20 @@ export class InsufficientFundsError extends AppError {
   toJSON() {
     return {
       ...super.toJSON(),
-      currentMoney:  this.currentMoney,
-      requiredMoney: this.requiredMoney,
+      currentMoney:  String(this.currentMoney),
+      requiredMoney: String(this.requiredMoney),
     };
   }
 }
 
 export class DebtError extends AppError {
-  public readonly currentBalance: number;
+  public readonly currentBalance: MoneyValue;
 
-  constructor(currentBalance: number) {
+  constructor(currentBalance: MoneyValue) {
     super(
-      `You are in debt ($${Math.abs(currentBalance).toLocaleString()}). Earn back to $0 before spending.`,
+      `You are in debt ($${formatMoney(
+        typeof currentBalance === "bigint" ? -currentBalance : Math.abs(Number(currentBalance))
+      )}). Earn back to $0 before spending.`,
       422,
       "IN_DEBT",
       "ERR_6002"
@@ -297,7 +350,7 @@ export class DebtError extends AppError {
   toJSON() {
     return {
       ...super.toJSON(),
-      currentBalance: this.currentBalance,
+      currentBalance: String(this.currentBalance),
     };
   }
 }

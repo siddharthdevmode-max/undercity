@@ -7,19 +7,29 @@
 import { Server as HttpServer } from "http";
 import { Server as SocketServer, Socket } from "socket.io";
 import type { ExtendedError } from "socket.io/dist/namespace";
-import { logger }    from "../utils/logger";
-import { config }    from "./index";
-import { authAdmin } from "./firebase";
-import { AppError }  from "../utils/errors";
+import { logger }              from "../utils/logger";
+import { config }              from "./index";
+import { verifyFirebaseToken } from "./firebase";
+import { AppError }            from "../utils/errors";
 
 // ─── Types ────────────────────────────────────────────────
 
-interface SocketData {
+export interface SocketData {
   uid:         string;
   email:       string | undefined;
   joinedAt:    number;
   eventCount:  number;
   lastEventAt: number;
+}
+
+// Type guard — validates socket.data has been set by auth middleware
+function hasSocketData(data: unknown): data is SocketData {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    typeof (data as SocketData).uid === "string" &&
+    (data as SocketData).uid.length > 0
+  );
 }
 
 // ─── Module State ─────────────────────────────────────────
@@ -30,11 +40,16 @@ let io: SocketServer | null = null;
 let onlineCountTimer: NodeJS.Timeout | null = null;
 
 // ─── Rate Limiter ─────────────────────────────────────────
+// BUG FIX: tracks per-socket (intentional for now)
+// TODO: move to Redis-backed per-UID tracking post-launch
+// For now: each socket gets its own budget — document trade-off
 
 const SOCKET_RATE_LIMIT  = 60;
 const SOCKET_RATE_WINDOW = 60_000;
 
 function isSocketRateLimited(socket: Socket): boolean {
+  if (!hasSocketData(socket.data)) return true; // no data = reject
+
   const data = socket.data as SocketData;
   const now  = Date.now();
 
@@ -59,7 +74,6 @@ function scheduleOnlineCountBroadcast(): void {
     io.emit("stats:online", { count, ts: Date.now() });
   }, 10_000);
 
-  // Allow process to exit even if timer is pending
   onlineCountTimer.unref();
 }
 
@@ -79,14 +93,14 @@ export function initSocket(httpServer: HttpServer): SocketServer {
       methods:     ["GET", "POST"],
       credentials: true,
     },
-    transports:         ["websocket", "polling"],
-    pingTimeout:        60_000,
-    pingInterval:       25_000,
-    maxHttpBufferSize:  1e6,
+    transports:        ["websocket", "polling"],
+    pingTimeout:       60_000,
+    pingInterval:      25_000,
+    maxHttpBufferSize: 1e6,
     connectionStateRecovery: {
-      maxDisconnectionDuration: 2 * 60 * 1000,
-      // SECURITY: skipMiddlewares=false forces token re-verification on reconnect
-      // This prevents expired/revoked tokens from reconnecting silently
+      // 30s max — balances UX vs security (token expiry is 1h)
+      maxDisconnectionDuration: 30_000,
+      // SECURITY: re-verify token on reconnect — revoked tokens cannot reconnect
       skipMiddlewares: false,
     },
   });
@@ -95,9 +109,12 @@ export function initSocket(httpServer: HttpServer): SocketServer {
   io.use(async (socket: Socket, next: (err?: ExtendedError) => void) => {
     try {
       const token = socket.handshake.auth?.token as string | undefined;
-      if (!token) return next(new Error("UNAUTHORIZED: No token provided"));
+      if (!token) {
+        return next(new Error("UNAUTHORIZED: No token provided"));
+      }
 
-      const decoded = await authAdmin.verifyIdToken(token);
+      // BUG FIX: uses verifyFirebaseToken (with timeout) not authAdmin directly
+      const decoded = await verifyFirebaseToken(token);
 
       socket.data = {
         uid:         decoded.uid,
@@ -124,7 +141,16 @@ export function initSocket(httpServer: HttpServer): SocketServer {
 
   // ── Connection handler ───────────────────────────────────
   io.on("connection", (socket: Socket) => {
-    const { uid } = socket.data as SocketData;
+    // BUG FIX: validate socket.data before using it
+    if (!hasSocketData(socket.data)) {
+      logger.error("Socket connected without valid auth data — disconnecting", {
+        socketId: socket.id,
+      });
+      socket.disconnect(true);
+      return;
+    }
+
+    const { uid } = socket.data;
     socket.join(`user:${uid}`);
 
     logger.info("Socket connected", {
@@ -135,7 +161,7 @@ export function initSocket(httpServer: HttpServer): SocketServer {
 
     scheduleOnlineCountBroadcast();
 
-    // ── Events ──────────────────────────────────────────
+    // ── Events ────────────────────────────────────────────
     socket.on("ping", () => {
       if (isSocketRateLimited(socket)) {
         socket.emit("error", { code: "RATE_LIMITED", message: "Slow down" });
@@ -173,7 +199,6 @@ export function initSocket(httpServer: HttpServer): SocketServer {
       });
     });
 
-    // ── Welcome ─────────────────────────────────────────
     socket.emit("connected", {
       socketId: socket.id,
       ts:       Date.now(),
@@ -192,12 +217,11 @@ export function initSocket(httpServer: HttpServer): SocketServer {
 
 export async function closeSocket(): Promise<void> {
   cancelOnlineCountBroadcast();
-
   if (!io) return;
 
   await new Promise<void>((resolve) => {
     io!.close(() => {
-      logger.info("✅ Socket.io closed");
+      logger.info("Socket.io closed");
       io = null;
       resolve();
     });
@@ -218,6 +242,9 @@ export function getIO(): SocketServer {
 }
 
 // ─── Notify Helpers ───────────────────────────────────────
+// Use SafeNotify in game systems (tick, queues) where socket
+// may not be initialized yet.
+// Use SocketNotify only in request handlers where app is fully booted.
 
 export const SocketNotify = {
   toUser(uid: string, event: string, data: unknown): void {
@@ -240,7 +267,8 @@ export const SocketNotify = {
     uid: string,
     result: {
       success:   boolean;
-      reward:    number;
+      // BUG FIX: reward is string — BIGINT from Postgres returns as string
+      reward:    string;
       message:   string;
       crime:     string;
       xpGained?: number;
@@ -259,7 +287,7 @@ export const SocketNotify = {
     });
   },
 
-  statUpdate(uid: string, stats: Record<string, number>): void {
+  statUpdate(uid: string, stats: Record<string, number | string>): void {
     this.toUser(uid, "stats:update", { stats, ts: Date.now() });
   },
 
@@ -283,11 +311,21 @@ export const SocketNotify = {
 } as const;
 
 // ─── Safe Notify (null-guarded) ───────────────────────────
-// Use these in gameTick and other early-boot callers
-// where socket.io may not be initialized yet.
+// Use in game tick and queues — socket may not be ready yet
+
 export const SafeNotify = {
   onlineCount(count: number): void {
     if (!io) return;
     io.emit("stats:online", { count, ts: Date.now() });
   },
-};
+
+  toUser(uid: string, event: string, data: unknown): void {
+    if (!io) return;
+    io.to(`user:${uid}`).emit(event, data);
+  },
+
+  toGame(event: string, data: unknown): void {
+    if (!io) return;
+    io.to("game:global").emit(event, data);
+  },
+} as const;

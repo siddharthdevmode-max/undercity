@@ -1,26 +1,21 @@
 // ============================================================
 // ROLE MIDDLEWARE — UNDERCITY
 // Factory-based role checking with Redis caching.
-// Roles are cached per-user for 60 seconds.
+// Roles are cached per-user for 60s (admin roles: 15s).
 // Attaches roles to req.userRoles for downstream use.
 //
 // SECURITY NOTE on requireAny():
-//   Custom role checkers created via requireAny() are ISOLATED —
-//   they do NOT automatically grant access to adminUids/devUids.
-//   Only requireAdmin/requireModerator/requireDeveloper grant
-//   env-list access. This is intentional: requireAny() is for
-//   game-specific role checks (gang leader, etc.) that must not
-//   silently elevate admins.
+//   Custom checkers via requireAny() are ISOLATED — they do NOT
+//   grant access to adminUids/devUids automatically.
+//   Only requireAdmin/requireModerator/requireDeveloper do that.
 // ============================================================
 
 import { Request, Response, NextFunction } from "express";
 import { pool }   from "../config/database";
-import { redis } from "../config/redis";
+import { redis }  from "../config/redis";
 import { config } from "../config";
 import { ForbiddenError, UnauthorizedError } from "../utils/errors";
 import { logger } from "../utils/logger";
-
-// ─── Types ────────────────────────────────────────────────
 
 export interface UserRoles {
   is_admin:     boolean;
@@ -28,21 +23,9 @@ export interface UserRoles {
   is_moderator: boolean;
 }
 
-declare global {
-  // eslint-disable-next-line @typescript-eslint/no-namespace
-  namespace Express {
-    interface Request {
-      userRoles?: UserRoles;
-    }
-  }
-}
-
-// ─── Config ───────────────────────────────────────────────
-
-const ROLE_CACHE_TTL_SEC = 60;
-const ROLE_CACHE_PREFIX  = "roles:";
-
-// ─── Role Fetcher ─────────────────────────────────────────
+const ROLE_CACHE_TTL_SEC       = 60;
+const ADMIN_ROLE_CACHE_TTL_SEC = 15;  // BUG FIX: shorter TTL for admin roles
+const ROLE_CACHE_PREFIX        = "roles:";
 
 async function getUserRoles(uid: string): Promise<UserRoles | null> {
   const cacheKey = `${ROLE_CACHE_PREFIX}${uid}`;
@@ -52,28 +35,38 @@ async function getUserRoles(uid: string): Promise<UserRoles | null> {
     if (cached !== null) {
       return JSON.parse(cached) as UserRoles;
     }
-  } catch { /* Redis down — fall through */ }
+  } catch {
+    // BUG FIX: log Redis fallback for ops visibility
+    logger.warn("requireAdmin: Redis unavailable — falling through to DB", {
+      uid: uid.slice(0, 8),
+    });
+  }
 
+  // BUG FIX: include deleted_at filter — soft-deleted users lose roles
   const result = await pool.query<UserRoles>(
     `SELECT is_admin, is_developer, is_moderator
-     FROM users
-     WHERE firebase_uid = $1
-     LIMIT 1`,
+     FROM   users
+     WHERE  firebase_uid = $1
+       AND  deleted_at   IS NULL
+     LIMIT  1`,
     [uid]
   );
 
   if (result.rows.length === 0) return null;
 
-  const roles = result.rows[0];
+  const roles = result.rows[0]!;
+
+  // BUG FIX: use shorter TTL for admin/developer roles
+  const ttl = (roles.is_admin || roles.is_developer)
+    ? ADMIN_ROLE_CACHE_TTL_SEC
+    : ROLE_CACHE_TTL_SEC;
 
   try {
-    await redis.set(cacheKey, JSON.stringify(roles), "EX", ROLE_CACHE_TTL_SEC);
+    await redis.set(cacheKey, JSON.stringify(roles), "EX", ttl);
   } catch { /* Non-critical */ }
 
   return roles;
 }
-
-// ─── Cache Invalidation ───────────────────────────────────
 
 export async function invalidateRoleCache(uid: string): Promise<void> {
   try {
@@ -81,16 +74,9 @@ export async function invalidateRoleCache(uid: string): Promise<void> {
   } catch { /* Non-critical */ }
 }
 
-// ─── Role Check Factory ───────────────────────────────────
-
 type RoleChecker = (roles: UserRoles, uid: string) => boolean;
 
 interface RoleMiddlewareOptions {
-  /**
-   * When true (default for built-in middleware): users in
-   * config.adminUids or config.devUids bypass the role check.
-   * When false (requireAny): ONLY the checkFn decides access.
-   */
   allowEnvListBypass: boolean;
 }
 
@@ -106,15 +92,13 @@ function makeRoleMiddleware(
   ): Promise<void> => {
     const uid = req.firebaseUser?.uid;
 
-    if (!uid) {
-      return next(new UnauthorizedError());
-    }
+    if (!uid) return next(new UnauthorizedError());
 
     try {
       const roles = req.userRoles ?? (await getUserRoles(uid));
 
       if (!roles) {
-        logger.warn(`🚫 ${name}: user not found in DB`, {
+        logger.warn(`${name}: user not found in DB`, {
           uid:  uid.slice(0, 8),
           path: req.path,
         });
@@ -123,18 +107,15 @@ function makeRoleMiddleware(
 
       req.userRoles = roles;
 
-      // Env list bypass — only for built-in middleware
       if (options.allowEnvListBypass) {
         const inEnvList =
           config.adminUids.includes(uid) || config.devUids.includes(uid);
         if (inEnvList) return next();
       }
 
-      if (checkFn(roles, uid)) {
-        return next();
-      }
+      if (checkFn(roles, uid)) return next();
 
-      logger.warn(`🚫 ${name}: access denied`, {
+      logger.warn(`${name}: access denied`, {
         uid:   uid.slice(0, 8),
         path:  req.path,
         roles: {
@@ -150,51 +131,38 @@ function makeRoleMiddleware(
         uid:   uid.slice(0, 8),
         error: err instanceof Error ? err.message : String(err),
       });
-      // Fail CLOSED — deny on error
       return next(new ForbiddenError());
     }
   };
 }
 
-// ─── Built-in Middleware ──────────────────────────────────
+// BUG FIX: removed duplicate 'declare global' block
+// userRoles is already declared in types/express.d.ts
 
-/** Admin or Developer (+ env list bypass) */
 export const requireAdmin = makeRoleMiddleware(
   "requireAdmin",
   (roles) => roles.is_admin || roles.is_developer,
   { allowEnvListBypass: true }
 );
 
-/** Moderator, Admin, or Developer (+ env list bypass) */
 export const requireModerator = makeRoleMiddleware(
   "requireModerator",
   (roles) => roles.is_admin || roles.is_developer || roles.is_moderator,
   { allowEnvListBypass: true }
 );
 
-/** Developer only (+ env list bypass) */
+// BUG FIX: removed redundant config.devUids check in checkFn
+// allowEnvListBypass already handles devUids
 export const requireDeveloper = makeRoleMiddleware(
   "requireDeveloper",
-  (roles, uid) => roles.is_developer || config.devUids.includes(uid),
+  (roles) => roles.is_developer,
   { allowEnvListBypass: true }
 );
 
-// ─── Custom Role Middleware ───────────────────────────────
-
-/**
- * Create isolated role middleware for game-specific checks.
- * Does NOT grant access to adminUids/devUids automatically.
- * Only the provided checkFn decides access.
- *
- * Usage:
- *   const requireGangLeader = requireAny(
- *     (roles) => someCustomCheck(roles)
- *   );
- */
 export function requireAny(checkFn: RoleChecker) {
   return makeRoleMiddleware(
     "requireAny",
     checkFn,
-    { allowEnvListBypass: false }  // isolated — no env list bypass
+    { allowEnvListBypass: false }
   );
 }

@@ -1,5 +1,7 @@
 // ============================================================
 // ALERT UTILITY — UNDERCITY
+// Fire-and-forget alert system with Discord + Slack webhooks,
+// deduplication, queue rate limiting, and memory bounds.
 // ============================================================
 
 import { logger } from "./logger";
@@ -28,13 +30,19 @@ const SEVERITY_EMOJI: Record<AlertSeverity, string> = {
   critical: "🚨",
 };
 
-const DEDUPE_COOLDOWN_MS = 5 * 60 * 1_000;
-const dedupeMap = new Map<string, number>();
-const alertQueue: AlertPayload[] = [];
-let isProcessing = false;
-const QUEUE_INTERVAL_MS = 1_000;
+// ─── Dedupe ───────────────────────────────────────────────
+// BUG FIX: bounded map — prune entries older than 24h on each check
 
-let queueInterval: ReturnType<typeof setInterval> | null = null;
+const DEDUPE_COOLDOWN_MS = 5 * 60 * 1_000;
+const DEDUPE_MAX_AGE_MS  = 24 * 60 * 60 * 1_000;
+const dedupeMap = new Map<string, number>();
+
+function pruneDedupe(): void {
+  const cutoff = Date.now() - DEDUPE_MAX_AGE_MS;
+  for (const [key, ts] of dedupeMap.entries()) {
+    if (ts < cutoff) dedupeMap.delete(key);
+  }
+}
 
 function isDuplicate(payload: AlertPayload): boolean {
   if (!payload.dedupeKey) return false;
@@ -44,14 +52,29 @@ function isDuplicate(payload: AlertPayload): boolean {
 }
 
 function markSent(payload: AlertPayload): void {
-  if (payload.dedupeKey) {
-    dedupeMap.set(payload.dedupeKey, Date.now());
-  }
+  if (!payload.dedupeKey) return;
+  dedupeMap.set(payload.dedupeKey, Date.now());
+  // Prune on every write — keeps memory bounded
+  if (dedupeMap.size > 500) pruneDedupe();
 }
+
+// ─── Queue ────────────────────────────────────────────────
+// BUG FIX: max queue size — prevents unbounded growth when
+// Discord is down or alerts fire faster than they send
+
+const MAX_QUEUE_SIZE    = 50;
+const alertQueue: AlertPayload[] = [];
+let isProcessing        = false;
+const QUEUE_INTERVAL_MS = 1_000;
+
+let queueInterval: ReturnType<typeof setInterval> | null = null;
+
+// ─── Webhook Senders ─────────────────────────────────────
 
 async function sendDiscordAlert(payload: AlertPayload): Promise<void> {
   const webhookUrl = config.discordAlertWebhook;
-  if (!webhookUrl) return;
+  // BUG FIX: validate URL before fetch — empty string throws TypeError
+  if (!webhookUrl || !webhookUrl.startsWith("https://")) return;
 
   const fields: { name: string; value: string; inline: boolean }[] = [];
   if (payload.fields) {
@@ -63,8 +86,8 @@ async function sendDiscordAlert(payload: AlertPayload): Promise<void> {
     fields.push({ name: "Request ID", value: payload.requestId, inline: true });
   }
   fields.push(
-    { name: "Environment", value: config.nodeEnv,           inline: true  },
-    { name: "Time",        value: new Date().toISOString(),  inline: false }
+    { name: "Environment", value: config.nodeEnv,          inline: true  },
+    { name: "Time",        value: new Date().toISOString(), inline: false }
   );
 
   const body = {
@@ -86,17 +109,17 @@ async function sendDiscordAlert(payload: AlertPayload): Promise<void> {
 
   if (res.status === 429) {
     const retryAfter = res.headers.get("retry-after");
-    logger.warn("⚠️  Discord rate limited", { retryAfter });
+    logger.warn("Discord rate limited", { retryAfter });
     return;
   }
   if (!res.ok) {
-    logger.warn("⚠️  Discord alert failed", { status: res.status });
+    logger.warn("Discord alert failed", { status: res.status });
   }
 }
 
 async function sendSlackAlert(payload: AlertPayload): Promise<void> {
   const webhookUrl = config.slackAlertWebhook;
-  if (!webhookUrl) return;
+  if (!webhookUrl || !webhookUrl.startsWith("https://")) return;
 
   const fieldLines = payload.fields
     ? Object.entries(payload.fields).map(([k, v]) => `*${k}:* ${v}`).join("\n")
@@ -123,9 +146,11 @@ async function sendSlackAlert(payload: AlertPayload): Promise<void> {
   });
 
   if (!res.ok) {
-    logger.warn("⚠️  Slack alert failed", { status: res.status });
+    logger.warn("Slack alert failed", { status: res.status });
   }
 }
+
+// ─── Queue Processor ─────────────────────────────────────
 
 async function processQueue(): Promise<void> {
   if (isProcessing || alertQueue.length === 0) return;
@@ -137,7 +162,7 @@ async function processQueue(): Promise<void> {
       sendSlackAlert(payload),
     ]);
   } catch (err) {
-    logger.warn("⚠️  Alert queue error", {
+    logger.warn("Alert queue error", {
       error: err instanceof Error ? err.message : String(err),
     });
   } finally {
@@ -145,13 +170,9 @@ async function processQueue(): Promise<void> {
   }
 }
 
-// FIX: Don't start interval at module load time.
-// Start lazily on first sendAlert() call.
-// This prevents the interval from running in test mode
-// and keeping the process alive after tests complete.
 function ensureQueueStarted(): void {
   if (queueInterval || config.isTest) return;
-  queueInterval = setInterval(processQueue, QUEUE_INTERVAL_MS);
+  queueInterval = setInterval(() => void processQueue(), QUEUE_INTERVAL_MS);
   if (queueInterval.unref) queueInterval.unref();
 }
 
@@ -159,12 +180,17 @@ export function stopAlertQueue(): void {
   if (queueInterval) {
     clearInterval(queueInterval);
     queueInterval = null;
-    logger.info("✅ Alert queue stopped");
+    logger.info("Alert queue stopped");
   }
 }
 
-export function sendAlert(payload: AlertPayload): void {
-  const forceAlerts = process.env.FORCE_ALERTS === "true";
+// ─── Core sendAlert ───────────────────────────────────────
+// BUG FIX: returns Promise<void> so callers can await or void it
+// This fixes the inconsistency where server.ts called .catch()
+// on a void return value
+
+export async function sendAlert(payload: AlertPayload): Promise<void> {
+  const forceAlerts = process.env["FORCE_ALERTS"] === "true";
   if (!config.isProduction && !forceAlerts) return;
 
   const logFn =
@@ -172,43 +198,55 @@ export function sendAlert(payload: AlertPayload): void {
     payload.severity === "warning"  ? logger.warn.bind(logger)  :
     logger.info.bind(logger);
 
-  logFn(`🔔 ALERT [${payload.severity.toUpperCase()}]: ${payload.title}`, {
+  logFn(`ALERT [${payload.severity.toUpperCase()}]: ${payload.title}`, {
     message: payload.message,
     ...payload.fields,
   });
 
   if (isDuplicate(payload)) {
-    logger.debug("🔕 Alert suppressed (dedupe)", { key: payload.dedupeKey });
+    logger.debug("Alert suppressed (dedupe)", { key: payload.dedupeKey });
     return;
   }
 
   markSent(payload);
 
-  // FIX: Start interval lazily — not at module load
+  // BUG FIX: drop oldest if queue is full — prevents unbounded growth
+  if (alertQueue.length >= MAX_QUEUE_SIZE) {
+    alertQueue.shift(); // drop oldest
+    logger.warn("Alert queue full — oldest alert dropped");
+  }
+
   ensureQueueStarted();
   alertQueue.push(payload);
 }
+
+// ─── Shorthand helpers ────────────────────────────────────
 
 export const alertCritical = (
   title:      string,
   message:    string,
   fields?:    Record<string, string | number | boolean>,
   dedupeKey?: string
-) => sendAlert({ title, message, severity: "critical", fields, dedupeKey });
+): Promise<void> =>
+  sendAlert({ title, message, severity: "critical", fields, dedupeKey });
 
 export const alertWarning = (
   title:      string,
   message:    string,
   fields?:    Record<string, string | number | boolean>,
   dedupeKey?: string
-) => sendAlert({ title, message, severity: "warning", fields, dedupeKey });
+): Promise<void> =>
+  sendAlert({ title, message, severity: "warning", fields, dedupeKey });
 
 export const alertInfo = (
   title:      string,
   message:    string,
   fields?:    Record<string, string | number | boolean>,
   dedupeKey?: string
-) => sendAlert({ title, message, severity: "info", fields, dedupeKey });
+): Promise<void> =>
+  sendAlert({ title, message, severity: "info", fields, dedupeKey });
+
+// ─── Alerts Object ────────────────────────────────────────
 
 export const Alerts = {
 
@@ -276,6 +314,24 @@ export const Alerts = {
       "shutdown"
     ),
 
+  // BUG FIX: was missing — referenced in redis.ts
+  redisDown: (label: string) =>
+    alertCritical(
+      "Redis Connection Lost",
+      `Redis client [${label}] has exhausted all reconnect attempts`,
+      { label, action: "Check Redis health immediately" },
+      `redis-down:${label}`
+    ),
+
+  // BUG FIX: was missing — referenced in server.ts
+  scheduledJobsFailed: (error: string) =>
+    alertCritical(
+      "Scheduled Jobs Failed",
+      "BullMQ scheduled jobs failed to start — game tick may be affected",
+      { error, action: "Check BullMQ and Redis health" },
+      "scheduled-jobs-failed"
+    ),
+
   suspiciousLogin: (uid: string, ip: string, reason: string) =>
     alertWarning(
       "Suspicious Login Detected",
@@ -315,7 +371,9 @@ export const Alerts = {
     sendAlert({
       title,
       message,
-      severity: severity === "high" ? "critical" : severity === "medium" ? "warning" : "info",
+      severity:
+        severity === "high"   ? "critical" :
+        severity === "medium" ? "warning"  : "info",
       dedupeKey: `system-error:${title}`,
     }),
 

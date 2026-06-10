@@ -1,33 +1,65 @@
 {
   "compilerOptions": {
-    "target":                          "ES2020",
-    "module":                          "commonjs",
-    "lib":                             ["ES2020"],
-    "outDir":                          "./dist",
-    "rootDir":                         "./src",
-    "strict":                          true,
-    "esModuleInterop":                 true,
-    "skipLibCheck":                    true,
+    // ── Target + Module ──────────────────────────────────
+    "target":                           "ES2022",
+    "module":                           "commonjs",
+
+    // BUG FIX: ES2022 lib gives access to Node 20 APIs
+    // (Array.at, Object.hasOwn, Error.cause, structuredClone, etc.)
+    "lib":                              ["ES2022"],
+
+    // BUG FIX: node16 resolver handles modern package.json exports
+    // Fixes: ioredis, @sentry/node, bullmq package resolution
+    "moduleResolution":                 "node16",
+
+    // ── Output ───────────────────────────────────────────
+    "outDir":                           "./dist",
+    "rootDir":                          "./src",
+    "declaration":                      true,
+    "declarationMap":                   true,
+    "sourceMap":                        true,
+
+    // ── Strictness ───────────────────────────────────────
+    "strict":                           true,
+    "noUnusedLocals":                   true,
+    "noUnusedParameters":               true,
+    "noImplicitReturns":                true,
+    "noFallthroughCasesInSwitch":       true,
+    "exactOptionalPropertyTypes":       false,
+
+    // ── Interop ──────────────────────────────────────────
+    "esModuleInterop":                  true,
+    "allowSyntheticDefaultImports":     true,
+    "skipLibCheck":                     true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule":               true,
-    "declaration":                     true,
-    "declarationMap":                  false,
-    "sourceMap":                       true,
-    "moduleResolution":                "node",
-    "allowSyntheticDefaultImports":    true,
-    "noUnusedLocals":                  true,
-    "noUnusedParameters":              true,
-    "noImplicitReturns":               true,
-    "noFallthroughCasesInSwitch":      true
+    "resolveJsonModule":                true,
+
+    // ── Path Aliases ─────────────────────────────────────
+    // BUG FIX: aliases prevent deep relative imports
+    // Use: import { logger } from "@utils/logger"
+    // instead of: import { logger } from "../../../utils/logger"
+    "baseUrl":                          "./src",
+    "paths": {
+      "@config/*":     ["config/*"],
+      "@middleware/*": ["middleware/*"],
+      "@models/*":     ["models/*"],
+      "@routes/*":     ["routes/*"],
+      "@services/*":   ["services/*"],
+      "@utils/*":      ["utils/*"],
+      "@queues/*":     ["queues/*"],
+      "@types/*":      ["types/*"]
+    }
   },
-  "include": ["src/**/*"],
+
+  // BUG FIX: explicit .ts extension — don't accidentally include JSON
+  "include": ["src/**/*.ts"],
+
   "exclude": [
     "node_modules",
     "dist",
+    // BUG FIX: removed dead path "src/integration/**/*" (doesn't exist)
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
-    "src/integration/**/*",
-    "src/test-utils/**/*",
     "src/__tests__/**/*"
   ]
 }

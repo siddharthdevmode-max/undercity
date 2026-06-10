@@ -28,29 +28,26 @@ const { regenNerveByTier, getNerveStatus, deductNerve } =
 describe("regenNerveByTier", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns totals for all three tiers", async () => {
+  it("returns totals for both tier groups", async () => {
     vi.mocked(pool.query).mockResolvedValue({ rowCount: 5, rows: [] } as never);
 
     const result = await regenNerveByTier();
 
-    expect(result).toHaveProperty("player");
-    expect(result).toHaveProperty("citizen");
+    expect(result).toHaveProperty("player_citizen");
     expect(result).toHaveProperty("contributor");
-    expect(result.total).toBe(15); // 5 * 3 tiers
+    expect(result.total).toBe(10); // 5 each for 2 groups
   });
 
   it("handles partial tier failure gracefully", async () => {
     vi.mocked(pool.query)
       .mockResolvedValueOnce({ rowCount: 3, rows: [] } as never)
-      .mockRejectedValueOnce(new Error("DB error"))
-      .mockResolvedValueOnce({ rowCount: 2, rows: [] } as never);
+      .mockRejectedValueOnce(new Error("DB error"));
 
     const result = await regenNerveByTier();
 
-    expect(result.player).toBe(3);
-    expect(result.citizen).toBe(0);   // failed
-    expect(result.contributor).toBe(2);
-    expect(result.total).toBe(5);
+    expect(result.player_citizen).toBe(3);
+    expect(result.contributor).toBe(0);
+    expect(result.total).toBe(3);
   });
 });
 
@@ -60,6 +57,7 @@ describe("deductNerve", () => {
   it("returns success=true when nerve deducted", async () => {
     vi.mocked(pool.query).mockResolvedValueOnce({
       rowCount: 1,
+      rows: [{ nerve: 28 }],
       rows:     [{ nerve: 28 }],
     } as never);
 

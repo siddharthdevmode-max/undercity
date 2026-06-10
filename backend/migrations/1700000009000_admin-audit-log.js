@@ -1,9 +1,17 @@
 /* eslint-disable camelcase */
 
 // ============================================================
-// ADMIN AUDIT LOG
-// Records every admin action with who/what/when
-// Immutable — admins cannot delete their own audit trail
+// ADMIN AUDIT LOG + SUPPORT TICKETS
+//
+// admin_audit_log:
+//   Immutable — admins CANNOT delete their own audit trail.
+//   No FK to users — audit trail must persist even if admin account deleted.
+//   Application layer must prevent admin self-deletion of logs.
+//
+// support_tickets:
+//   No FK to users — tickets persist after GDPR deletion (legal requirement).
+//   GDPR deletion must manually anonymize firebase_uid in this table.
+//   updated_at: must be set explicitly in every UPDATE query (no trigger).
 // ============================================================
 
 exports.up = (pgm) => {
@@ -16,8 +24,9 @@ exports.up = (pgm) => {
       type:    "varchar(128)",
       notNull: true,
     },
+    // BUG FIX: varchar(20) to match users.username (not varchar(50))
     admin_username: {
-      type:    "varchar(50)",
+      type:    "varchar(20)",
       notNull: false,
     },
     action_type: {
@@ -28,8 +37,9 @@ exports.up = (pgm) => {
       type:    "varchar(128)",
       notNull: false,
     },
+    // BUG FIX: varchar(20) to match users.username
     target_username: {
-      type:    "varchar(50)",
+      type:    "varchar(20)",
       notNull: false,
     },
     details: {
@@ -44,16 +54,18 @@ exports.up = (pgm) => {
     created_at: {
       type:    "timestamptz",
       notNull: true,
-      default: pgm.func("CURRENT_TIMESTAMP"),
+      default: pgm.func("NOW()"),
     },
   });
 
-  pgm.createIndex("admin_audit_log", ["admin_firebase_uid"]);
-  pgm.createIndex("admin_audit_log", ["target_firebase_uid"]);
-  pgm.createIndex("admin_audit_log", ["action_type"]);
-  pgm.createIndex("admin_audit_log", ["created_at"]);
+  pgm.createIndex("admin_audit_log", "admin_firebase_uid",  { name: "idx_audit_admin_uid" });
+  pgm.createIndex("admin_audit_log", "target_firebase_uid", { name: "idx_audit_target_uid" });
+  pgm.createIndex("admin_audit_log", "action_type",         { name: "idx_audit_action" });
+  pgm.createIndex("admin_audit_log", "created_at",          { name: "idx_audit_time" });
 
-  // Support tickets table
+  // ── Support Tickets ────────────────────────────────────
+  // No FK to users: tickets survive GDPR deletion.
+  // GDPR handler must anonymize firebase_uid here on account deletion.
   pgm.createTable("support_tickets", {
     id: {
       type:       "bigserial",
@@ -64,7 +76,7 @@ exports.up = (pgm) => {
       notNull: true,
     },
     username: {
-      type:    "varchar(50)",
+      type:    "varchar(20)",          // BUG FIX: match users.username
       notNull: false,
     },
     subject: {
@@ -78,17 +90,18 @@ exports.up = (pgm) => {
     category: {
       type:    "varchar(50)",
       notNull: true,
-      default: "'general'",
+      default: pgm.func("'general'"),
     },
     status: {
       type:    "varchar(20)",
       notNull: true,
-      default: "'open'",
+      default: pgm.func("'open'"),
     },
     admin_response: {
       type:    "text",
       notNull: false,
     },
+    // Stores firebase_uid of responding admin (not a FK — admin may be deleted)
     responded_by: {
       type:    "varchar(128)",
       notNull: false,
@@ -100,21 +113,25 @@ exports.up = (pgm) => {
     created_at: {
       type:    "timestamptz",
       notNull: true,
-      default: pgm.func("CURRENT_TIMESTAMP"),
+      default: pgm.func("NOW()"),
     },
+    // NOTE: updated_at is NOT auto-updated by Postgres.
+    // Every UPDATE to this table MUST include: updated_at = NOW()
     updated_at: {
       type:    "timestamptz",
       notNull: true,
-      default: pgm.func("CURRENT_TIMESTAMP"),
+      default: pgm.func("NOW()"),
     },
   });
 
-  pgm.createIndex("support_tickets", ["firebase_uid"]);
-  pgm.createIndex("support_tickets", ["status"]);
-  pgm.createIndex("support_tickets", ["created_at"]);
+  pgm.createIndex("support_tickets", "firebase_uid", { name: "idx_support_firebase_uid" });
+  pgm.createIndex("support_tickets", "status",       { name: "idx_support_status" });
+  pgm.createIndex("support_tickets", "created_at",   { name: "idx_support_time" });
 };
 
 exports.down = (pgm) => {
-  pgm.dropTable("support_tickets");
-  pgm.dropTable("admin_audit_log");
+  pgm.dropTable("support_tickets",  { cascade: true });
+  pgm.dropTable("admin_audit_log",  { cascade: true });
 };
+
+exports.shorthands = undefined;

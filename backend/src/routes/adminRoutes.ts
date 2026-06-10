@@ -259,7 +259,7 @@ router.post(
               ban_reason       = $2,
               ban_expires_at   = CASE
                                    WHEN $3::int IS NOT NULL
-                                   THEN NOW() + ($3 || ' days')::INTERVAL
+                                   THEN NOW() + ($3 * INTERVAL '1 day')
                                    ELSE NULL
                                  END,
               last_flag_reason = $2,

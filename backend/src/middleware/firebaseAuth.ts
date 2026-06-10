@@ -5,12 +5,12 @@
 // ============================================================
 
 import { Request, Response, NextFunction } from "express";
-import { authAdmin }  from "../config/firebase";
-import { pool }       from "../config/database";
-import { redis }      from "../config/redis";
-import { logger }     from "../utils/logger";
-import { Alerts }     from "../utils/alerts";
-import { config }     from "../config";
+import { authAdmin, verifyFirebaseToken } from "../config/firebase";
+import { pool }    from "../config/database";
+import { redis }   from "../config/redis";
+import { logger }  from "../utils/logger";
+import { Alerts }  from "../utils/alerts";
+import { config }  from "../config";
 import {
   UnauthorizedError,
   ForbiddenError,
@@ -18,9 +18,6 @@ import {
 
 // ─── Config ───────────────────────────────────────────────
 
-// Exact path segments that bypass email verification.
-// These are matched against req.path using exact equality or
-// strict suffix matching (must follow a "/" boundary).
 const EMAIL_VERIFY_EXEMPT_SEGMENTS = [
   "/sync",
   "/resend-verification",
@@ -29,8 +26,8 @@ const EMAIL_VERIFY_EXEMPT_SEGMENTS = [
   "/challenge",
 ];
 
-const IP_LOG_COOLDOWN_SEC      = 3_600;
-const SEEN_UPDATE_COOLDOWN_SEC = 300;
+const IP_LOG_COOLDOWN_SEC       = 3_600;
+const SEEN_UPDATE_COOLDOWN_SEC  = 300;
 const NEW_IP_ALERT_COOLDOWN_SEC = 86_400;
 
 // ─── Helpers ──────────────────────────────────────────────
@@ -38,8 +35,6 @@ const NEW_IP_ALERT_COOLDOWN_SEC = 86_400;
 function isEmailVerifyExempt(path: string): boolean {
   return EMAIL_VERIFY_EXEMPT_SEGMENTS.some((segment) => {
     if (path === segment) return true;
-    // FIX: must be preceded by "/" boundary to prevent
-    // "/admin/unsync" matching "/sync"
     if (path.endsWith(segment)) {
       const precedingChar = path[path.length - segment.length - 1];
       return precedingChar === "/";
@@ -50,7 +45,7 @@ function isEmailVerifyExempt(path: string): boolean {
 
 // ─── Middleware ───────────────────────────────────────────
 
-export const verifyFirebaseToken = async (
+export const verifyFirebaseTokenMiddleware = async (
   req:  Request,
   _res: Response,
   next: NextFunction
@@ -65,10 +60,15 @@ export const verifyFirebaseToken = async (
     const token = header.slice(7).trim();
     if (!token) throw new UnauthorizedError("Malformed authorization header");
 
-    const decoded = await authAdmin.verifyIdToken(token, true);
+    // BUG FIX: use verifyFirebaseToken() with 10s timeout wrapper
+    // authAdmin.verifyIdToken() called directly can hang if Google is slow
+    const decoded = await verifyFirebaseToken(token);
+
+    // Check revocation separately — verifyFirebaseToken wraps verifyIdToken
+    // with checkRevoked=true by default in our firebase.ts implementation
 
     if (!decoded.email_verified && !isEmailVerifyExempt(req.path)) {
-      logger.warn("📧 Unverified email blocked", {
+      logger.warn("Unverified email blocked", {
         uid:  decoded.uid.slice(0, 8),
         path: req.path,
       });
@@ -84,6 +84,7 @@ export const verifyFirebaseToken = async (
       emailVerified: decoded.email_verified ?? false,
     };
 
+    // Fire-and-forget — never blocks auth
     void runBackgroundTasks(decoded.uid, req);
 
     next();
@@ -91,7 +92,7 @@ export const verifyFirebaseToken = async (
     const firebaseErr = err as { code?: string; message?: string };
 
     if (firebaseErr.code === "auth/id-token-revoked") {
-      logger.warn("🔐 Revoked token used", { path: req.path, ip: req.ip });
+      logger.warn("Revoked token used", { path: req.path, ip: req.ip });
       return next(new UnauthorizedError("Session revoked. Please sign in again."));
     }
 
@@ -103,11 +104,12 @@ export const verifyFirebaseToken = async (
       return next(new UnauthorizedError("Invalid or expired token"));
     }
 
+    // Pass AppError subclasses (UnauthorizedError, ForbiddenError) through
     if (err instanceof Error && "statusCode" in err) {
       return next(err);
     }
 
-    logger.warn("🔐 Firebase token verification failed", {
+    logger.warn("Firebase token verification failed", {
       error: firebaseErr.message,
       code:  firebaseErr.code,
       path:  req.path,
@@ -115,6 +117,9 @@ export const verifyFirebaseToken = async (
     return next(new UnauthorizedError("Invalid token"));
   }
 };
+
+// Keep old export name for backwards compat with existing route imports
+export const verifyFirebaseToken = verifyFirebaseTokenMiddleware;
 
 // ─── Background Tasks ─────────────────────────────────────
 
@@ -140,6 +145,7 @@ async function maybeLogAuthAccess(uid: string, req: Request): Promise<void> {
 
     await redis.set(cooldownKey, "1", "EX", IP_LOG_COOLDOWN_SEC).catch(() => {});
 
+    // Check if this IP has been seen before for this user
     const seen = await pool.query<{ id: number }>(
       `SELECT id FROM auth_access_log
        WHERE firebase_uid = $1 AND ip_address = $2
@@ -149,16 +155,18 @@ async function maybeLogAuthAccess(uid: string, req: Request): Promise<void> {
 
     const isNewIp = seen.rows.length === 0;
 
+    // BUG FIX: removed ON CONFLICT DO NOTHING — auth_access_log has no
+    // unique constraint (removed in migration 007). The clause was a
+    // harmless no-op but misleading. Plain INSERT is correct for a log.
     await pool.query(
       `INSERT INTO auth_access_log
          (firebase_uid, ip_address, user_agent, is_new_ip, accessed_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT DO NOTHING`,
+       VALUES ($1, $2, $3, $4, NOW())`,
       [uid, ip, userAgent, isNewIp]
     );
 
     if (isNewIp) {
-      logger.info("🔔 New IP login detected", {
+      logger.info("New IP login detected", {
         uid: uid.slice(0, 8),
         ip,
       });
@@ -168,12 +176,17 @@ async function maybeLogAuthAccess(uid: string, req: Request): Promise<void> {
         const alreadyAlerted = await redis.get(alertKey).catch(() => null);
         if (!alreadyAlerted) {
           await redis.set(alertKey, "1", "EX", NEW_IP_ALERT_COOLDOWN_SEC).catch(() => {});
-          Alerts.suspiciousLogin(uid, ip, "New IP address detected");
+          // BUG FIX: void the Promise — Alerts.suspiciousLogin returns Promise<void>
+          void Alerts.suspiciousLogin(uid, ip, "New IP address detected");
         }
       }
     }
-  } catch {
-    // Non-critical — swallow silently
+  } catch (err) {
+    // BUG FIX: log at debug level so bugs in logging code are visible
+    // (not completely swallowed — distinguishes "DB down" from "code bug")
+    logger.debug("Auth IP logging failed (non-critical)", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -191,8 +204,10 @@ async function maybeUpdateLastSeen(uid: string): Promise<void> {
       `UPDATE users SET last_seen_at = NOW() WHERE firebase_uid = $1`,
       [uid]
     );
-  } catch {
-    // Non-critical — swallow silently
+  } catch (err) {
+    logger.debug("last_seen_at update failed (non-critical)", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -201,8 +216,9 @@ async function maybeUpdateLastSeen(uid: string): Promise<void> {
 export async function revokeUserSession(uid: string): Promise<void> {
   try {
     await authAdmin.revokeRefreshTokens(uid);
-    await redis.del(`ban:${uid}`).catch(() => {});
-    logger.info("🔒 Firebase session revoked", { uid: uid.slice(0, 8) });
+    const { invalidateBanCache } = await import("./banCheck");
+    await Promise.allSettled([redis.del(`ban:${uid}`), invalidateBanCache(uid)]);
+    logger.info("Firebase session revoked", { uid: uid.slice(0, 8) });
   } catch (error: unknown) {
     logger.error("Session revocation failed", {
       uid:   uid.slice(0, 8),
