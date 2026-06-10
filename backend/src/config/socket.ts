@@ -85,7 +85,9 @@ export function initSocket(httpServer: HttpServer): SocketServer {
     maxHttpBufferSize:  1e6,
     connectionStateRecovery: {
       maxDisconnectionDuration: 2 * 60 * 1000,
-      skipMiddlewares:          true,
+      // SECURITY: skipMiddlewares=false forces token re-verification on reconnect
+      // This prevents expired/revoked tokens from reconnecting silently
+      skipMiddlewares: false,
     },
   });
 

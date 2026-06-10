@@ -109,6 +109,20 @@ const envSchema = z.object({
   // Resend is our email provider — separate from generic EMAIL_API_KEY
   RESEND_API_KEY: optionalEnv(z.string()),
 
+  // ── Payments — Razorpay (India, Phase 11) ────────────────
+  RAZORPAY_KEY_ID:     optionalEnv(z.string()),
+  RAZORPAY_KEY_SECRET: optionalEnv(z.string()),
+
+  // ── Payments — Lemon Squeezy Variant IDs (Phase 11) ──────
+  LEMONSQUEEZY_BLACK_CARD_VARIANT_ID:  optionalEnv(z.string()),
+  LEMONSQUEEZY_CONTRIBUTOR_VARIANT_ID: optionalEnv(z.string()),
+  LEMONSQUEEZY_BLACK_CARD_URL:         optionalEnv(z.string()),
+  LEMONSQUEEZY_CONTRIBUTOR_URL:        optionalEnv(z.string()),
+
+  // ── Database SSL (Phase 16) ───────────────────────────────
+  DATABASE_SSL:                    optionalEnv(boolString),
+  DATABASE_SSL_REJECT_UNAUTHORIZED: optionalEnv(boolString),
+
   // ── Feature Flags ─────────────────────────────────────
   FEATURE_MAINTENANCE:  optionalEnv(boolString),
   FEATURE_REGISTRATION: optionalEnv(boolString),

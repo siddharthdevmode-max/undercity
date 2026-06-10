@@ -163,7 +163,7 @@ function buildConfig() {
         | "console"
         | "sendgrid"
         | "resend",
-      apiKey: optionalSecret("EMAIL_API_KEY"),
+      apiKey: optionalSecret("RESEND_API_KEY") ?? optionalSecret("EMAIL_API_KEY"),
     },
 
     features: {

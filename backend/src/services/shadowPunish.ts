@@ -1,3 +1,4 @@
+import { randomInt }    from "crypto";
 import { CrimeSpecial } from "../models/crimeModels";
 
 // ============================================================
@@ -65,10 +66,13 @@ export function applyShadowPunishment(
   // ── SHADOW_BANNED tier (1–19): 95% forced fail ──
   // They think they're playing normally
   if (trustScore >= 1) {
-    const random = Math.random();
+    // crypto.randomInt is cryptographically safe — Math.random() is NOT
+    // Math.random() is predictable in V8; an attacker knowing the threshold
+    // can statistically probe until they get through the 5% window
+    const random = randomInt(0, 100);
 
     // 95% chance: forced fail (not crit_fail)
-    if (random < 0.95 && outcome.outcome !== "crit_fail") {
+    if (random < 95 && outcome.outcome !== "crit_fail") {
       return {
         ...outcome,
         outcome:       "fail",

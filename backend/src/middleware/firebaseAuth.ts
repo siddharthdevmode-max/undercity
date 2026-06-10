@@ -52,7 +52,7 @@ function isEmailVerifyExempt(path: string): boolean {
 
 export const verifyFirebaseToken = async (
   req:  Request,
-  res:  Response,
+  _res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {

@@ -28,7 +28,7 @@ interface BanRecord {
 
 export const checkBanStatus = async (
   req:  Request,
-  res:  Response,
+  _res: Response,
   next: NextFunction
 ): Promise<void> => {
   const uid = req.firebaseUser?.uid;

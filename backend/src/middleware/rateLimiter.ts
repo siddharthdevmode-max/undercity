@@ -89,6 +89,9 @@ function makeLimiter(
   return rateLimit({
     standardHeaders: true,
     legacyHeaders:   false,
+    // SWAP_ON_VPS: Behind Cloudflare, set xForwardedForHeader: true
+    // Cloudflare sends real client IP in CF-Connecting-IP header
+    // Also set app.set("trust proxy", "loopback, linklocal, uniquelocal") in app.ts
     validate:        { xForwardedForHeader: false },
     skip:            skipHealthCheck,
     keyGenerator:    keyByUidOrIp,

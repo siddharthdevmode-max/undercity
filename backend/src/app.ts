@@ -58,9 +58,7 @@ app.set("io", io);
 
 // ── Middleware stack ───────────────────────────────────────
 
-app.use((req: Request, res: Response, next: NextFunction) => {
-  trackRequests(req, res, next);
-});
+app.use(trackRequests);
 
 setupSecurityMiddleware(app);
 app.use(requestId);

@@ -38,7 +38,8 @@ export const LS_VARIANT_MAP: Record<string, UserTier> = (() => {
 
 // ── Checkout URLs ──────────────────────────────────────────
 // These are the Lemon Squeezy hosted checkout URLs
-// Set them in .env after creating products
+// SWAP_ON_VPS: set these in .env after creating products in LS dashboard
+// Format: https://your-store.lemonsqueezy.com/checkout/buy/VARIANT_ID
 
 export const CHECKOUT_URLS = {
   citizen:     process.env.LEMONSQUEEZY_BLACK_CARD_URL?.trim()     ?? null,

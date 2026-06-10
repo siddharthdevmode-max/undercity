@@ -11,8 +11,14 @@ import { config } from "./index";
 
 // ─── SSL Config ───────────────────────────────────────────
 
-const sslConfig = config.isProduction
-  ? { rejectUnauthorized: true }
+// SWAP_ON_VPS:
+// Hetzner private network: SSL not needed (same datacenter, internal network)
+// Managed DB (Supabase, RDS, etc.): set DATABASE_SSL=true + DATABASE_SSL_REJECT_UNAUTHORIZED=true
+const dbSslEnabled = process.env.DATABASE_SSL?.trim() === "true";
+const dbSslRejectUnauthorized = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED?.trim() !== "false";
+
+const sslConfig = dbSslEnabled
+  ? { rejectUnauthorized: dbSslRejectUnauthorized }
   : false;
 
 // ─── Pool ─────────────────────────────────────────────────

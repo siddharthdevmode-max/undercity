@@ -17,7 +17,8 @@ export default defineConfig({
       "src/__tests__/integration/**",
       "node_modules/**",
     ],
-    testTimeout: 10_000,
+    testTimeout:  10_000,
+    hookTimeout:  10_000,
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov", "html"],
@@ -26,23 +27,25 @@ export default defineConfig({
         "src/__tests__/**",
         "src/test-utils/**",
         "src/scripts/**",
-        // Sentry/Firebase init — cannot test without real credentials
+        // ── Justified exclusions ──────────────────────────────
+        // Sentry init: requires real credentials + network
         "src/config/sentry.ts",
+        // Firebase init: requires real service account
         "src/config/firebase.ts",
-        // Logger transport internals — Winston internals, not game logic
+        // Winston transport internals: not game logic
         "src/utils/logger.ts",
-        // Alert delivery internals — fetch/Discord/Slack HTTP calls
-        // Core sendAlert() logic IS tested via alerts.test.ts
-        // Delivery functions require live webhooks — excluded from coverage
+        // Alert delivery: Discord/Slack HTTP calls require live webhooks
+        // Core sendAlert() IS tested via alerts.test.ts
         "src/utils/alerts.ts",
       ],
       thresholds: {
-        // Realistic production thresholds for game logic files
-        // Logger and alerts delivery excluded above — they skew the numbers
-        statements: 80,
-        branches:   72,
-        functions:  80,
-        lines:      80,
+        // Target: 100% on all game logic
+        // Exclusions above remove untestable infra code
+        // These thresholds apply to everything NOT excluded
+        statements: 95,
+        branches:   90,
+        functions:  95,
+        lines:      95,
         perFile:    false,
       },
     },

@@ -4,14 +4,17 @@
 
 import { Resend }  from "resend";
 import { logger }  from "../utils/logger";
+import { config }  from "../config";
 import type { EmailJob, PaymentWebhookJob } from "../queues/index";
 
-const resend = process.env.RESEND_API_KEY
-  ? new Resend(process.env.RESEND_API_KEY)
+const resend = config.email.apiKey
+  ? new Resend(config.email.apiKey)
   : null;
 
-const FROM_EMAIL = process.env.EMAIL_FROM || "noreply@undercity.online";
+const FROM_EMAIL = config.email.from;
 const GAME_NAME  = "Undercity";
+// SWAP_ON_VPS: set APP_URL env var to https://undercity.online
+const APP_URL    = process.env.APP_URL?.trim() || "https://undercity.online";
 
 if (!resend) {
   logger.warn("⚠️  RESEND_API_KEY not set — emails disabled");
@@ -116,7 +119,7 @@ function welcomeHtml(username: string): string {
       You've entered the Undercity. Start as a nobody.<br/>
       Hustle, fight, and steal your way to the top.
     </p>
-    <a href="https://undercity.online/home"
+    <a href="${APP_URL}/home"
        style="display:inline-block;background:#e63946;color:#fff;padding:12px 32px;border-radius:4px;text-decoration:none;font-weight:bold;margin-top:20px;">
       ENTER THE CITY →
     </a>
@@ -132,7 +135,7 @@ function securityAlertHtml(username: string, event: string, ip?: string): string
       ${ip ? `<br/><span style="color:#666;font-size:12px;">IP: ${ip}</span>` : ""}
     </div>
     <p style="color:#ccc;">If this wasn't you, secure your account immediately.</p>
-    <a href="https://undercity.online/settings"
+    <a href="${APP_URL}/settings"
        style="display:inline-block;background:#e63946;color:#fff;padding:12px 32px;border-radius:4px;text-decoration:none;font-weight:bold;">
       SECURE MY ACCOUNT →
     </a>
@@ -148,7 +151,7 @@ function purchaseHtml(username: string, points: number, packName: string, amount
       <p style="margin:4px 0;color:#e63946;font-size:24px;font-weight:bold;">+${points} Points</p>
       <p style="margin:0;color:#666;">$${(amountCents / 100).toFixed(2)} USD</p>
     </div>
-    <a href="https://undercity.online/home"
+    <a href="${APP_URL}/home"
        style="display:inline-block;background:#e63946;color:#fff;padding:12px 32px;border-radius:4px;text-decoration:none;font-weight:bold;">
       PLAY NOW →
     </a>
@@ -200,7 +203,7 @@ function supportReplyHtml(username: string, ticketId: string, message: string): 
     <div style="background:#1a1a1a;border:1px solid #333;border-radius:4px;padding:20px;margin:20px 0;">
       ${message}
     </div>
-    <a href="https://undercity.online/support"
+    <a href="${APP_URL}/support"
        style="display:inline-block;background:#e63946;color:#fff;padding:12px 32px;border-radius:4px;text-decoration:none;font-weight:bold;">
       VIEW TICKET →
     </a>

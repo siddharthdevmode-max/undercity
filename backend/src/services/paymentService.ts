@@ -77,7 +77,7 @@ export interface TierActivationResult {
 
 export async function processWebhookEvent(
   payload:   LemonSqueezyWebhookPayload,
-  rawBody:   string,
+  _rawBody:   string,
   eventName: string
 ): Promise<TierActivationResult> {
 
@@ -433,7 +433,7 @@ async function handleExpiry(
 
 async function _sendTierEmail(
   firebaseUid: string,
-  tier:        UserTier,
+  _tier:       UserTier,
   tierLabel:   string
 ): Promise<void> {
   try {

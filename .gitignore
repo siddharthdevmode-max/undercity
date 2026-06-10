@@ -1,9 +1,9 @@
-# ── Node ─────────────────────────────────────────────────────
+# ── Node ──────────────────────────────────────────────────────
 node_modules/
 dist/
 build/
 
-# ── Environment — NEVER commit real env files ────────────────
+# ── Environment — NEVER commit real env files ─────────────────
 .env
 .env.*
 !.env.example
@@ -18,20 +18,23 @@ firebase-service-account.json
 *.sqlite
 *.sqlite-journal
 
-# ── OS ───────────────────────────────────────────────────────
+# ── OS ────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# ── IDE ──────────────────────────────────────────────────────
+# ── IDE ───────────────────────────────────────────────────────
 .vscode/
 .idea/
 
-# ── Coverage & build artifacts ───────────────────────────────
+# ── TypeScript build cache ────────────────────────────────────
+*.tsbuildinfo
+
+# ── Coverage and build artifacts ──────────────────────────────
 coverage/
 *.lcov
 lcov.info
 
-# ── Logs ─────────────────────────────────────────────────────
+# ── Logs ──────────────────────────────────────────────────────
 logs/
 *.log
 npm-debug.log*
@@ -39,3 +42,7 @@ npm-debug.log*
 # ── Backups ───────────────────────────────────────────────────
 backups/*.sql
 backend/backups/*.sql
+
+# ── Temp files ────────────────────────────────────────────────
+*.tmp
+*.temp

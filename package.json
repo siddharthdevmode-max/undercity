@@ -1,37 +1,47 @@
 {
   "name": "undercity-root",
   "version": "1.0.0",
-  "description": "A browser-based crime MMO inspired by Torn. Build your criminal empire, commit crimes, train stats, and dominate the underground.",
+  "description": "A browser-based crime MMO. Build your criminal empire, commit crimes, train stats, dominate the underground.",
   "private": true,
-  "scripts": {
-    "prepare": "husky",
-    "test": "npm --prefix backend run test && npm --prefix frontend run test && npm --prefix backend run test:integration",
-    "test:backend": "npm --prefix backend run test",
-    "test:frontend": "npm --prefix frontend run test",
-    "test:integration": "npm --prefix backend run test:integration",
-    "test:coverage": "npm --prefix backend run test:coverage && npm --prefix frontend run test:coverage",
-    "build": "npm --prefix backend run build && npm --prefix frontend run build",
-    "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
-    "lint:fix": "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix"
-  },
+  "license": "BSL-1.1",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/siddharthdevmode-max/undercity.git"
   },
-  "license": "ISC",
   "bugs": {
     "url": "https://github.com/siddharthdevmode-max/undercity/issues"
   },
-  "homepage": "https://github.com/siddharthdevmode-max/undercity#readme",
-  "devDependencies": {
-    "@commitlint/cli": "^21.0.2",
-    "@commitlint/config-conventional": "^21.0.2",
-    "@types/on-finished": "^2.3.5",
-    "husky": "^9.1.7",
-    "lint-staged": "^17.0.7",
-    "prettier": "^3.8.3"
+  "homepage": "https://undercity.online",
+  "scripts": {
+    "prepare":          "husky",
+    "test":             "npm --prefix backend run test && npm --prefix frontend run test && npm --prefix backend run test:integration",
+    "test:backend":     "npm --prefix backend run test",
+    "test:frontend":    "npm --prefix frontend run test",
+    "test:integration": "npm --prefix backend run test:integration",
+    "test:coverage":    "npm --prefix backend run test:coverage && npm --prefix frontend run test:coverage",
+    "build":            "npm --prefix backend run build && npm --prefix frontend run build",
+    "lint":             "npm --prefix backend run lint && npm --prefix frontend run lint",
+    "lint:fix":         "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix"
   },
-  "dependencies": {
-    "@lemonsqueezy/lemonsqueezy.js": "^4.0.0"
+  "lint-staged": {
+    "backend/**/*.{ts,tsx}": [
+      "eslint --fix --max-warnings=0",
+      "prettier --write"
+    ],
+    "frontend/**/*.{ts,tsx}": [
+      "eslint --fix --max-warnings=0",
+      "prettier --write"
+    ],
+    "**/*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "devDependencies": {
+    "@commitlint/cli":               "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
+    "@types/on-finished":            "^2.3.5",
+    "husky":                         "^9.1.7",
+    "lint-staged":                   "^17.0.7",
+    "prettier":                      "^3.8.3"
   }
 }
