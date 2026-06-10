@@ -24,7 +24,7 @@ exports.up = (pgm) => {
     tier_granted_by: {
       type:    "varchar(50)",
       default: null,
-      comment: "How tier was granted: stripe, admin, citizen_pack, system",
+      comment: "How tier was granted: lemonsqueezy, razorpay, admin, citizen_pack, system",
     },
   });
 
