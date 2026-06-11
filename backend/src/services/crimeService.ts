@@ -275,9 +275,15 @@ export function calculateOutcome(
     {
       outcome:      outcome.outcome,
       reward_money: outcome.reward_money,
-      money_loss:   outcome.money_loss,
+      reward_points: outcome.reward_points,
       xp_gained:    outcome.xp_gained,
+      jail_seconds: outcome.jail_seconds,
+      money_loss:   outcome.money_loss,
+      life_loss:    outcome.life_loss,
       xp_lost:      outcome.xp_lost,
+      message:      outcome.message,
+      special:      outcome.special,
+      cpl_change:   outcome.cpl_change,
     },
     trustInfo.trustScore,
     immune

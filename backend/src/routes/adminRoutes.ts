@@ -10,7 +10,6 @@
 // ============================================================
 
 import { Router }                from "express";
-import { isIP }                  from "node:net";
 import { pool }                  from "../config/database";
 import { redis }                 from "../config/redis";
 import { verifyFirebaseToken }   from "../middleware/firebaseAuth";
@@ -23,6 +22,8 @@ import {
   adminBanSchema,
   adminAdjustMoneySchema,
   adminSearchSchema,
+  adminIpBlacklistSchema,
+  adminIpBlacklistDeleteSchema,
 }                                from "../utils/schemas";
 import { adminLimiter }          from "../middleware/rateLimiter";
 import {
@@ -65,16 +66,6 @@ async function auditLog(
   ).catch((err: Error) => {
     logger.error("Failed to write audit log", { action, error: err.message });
   });
-}
-
-// ── IP validator ───────────────────────────────────────────
-
-function validateIp(ip: unknown): string {
-  const value = typeof ip === "string" ? ip.trim() : "";
-  if (!value || isIP(value) === 0) {
-    throw new ValidationError("Invalid IP address format");
-  }
-  return value;
 }
 
 // ── GET /cheaters ──────────────────────────────────────────
@@ -389,41 +380,38 @@ router.post(
 router.post(
   "/ip-blacklist",
   requireAdmin,
+  validate(adminIpBlacklistSchema),
   asyncHandler(async (req, res) => {
     const adminUid = req.firebaseUser!.uid;
-    const { ip, reason = "Manual admin blacklist", days = 30 } = req.body as {
-      ip:      unknown;
-      reason?: string;
-      days?:   unknown;
+    const { ip, reason, days } = req.body as {
+      ip:      string;
+      reason:  string;
+      days:    number;
     };
 
-    const validatedIp   = validateIp(ip);
-    const validatedDays = Math.min(Math.max(Number(days) || 30, 1), 365);
-    const ttl           = validatedDays * 60 * 60 * 24;
+    const ttl = days * 60 * 60 * 24;
 
-    await redis.set(`blacklist:ip:${validatedIp}`, reason, "EX", ttl);
+    await redis.set(`blacklist:ip:${ip}`, reason, "EX", ttl);
     await auditLog(adminUid, "IP_BLACKLIST_ADD", {
-      ip: validatedIp, reason, days: validatedDays,
+      ip, reason, days,
     }, req.ip ?? "");
 
-    res.json({ message: `IP ${validatedIp} blacklisted for ${validatedDays} days` });
+    res.json({ message: `IP ${ip} blacklisted for ${days} days` });
   })
 );
-
-// ── DELETE /ip-blacklist ───────────────────────────────────
 
 router.delete(
   "/ip-blacklist",
   requireAdmin,
+  validate(adminIpBlacklistDeleteSchema),
   asyncHandler(async (req, res) => {
     const adminUid = req.firebaseUser!.uid;
-    const { ip }   = req.body as { ip: unknown };
+    const { ip }   = req.body as { ip: string };
 
-    const validatedIp = validateIp(ip);
-    await redis.del(`blacklist:ip:${validatedIp}`);
-    await auditLog(adminUid, "IP_BLACKLIST_REMOVE", { ip: validatedIp }, req.ip ?? "");
+    await redis.del(`blacklist:ip:${ip}`);
+    await auditLog(adminUid, "IP_BLACKLIST_REMOVE", { ip }, req.ip ?? "");
 
-    res.json({ message: `IP ${validatedIp} removed from blacklist` });
+    res.json({ message: `IP ${ip} removed from blacklist` });
   })
 );
 

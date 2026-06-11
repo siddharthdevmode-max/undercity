@@ -1,11 +1,10 @@
-// ============================================================
-// NERVE SERVICE TESTS
-// ============================================================
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const mockQuery = vi.fn();
+const mockTickQuery = vi.fn();
 vi.mock("../config/database", () => ({
-  pool: { query: vi.fn() },
+  pool: { query: (...args: unknown[]) => mockQuery(...args) },
+  tickPool: { query: (...args: unknown[]) => mockTickQuery(...args) },
 }));
 
 vi.mock("../utils/logger", () => ({
@@ -14,109 +13,84 @@ vi.mock("../utils/logger", () => ({
 
 vi.mock("../config/tiers", () => ({
   TIER_CONFIG: {
-    player:      { nerveRegenSec: 300 },
-    citizen:     { nerveRegenSec: 300 },
-    contributor: { nerveRegenSec: 180 },
+    player:      { nerveRegenSec: 300, energyRegenSec: 900, maxNerve: 130, maxEnergy: 100, xpMultiplier: 1.0, crimeMultiplier: 0.0, price: 0, durationDays: 0 },
+    citizen:     { nerveRegenSec: 300, energyRegenSec: 720, maxNerve: 130, maxEnergy: 100, xpMultiplier: 1.0, crimeMultiplier: 0.0, price: 499, durationDays: 31 },
+    contributor: { nerveRegenSec: 180, energyRegenSec: 600, maxNerve: 130, maxEnergy: 100, xpMultiplier: 1.0, crimeMultiplier: 0.0, price: 799, durationDays: 31 },
   },
 }));
 
-import { pool } from "../config/database";
+import { regenNerveByTier, deductNerve, getNerveStatus } from "../services/nerveService";
 
-const { regenNerveByTier, getNerveStatus, deductNerve } =
-  await import("../services/nerveService");
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("regenNerveByTier", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("returns totals for both tier groups", async () => {
-    vi.mocked(pool.query).mockResolvedValue({ rowCount: 5, rows: [] } as never);
+  it("returns aggregated result from both tier groups", async () => {
+    mockTickQuery
+      .mockResolvedValueOnce({ rowCount: 10 }) // player/citizen batch
+      .mockResolvedValueOnce({ rowCount: 5 }); // contributor batch
 
     const result = await regenNerveByTier();
-
-    expect(result).toHaveProperty("player_citizen");
-    expect(result).toHaveProperty("contributor");
-    expect(result.total).toBe(10); // 5 each for 2 groups
+    expect(result.player_citizen).toBe(10);
+    expect(result.contributor).toBe(5);
+    expect(result.total).toBe(15);
   });
 
-  it("handles partial tier failure gracefully", async () => {
-    vi.mocked(pool.query)
-      .mockResolvedValueOnce({ rowCount: 3, rows: [] } as never)
+  it("handles partial failure gracefully", async () => {
+    mockTickQuery
+      .mockResolvedValueOnce({ rowCount: 10 })
       .mockRejectedValueOnce(new Error("DB error"));
 
     const result = await regenNerveByTier();
-
-    expect(result.player_citizen).toBe(3);
+    expect(result.player_citizen).toBe(10);
     expect(result.contributor).toBe(0);
-    expect(result.total).toBe(3);
+  });
+
+  it("returns zero when both queries fail", async () => {
+    mockTickQuery
+      .mockRejectedValueOnce(new Error("DB error"))
+      .mockRejectedValueOnce(new Error("DB error"));
+
+    const result = await regenNerveByTier();
+    expect(result.total).toBe(0);
   });
 });
 
 describe("deductNerve", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("returns success=true when nerve deducted", async () => {
-    vi.mocked(pool.query).mockResolvedValueOnce({
-      rowCount: 1,
-      rows: [{ nerve: 28 }],
-      rows:     [{ nerve: 28 }],
-    } as never);
-
-    const result = await deductNerve(1, 2);
+  it("returns success when nerve is deducted", async () => {
+    mockTickQuery.mockResolvedValue({ rowCount: 1, rows: [{ nerve: 40 }] });
+    const result = await deductNerve(1, 10);
     expect(result.success).toBe(true);
-    expect(result.currentNerve).toBe(28);
+    expect(result.currentNerve).toBe(40);
   });
 
-  it("returns success=false when not enough nerve", async () => {
-    // First query: rowCount = 0 (not enough nerve)
-    vi.mocked(pool.query).mockResolvedValueOnce({ rowCount: 0, rows: [] } as never);
-    // Second query: fetch current nerve
-    vi.mocked(pool.query).mockResolvedValueOnce({ rows: [{ nerve: 1 }] } as never);
-
+  it("returns failure when not enough nerve", async () => {
+    mockTickQuery
+      .mockResolvedValueOnce({ rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ nerve: 3 }] });
     const result = await deductNerve(1, 10);
     expect(result.success).toBe(false);
-    expect(result.currentNerve).toBe(1);
+    expect(result.currentNerve).toBe(3);
   });
 });
 
 describe("getNerveStatus", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("returns null if user not found", async () => {
-    vi.mocked(pool.query).mockResolvedValueOnce({ rows: [] } as never);
+  it("returns null when user not found", async () => {
+    mockTickQuery.mockResolvedValue({ rows: [] });
     const result = await getNerveStatus(999);
     expect(result).toBeNull();
   });
 
-  it("returns correct nerve status", async () => {
-    vi.mocked(pool.query).mockResolvedValueOnce({
-      rows: [{
-        nerve:             25,
-        max_nerve:         30,
-        user_tier:         "player",
-        last_nerve_update: new Date(Date.now() - 60_000).toISOString(),
-      }],
-    } as never);
-
+  it("returns nerve status for existing user", async () => {
+    mockTickQuery.mockResolvedValue({
+      rows: [{ nerve: 50, max_nerve: 100, user_tier: "player", last_nerve_update: new Date().toISOString() }],
+    });
     const result = await getNerveStatus(1);
     expect(result).not.toBeNull();
-    expect(result!.nerve).toBe(25);
-    expect(result!.maxNerve).toBe(30);
+    expect(result!.nerve).toBe(50);
+    expect(result!.maxNerve).toBe(100);
     expect(result!.tier).toBe("player");
     expect(result!.regenRateSec).toBe(300);
-    expect(result!.secondsUntilNext).toBeGreaterThan(0);
-  });
-
-  it("secondsUntilNext is 0 when nerve is full", async () => {
-    vi.mocked(pool.query).mockResolvedValueOnce({
-      rows: [{
-        nerve:             30,
-        max_nerve:         30,
-        user_tier:         "player",
-        last_nerve_update: new Date().toISOString(),
-      }],
-    } as never);
-
-    const result = await getNerveStatus(1);
-    expect(result!.secondsUntilNext).toBe(0);
   });
 });

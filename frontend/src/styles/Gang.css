@@ -1,0 +1,28 @@
+.gang-container { max-width: 640px; margin: 0 auto; padding: var(--space-lg); }
+.gang-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-lg); }
+.gang-title { font-size: var(--text-2xl); font-weight: var(--font-bold); color: var(--text-primary); display: flex; align-items: center; gap: var(--space-sm); }
+.gang-create-btn { padding: var(--space-sm) var(--space-md); background: var(--accent); color: var(--bg-primary); border: none; border-radius: var(--radius-sm); cursor: pointer; font-weight: var(--font-bold); }
+.gang-my { display: flex; flex-direction: column; gap: var(--space-lg); }
+.gang-info { background: var(--bg-secondary); border: 1px solid var(--accent); border-radius: var(--radius-md); padding: var(--space-lg); }
+.gang-info h2 { font-size: var(--text-lg); font-weight: var(--font-bold); color: var(--text-primary); }
+.gang-info p { font-size: var(--text-sm); color: var(--text-muted); }
+.gang-members { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-lg); }
+.gang-members h3 { font-size: var(--text-base); font-weight: var(--font-bold); color: var(--text-primary); margin-bottom: var(--space-sm); }
+.gang-member { display: flex; justify-content: space-between; align-items: center; padding: var(--space-xs) 0; font-size: var(--text-sm); color: var(--text-primary); }
+.gang-member em { color: var(--text-muted); font-size: var(--text-xs); }
+.gang-kick-btn { background: none; border: none; color: var(--error); cursor: pointer; font-size: var(--text-xs); }
+.gang-links { display: flex; gap: var(--space-sm); }
+.gang-links button { padding: var(--space-sm) var(--space-md); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); cursor: pointer; }
+.gang-leave-btn { margin-left: auto; background: var(--error) !important; color: var(--bg-primary) !important; }
+.gang-list { display: flex; flex-direction: column; gap: var(--space-sm); }
+.gang-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-lg); }
+.gang-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-sm); }
+.gang-card-name { font-size: var(--text-base); font-weight: var(--font-bold); color: var(--text-primary); }
+.gang-card-respect { font-size: var(--text-xs); color: var(--accent); }
+.gang-card-desc { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-sm); }
+.gang-card-footer { display: flex; justify-content: space-between; align-items: center; font-size: var(--text-xs); color: var(--text-muted); }
+.gang-join-btn { padding: var(--space-xs) var(--space-md); background: var(--accent); color: var(--bg-primary); border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: var(--text-sm); }
+.gang-create-form { display: flex; flex-direction: column; gap: var(--space-md); }
+.gang-create-form input, .gang-create-form textarea { padding: var(--space-sm); background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); }
+.gang-create-form button { padding: var(--space-sm); background: var(--accent); color: var(--bg-primary); border: none; border-radius: var(--radius-sm); cursor: pointer; font-weight: var(--font-bold); }
+.gang-create-form button:disabled { opacity: 0.5; cursor: not-allowed; }

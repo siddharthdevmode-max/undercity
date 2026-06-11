@@ -110,6 +110,32 @@ export interface FullUserProfile {
   crimeProgress: CrimeProgress[];
 }
 
+export interface AuditLogEntry {
+  id: number;
+  admin_uid: string;
+  action: string;
+  target_uid: string | null;
+  details: Record<string, unknown> | null;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export interface DbHealth {
+  pool_total: number;
+  pool_idle: number;
+  pool_active: number;
+  pool_waiting: number;
+  table_sizes: Array<{ table_name: string; size_bytes: number }>;
+}
+
+export interface QueueStats {
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+}
+
 export const adminAPI = {
   getStats: (): Promise<AdminStats> =>
     apiCall("/admin/stats"),
@@ -140,4 +166,22 @@ export const adminAPI = {
 
   shadowBanUser: (uid: string): Promise<{ message: string; user: CheaterUser }> =>
     apiCall(`/admin/shadow-ban/${encodeURIComponent(uid)}`, { method: "POST" }),
+
+  searchUsers: (q: string): Promise<{ users: CheaterUser[] }> =>
+    apiCall(`/admin/search?q=${encodeURIComponent(q)}`),
+
+  getAuditLog: (action?: string): Promise<{ log: AuditLogEntry[] }> =>
+    apiCall(`/admin/audit-log${action ? `?action=${encodeURIComponent(action)}` : ""}`),
+
+  getDbHealth: (): Promise<DbHealth> =>
+    apiCall("/admin/db-health"),
+
+  getQueueStats: (): Promise<{ queues: Record<string, QueueStats> }> =>
+    apiCall("/admin/queue-stats"),
+
+  adjustMoney: (uid: string, amount: number, reason: string): Promise<{ message: string; user: CheaterUser }> =>
+    apiCall(`/admin/adjust-money/${encodeURIComponent(uid)}`, {
+      method: "POST",
+      body: JSON.stringify({ amount, reason }),
+    }),
 };

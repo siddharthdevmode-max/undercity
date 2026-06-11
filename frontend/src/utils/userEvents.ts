@@ -12,6 +12,8 @@ type UserStatsUpdate = {
   maxLife?: number;
   level?: number;
   points?: number;
+  energy?: number;
+  maxEnergy?: number;
 };
 
 type Listener = (stats: UserStatsUpdate) => void;

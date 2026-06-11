@@ -129,6 +129,11 @@ const envSchema = z.object({
   EMAIL_API_KEY:  optionalEnv(z.string()),
   RESEND_API_KEY: optionalEnv(z.string()),
 
+  // ── Database Pool ─────────────────────────────────────
+  DATABASE_POOL_MAX:       optionalEnv(numericString),
+  DATABASE_POOL_MIN:       optionalEnv(numericString),
+  DATABASE_POOL_ACQUIRE_MS: optionalEnv(numericString),
+
   // ── Database SSL ──────────────────────────────────────
   DATABASE_SSL:                     optionalEnv(boolString),
   DATABASE_SSL_REJECT_UNAUTHORIZED: optionalEnv(boolString),

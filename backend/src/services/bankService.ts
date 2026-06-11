@@ -104,7 +104,7 @@ export async function withdrawCash(userId: number, amount: number): Promise<Bank
   return withTransaction(async (client) => {
     const user = await getUserMoney(client, userId);
     if (amount <= 0) throw new ValidationError("Withdraw amount must be positive");
-    if (user.money < amount) throw new InsufficientFundsError("bank");
+    if (user.money < amount) throw new InsufficientFundsError(user.money, amount);
     const balanceBefore = user.money;
     const result = await client.query<BankUser>(
       `UPDATE users SET money = money + $2, updated_at = NOW()
@@ -126,7 +126,7 @@ export async function transferCash(
 ): Promise<{ sender: BankUser; recipient: BankUser; taxPaid: number }> {
   return withTransaction(async (client) => {
     const sender = await getUserMoney(client, senderId);
-    if (sender.money < amount) throw new InsufficientFundsError("cash");
+    if (sender.money < amount) throw new InsufficientFundsError(sender.money, amount);
     if (amount <= 0) throw new ValidationError("Transfer amount must be positive");
 
     const recipientR = await client.query<{ id: number; username: string; money: number; points: number }>(
@@ -181,7 +181,7 @@ export async function applyMoneyChange(
     const balanceBefore = user.money;
     const newMoney = user.money + delta;
     if (type !== "crime_penalty" && newMoney < 0 && delta < 0) {
-      throw new InsufficientFundsError("cash");
+      throw new InsufficientFundsError(user.money, Math.abs(delta));
     }
     const result = await client.query<BankUser>(
       `UPDATE users SET money = GREATEST(money + $2, 0), updated_at = NOW()

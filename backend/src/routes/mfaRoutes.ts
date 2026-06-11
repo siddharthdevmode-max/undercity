@@ -9,12 +9,14 @@ import { Router }              from "express";
 import { verifyFirebaseToken } from "../middleware/firebaseAuth";
 import { mfaLimiter }          from "../middleware/rateLimiter";
 import { noCache }             from "../middleware/cacheHeaders";
+import { validate }            from "../middleware/validate";
 import { asyncHandler }        from "../utils/asyncHandler";
 import { authAdmin }           from "../config/firebase";
 import { redis }               from "../config/redis";
 import { pool }                from "../config/database";
 import { logger }              from "../utils/logger";
 import { config }              from "../config";
+import { mfaLogChangeSchema }  from "../utils/schemas";
 
 const router = Router();
 
@@ -146,24 +148,13 @@ router.post(
   "/log-change",
   mfaLimiter,
   verifyFirebaseToken,
+  validate(mfaLogChangeSchema),
   asyncHandler(async (req, res) => {
     const { uid } = req.firebaseUser!;
     const { action, factorId } = req.body as {
-      action?:   unknown;
-      factorId?: unknown;
+      action:   "enrolled" | "removed";
+      factorId?: string;
     };
-
-    if (action !== "enrolled" && action !== "removed") {
-      res.status(400).json({
-        message: "action must be 'enrolled' or 'removed'",
-        code:    "ERR_2001",
-      });
-      return;
-    }
-
-    const safeFactorId = typeof factorId === "string"
-      ? factorId.substring(0, 100)
-      : "unknown";
 
     await invalidateMfaCache(uid);
 
@@ -174,16 +165,16 @@ router.post(
       [
         uid,
         action === "enrolled" ? "MFA_ENROLLED" : "MFA_REMOVED",
-        JSON.stringify({ factorId: safeFactorId }),
+        JSON.stringify({ factorId: factorId ?? "unknown" }),
         req.ip ?? "unknown",
       ]
     ).catch((err: Error) => {
       logger.error("MFA: audit log write failed", { error: err.message });
     });
 
-    logger.info(`🔐 MFA ${action}`, {
+    logger.info("MFA log change", {
       uid:      uid.substring(0, 8),
-      factorId: safeFactorId,
+      factorId: factorId ?? "unknown",
     });
 
     res.json({ message: `MFA ${action} recorded.` });

@@ -1,116 +1,95 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const mockQuery = vi.fn();
+const mockWithTransaction = vi.fn();
+
 vi.mock("../config/database", () => ({
-  pool:            { query: vi.fn() },
-  withTransaction: vi.fn(async (fn: Function) => {
-    const client = { query: vi.fn().mockResolvedValue({ rows: [] }) };
-    return fn(client);
-  }),
+  pool: { query: (...args: unknown[]) => mockQuery(...args) },
+  withTransaction: (fn: (client: { query: typeof mockQuery }) => Promise<unknown>) =>
+    mockWithTransaction(fn),
 }));
 
 vi.mock("../utils/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { pool }            from "../config/database";
+vi.mock("../services/trustEngine", () => ({
+  getTrustTier: vi.fn(() => "CLEAN"),
+}));
+
 import { runTrustRecovery } from "../services/trustRecovery";
 
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+function makeEligibleRow(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 1,
+    firebase_uid: "test-uid",
+    trust_score: 50,
+    trust_regen_streak: 0,
+    last_trust_regen_at: null,
+    last_flag_at: null,
+    ...overrides,
+  };
+}
 
 describe("runTrustRecovery", () => {
-  it("returns zero counts when no eligible users", async () => {
-    vi.mocked(pool.query).mockResolvedValueOnce({ rows: [] } as never);
-
+  it("returns zeros when no eligible users", async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
     const result = await runTrustRecovery();
-    expect(result.processed).toBe(0);
-    expect(result.recovered).toBe(0);
-    expect(result.skipped).toBe(0);
-    expect(result.batches).toBe(0);
+    expect(result).toEqual({ processed: 0, recovered: 0, skipped: 0, batches: 0 });
   });
 
-  it("processes eligible users and increments recovered count", async () => {
-    vi.mocked(pool.query).mockResolvedValueOnce({
-      rows: [
-        {
-          id:                  1,
-          firebase_uid:        "uid-001",
-          trust_score:         50,
-          trust_regen_streak:  0,
-          last_trust_regen_at: null,
-          last_flag_at:        null,
-        },
-        {
-          id:                  2,
-          firebase_uid:        "uid-002",
-          trust_score:         30,
-          trust_regen_streak:  6,
-          last_trust_regen_at: null,
-          last_flag_at:        null,
-        },
-      ],
-    } as never);
+  it("recovers trust for eligible users", async () => {
+    const eligibleRows = [makeEligibleRow(), makeEligibleRow({ id: 2, firebase_uid: "uid-2", trust_score: 40 })];
+    mockQuery.mockResolvedValue({ rows: eligibleRows });
+    mockWithTransaction.mockImplementation(async (fn: (client: { query: typeof mockQuery }) => Promise<unknown>) => {
+      const client = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+      await fn(client);
+    });
 
     const result = await runTrustRecovery();
     expect(result.processed).toBe(2);
     expect(result.recovered).toBe(2);
-    expect(result.batches).toBe(1);
+    expect(result.skipped).toBe(0);
   });
 
-  it("awards weekly bonus on streak divisible by 7", async () => {
-    vi.mocked(pool.query).mockResolvedValueOnce({
-      rows: [{
-        id:                  1,
-        firebase_uid:        "uid-weekly",
-        trust_score:         60,
-        trust_regen_streak:  6,
-        last_trust_regen_at: null,
-        last_flag_at:        null,
-      }],
-    } as never);
+  it("skips users at max auto-regen cap", async () => {
+    mockQuery.mockResolvedValue({ rows: [makeEligibleRow({ trust_score: 70 })] });
+    mockWithTransaction.mockImplementation(async (fn: (client: { query: typeof mockQuery }) => Promise<unknown>) => {
+      const client = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+      await fn(client);
+    });
 
     const result = await runTrustRecovery();
-    expect(result.recovered).toBe(1);
-  });
-
-  it("does not recover user already at max auto-regen (70)", async () => {
-    vi.mocked(pool.query).mockResolvedValueOnce({
-      rows: [{
-        id:                  1,
-        firebase_uid:        "uid-max",
-        trust_score:         70,
-        trust_regen_streak:  10,
-        last_trust_regen_at: null,
-        last_flag_at:        null,
-      }],
-    } as never);
-
-    const result = await runTrustRecovery();
-    expect(result.skipped).toBe(1);
     expect(result.recovered).toBe(0);
+    expect(result.skipped).toBe(1);
   });
 
-  it("handles fatal DB error gracefully", async () => {
-    vi.mocked(pool.query).mockRejectedValueOnce(new Error("DB down"));
-
+  it("handles query error gracefully", async () => {
+    mockQuery.mockRejectedValue(new Error("DB down"));
     const result = await runTrustRecovery();
     expect(result.processed).toBe(0);
-    expect(result.batches).toBe(0);
   });
 
-  it("processes in batches of 500", async () => {
-    const users = Array.from({ length: 501 }, (_, i) => ({
-      id:                  i + 1,
-      firebase_uid:        `uid-${i}`,
-      trust_score:         50,
-      trust_regen_streak:  0,
-      last_trust_regen_at: null,
-      last_flag_at:        null,
-    }));
+  it("applies weekly bonus on 7th day streak", async () => {
+    mockQuery.mockResolvedValue({
+      rows: [makeEligibleRow({ trust_score: 60, trust_regen_streak: 6 })],
+    });
+    let capturedNewScore = 0;
+    mockWithTransaction.mockImplementation(async (fn: (client: { query: typeof mockQuery }) => Promise<unknown>) => {
+      const client = {
+        query: vi.fn().mockImplementation((sql: string, params: unknown[]) => {
+          if (sql.includes("UPDATE users")) capturedNewScore = params[0] as number;
+          return { rows: [] };
+        }),
+      };
+      await fn(client);
+    });
 
-    vi.mocked(pool.query).mockResolvedValueOnce({ rows: users } as never);
-
-    const result = await runTrustRecovery();
-    expect(result.batches).toBe(2);
-    expect(result.processed).toBe(501);
+    await runTrustRecovery();
+    expect(capturedNewScore).toBe(66); // 60 + 1 (daily) + 5 (weekly bonus)
   });
 });

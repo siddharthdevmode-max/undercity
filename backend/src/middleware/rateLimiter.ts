@@ -231,6 +231,20 @@ export const referralLimiter = makeLimiter("referral", {
   message:      "Too many referral requests. Slow down.",
 });
 
+export const publicMarketLimiter = makeLimiter("public-market", {
+  windowMs:     60 * 1_000,
+  max:          60,
+  keyGenerator: (req) => req.ip ?? "unknown",
+  message:      "Too many requests. Slow down.",
+});
+
+export const leaderboardLimiter = makeLimiter("leaderboard", {
+  windowMs:     60 * 1_000,
+  max:          30,
+  keyGenerator: (req) => req.ip ?? "unknown",
+  message:      "Too many leaderboard requests. Slow down.",
+});
+
 // ─── IP Blacklist ──────────────────────────────────────────
 
 export const ipBlacklist = async (

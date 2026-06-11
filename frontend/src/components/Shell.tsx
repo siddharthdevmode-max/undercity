@@ -24,6 +24,7 @@ const NAV_SECTIONS = [
   {
     label: 'ECONOMY',
     items: [
+      { path: '/bank',        label: 'Bank',        icon: 'bank'       },
       { path: '/job',         label: 'Job',         icon: 'job'        },
       { path: '/company',     label: 'Company',     icon: 'company'    },
       { path: '/properties',  label: 'Properties',  icon: 'properties' },
@@ -42,6 +43,7 @@ const NAV_SECTIONS = [
   {
     label: 'UNDERWORLD',
     items: [
+      { path: '/attack',       label: 'Attack',       icon: 'attack'       },
       { path: '/gang',         label: 'Gang',         icon: 'gang'         },
       { path: '/linked-gangs', label: 'Linked Gangs', icon: 'linked-gangs' },
       { path: '/gang-wars',    label: 'Gang Wars',    icon: 'gang-wars'    },
@@ -58,8 +60,10 @@ const NAV_SECTIONS = [
   {
     label: 'COMMUNITY',
     items: [
-      { path: '/forum',     label: 'Forum',     icon: 'forum'     },
-      { path: '/newspaper', label: 'Newspaper', icon: 'newspaper' },
+      { path: '/leaderboard', label: 'Leaderboard', icon: 'leaderboard' },
+      { path: '/forum',       label: 'Forum',       icon: 'forum'      },
+      { path: '/newspaper',   label: 'Newspaper',   icon: 'newspaper'   },
+      { path: '/referral',    label: 'Referral',    icon: 'handshake'   },
       { path: '/calendar',  label: 'Calendar',  icon: 'calendar'  },
     ],
   },
@@ -82,6 +86,8 @@ export default function Shell({ children }: Props) {
     maxNerve: authUser?.maxNerve ?? 30,
     level:    authUser?.level    ?? 1,
     points:   authUser?.points   ?? 0,
+    energy:   authUser?.energy   ?? 0,
+    maxEnergy: authUser?.maxEnergy ?? 100,
   });
 
   const [now, setNow] = useState(() => Date.now());
@@ -97,6 +103,8 @@ export default function Shell({ children }: Props) {
       maxNerve: serverStats['maxNerve'] ?? prev.maxNerve,
       level:    serverStats['level']    ?? prev.level,
       points:   serverStats['points']   ?? prev.points,
+    energy:   serverStats['energy']   ?? prev.energy,
+    maxEnergy: serverStats['maxEnergy'] ?? prev.maxEnergy,
     }));
   });
   useEffect(() => {
@@ -118,6 +126,8 @@ export default function Shell({ children }: Props) {
         maxNerve: authUser.maxNerve,
         level:    authUser.level,
         points:   authUser.points,
+      energy:   authUser.energy,
+      maxEnergy: authUser.maxEnergy,
       });
     }
   }, [authUser]);
@@ -131,7 +141,9 @@ export default function Shell({ children }: Props) {
         nerve:    update.nerve    ?? prev.nerve,
         maxNerve: update.maxNerve ?? prev.maxNerve,
         level:    update.level    ?? prev.level,
-        points:   update.points   ?? prev.points,
+        points:   update.points     ?? prev.points,
+        energy:   update.energy     ?? prev.energy,
+        maxEnergy: update.maxEnergy  ?? prev.maxEnergy,
       }));
     });
   }, []);

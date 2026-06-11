@@ -168,12 +168,35 @@ export const bankTransferSchema = z.object({
 });
 
 export const inventoryActionSchema = z.object({
-  params: z.object({ entryId: safeCoercedInt(1) }),
-  body:   z.object({ quantity: safeCoercedInt(1, 9_999).default(1) }),
+  body: z.object({
+    itemId:   safeCoercedInt(1),
+    quantity: safeCoercedInt(1, 9_999).default(1),
+  }),
 });
 
 export const referralApplySchema = z.object({
-  params: z.object({ code: z.string().trim().min(1).max(20) }),
+  body: z.object({ code: z.string().trim().min(1).max(20) }),
+});
+
+export const mfaLogChangeSchema = z.object({
+  body: z.object({
+    action:   z.enum(["enrolled", "removed"]),
+    factorId: z.string().max(100).optional(),
+  }),
+});
+
+export const adminIpBlacklistSchema = z.object({
+  body: z.object({
+    ip:     z.string().ip({ version: "v4" }),
+    reason: z.string().max(200).default("Manual admin blacklist"),
+    days:   z.number().int().min(1).max(365).default(30),
+  }),
+});
+
+export const adminIpBlacklistDeleteSchema = z.object({
+  body: z.object({
+    ip: z.string().ip({ version: "v4" }),
+  }),
 });
 
 // Post-launch features — schemas defined early, not yet wired to routes

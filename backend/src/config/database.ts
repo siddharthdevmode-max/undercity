@@ -21,10 +21,10 @@ const sslConfig = config.databaseSsl
 export const pool = new Pool({
   connectionString:        config.databaseUrl,
   ssl:                     sslConfig,
-  max:                     config.isTest ? 5  : 20,
-  min:                     config.isTest ? 1  : 2,
+  max:                     config.databasePool.max,
+  min:                     config.databasePool.min,
   idleTimeoutMillis:       30_000,
-  connectionTimeoutMillis: 5_000,
+  connectionTimeoutMillis: config.databasePool.acquireMs,
   allowExitOnIdle:         config.isTest,
   application_name:        `undercity-${config.nodeEnv}`,
 });
@@ -127,13 +127,42 @@ export async function testDatabaseConnection(): Promise<void> {
   }
 }
 
+// ─── Dedicated Game Tick Pool ────────────────────────────
+// Separate smaller pool so game tick bulk queries never
+// starve user-facing request pool.
+// Size: 5 connections (enough for 7 parallel tick tasks).
+
+export const tickPool = new Pool({
+  connectionString:        config.databaseUrl,
+  ssl:                     sslConfig,
+  max:                     5,
+  min:                     1,
+  idleTimeoutMillis:       30_000,
+  connectionTimeoutMillis: 5_000,
+  application_name:        `undercity-tick-${config.nodeEnv}`,
+});
+
+tickPool.on("error", (err: Error) => {
+  logger.error("Tick pool error", {
+    error: err.message,
+    stack: err.stack,
+  });
+});
+
 // ─── Pool Stats (for health endpoint) ─────────────────────
 
 export function getPoolStats() {
   return {
-    total:   pool.totalCount,
-    idle:    pool.idleCount,
-    waiting: (pool as unknown as { waitingCount: number }).waitingCount ?? 0,
+    main: {
+      total:   pool.totalCount,
+      idle:    pool.idleCount,
+      waiting: (pool as unknown as { waitingCount: number }).waitingCount ?? 0,
+    },
+    tick: {
+      total:   tickPool.totalCount,
+      idle:    tickPool.idleCount,
+      waiting: (tickPool as unknown as { waitingCount: number }).waitingCount ?? 0,
+    },
   };
 }
 

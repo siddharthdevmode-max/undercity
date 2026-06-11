@@ -3,6 +3,7 @@ import { verifyFirebaseToken as authMiddleware } from "../middleware/firebaseAut
 import { bankLimiter } from "../middleware/rateLimiter";
 import { noCache } from "../middleware/cacheHeaders";
 import { validate } from "../middleware/validate";
+import { idempotencyCheck } from "../middleware/idempotency";
 import { asyncHandler } from "../utils/asyncHandler";
 import { pool } from "../config/database";
 import { getPagination, buildPaginatedResponse } from "../utils/pagination";
@@ -45,7 +46,7 @@ router.post("/withdraw", authMiddleware, bankLimiter, validate(bankWithdrawSchem
   res.json({ message: "Withdrawal successful", user: result });
 }));
 
-router.post("/transfer", authMiddleware, bankLimiter, validate(bankTransferSchema), asyncHandler(async (req, res) => {
+router.post("/transfer", authMiddleware, bankLimiter, validate(bankTransferSchema), idempotencyCheck, asyncHandler(async (req, res) => {
   const uid = req.firebaseUser!.uid;
   const { username, amount } = req.body as { username: string; amount: number };
   const userR = await pool.query<{ id: number }>(

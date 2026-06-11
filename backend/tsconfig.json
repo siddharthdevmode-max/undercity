@@ -8,9 +8,7 @@
     // (Array.at, Object.hasOwn, Error.cause, structuredClone, etc.)
     "lib":                              ["ES2022"],
 
-    // BUG FIX: node16 resolver handles modern package.json exports
-    // Fixes: ioredis, @sentry/node, bullmq package resolution
-    "moduleResolution":                 "node16",
+    "moduleResolution":                 "node10",
 
     // ── Output ───────────────────────────────────────────
     "outDir":                           "./dist",

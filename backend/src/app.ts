@@ -51,7 +51,22 @@ import paymentRoutes   from "./routes/paymentRoutes";
 import bankRoutes      from "./routes/bankRoutes";
 import marketRoutes    from "./routes/marketRoutes";
 import inventoryRoutes from "./routes/inventoryRoutes";
-import referralRoutes  from "./routes/referralRoutes";
+import referralRoutes      from "./routes/referralRoutes";
+import leaderboardRoutes   from "./routes/leaderboardRoutes";
+import profileRoutes       from "./routes/profileRoutes";
+import gymRoutes           from "./routes/gymRoutes";
+import attackRoutes        from "./routes/attackRoutes";
+import travelRoutes        from "./routes/travelRoutes";
+import jobRoutes           from "./routes/jobRoutes";
+import propertyRoutes      from "./routes/propertyRoutes";
+import casinoRoutes        from "./routes/casinoRoutes";
+import forumRoutes         from "./routes/forumRoutes";
+import calendarRoutes      from "./routes/calendarRoutes";
+import newspaperRoutes     from "./routes/newspaperRoutes";
+import missionRoutes       from "./routes/missionRoutes";
+import gangRoutes          from "./routes/gangRoutes";
+import linkedGangsRoutes   from "./routes/linkedGangsRoutes";
+import gangWarsRoutes      from "./routes/gangWarsRoutes";
 
 // ── App + HTTP server ──────────────────────────────────────
 
@@ -62,14 +77,8 @@ app.set("trust proxy", 1);
 
 const io = initSocket(httpServer);
 
-// ── Type-safe io access on req.app ───────────────────────
-// Usage in routes: const io = req.app.get("io") as SocketIOServer
-// This avoids `any` leaking through req.app.get()
-declare module "express-serve-static-core" {
-  interface Application {
-    get(name: "io"): ReturnType<typeof initSocket>;
-  }
-}
+// ── Socket.IO on app ─────────────────────────────────────
+// Usage in routes: const io = req.app.get("io")
 app.set("io", io);
 
 // ── Request timeout (30s hard limit) ─────────────────────
@@ -202,6 +211,21 @@ app.use("/api/v1/bank",      bankRoutes);
 app.use("/api/v1/market",    marketRoutes);
 app.use("/api/v1/inventory", inventoryRoutes);
 app.use("/api/v1/referral",  referralRoutes);
+app.use("/api/v1/leaderboard", leaderboardRoutes);
+app.use("/api/v1/profile",     profileRoutes);
+app.use("/api/v1/gym",         gymRoutes);
+app.use("/api/v1/attack",      attackRoutes);
+app.use("/api/v1/travel",      travelRoutes);
+app.use("/api/v1/jobs",        jobRoutes);
+app.use("/api/v1/properties",  propertyRoutes);
+app.use("/api/v1/casino",      casinoRoutes);
+app.use("/api/v1/forum",       forumRoutes);
+app.use("/api/v1/calendar",    calendarRoutes);
+app.use("/api/v1/newspaper",   newspaperRoutes);
+app.use("/api/v1/missions",    missionRoutes);
+app.use("/api/v1/gang",        gangRoutes);
+app.use("/api/v1/linked-gangs", linkedGangsRoutes);
+app.use("/api/v1/gang-wars",   gangWarsRoutes);
 
 // Honeypot — single mount with wildcard to avoid double-firing
 // Catches scanner paths like /wp-admin, /phpMyAdmin, etc.

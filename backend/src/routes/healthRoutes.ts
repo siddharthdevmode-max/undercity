@@ -6,7 +6,7 @@
 // ============================================================
 
 import { Router, Request, Response } from "express";
-import { pool }         from "../config/database";
+import { pool, getPoolStats } from "../config/database";
 import { redis }        from "../config/redis";
 import { getIO }        from "../config/socket";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -29,30 +29,23 @@ let detailedCache: DetailedCache | null = null;
 async function checkDatabase(): Promise<{
   status:       "connected" | "error";
   latency_ms:   number;
-  pool_total:   number;
-  pool_idle:    number;
-  pool_waiting: number;
+  pools:        ReturnType<typeof getPoolStats>;
   error?:       string;
 }> {
   const start = Date.now();
   try {
     await pool.query("SELECT 1");
     return {
-      status:       "connected",
-      latency_ms:   Date.now() - start,
-      pool_total:   pool.totalCount,
-      pool_idle:    pool.idleCount,
-      // BUG FIX: type assertion for unofficial pg property
-      pool_waiting: (pool as unknown as { waitingCount: number }).waitingCount ?? 0,
+      status:     "connected",
+      latency_ms: Date.now() - start,
+      pools:      getPoolStats(),
     };
   } catch (err) {
     return {
-      status:       "error",
-      latency_ms:   Date.now() - start,
-      pool_total:   pool.totalCount,
-      pool_idle:    pool.idleCount,
-      pool_waiting: 0,
-      error:        err instanceof Error ? err.message : String(err),
+      status:     "error",
+      latency_ms: Date.now() - start,
+      pools:      getPoolStats(),
+      error:      err instanceof Error ? err.message : String(err),
     };
   }
 }
@@ -190,17 +183,29 @@ router.get("/metrics", internalOnly, noCache, asyncHandler(async (_req, res) => 
     "# TYPE db_latency_ms gauge",
     `db_latency_ms ${db.latency_ms}`,
 
-    "# HELP db_pool_total Total connections in pool",
-    "# TYPE db_pool_total gauge",
-    `db_pool_total ${db.pool_total}`,
+    "# HELP db_pool_main_total Total main pool connections",
+    "# TYPE db_pool_main_total gauge",
+    `db_pool_main_total ${db.pools.main.total}`,
 
-    "# HELP db_pool_idle Idle connections in pool",
-    "# TYPE db_pool_idle gauge",
-    `db_pool_idle ${db.pool_idle}`,
+    "# HELP db_pool_main_idle Idle main pool connections",
+    "# TYPE db_pool_main_idle gauge",
+    `db_pool_main_idle ${db.pools.main.idle}`,
 
-    "# HELP db_pool_waiting Requests waiting for connection",
-    "# TYPE db_pool_waiting gauge",
-    `db_pool_waiting ${db.pool_waiting}`,
+    "# HELP db_pool_main_waiting Main pool waiting requests",
+    "# TYPE db_pool_main_waiting gauge",
+    `db_pool_main_waiting ${db.pools.main.waiting}`,
+
+    "# HELP db_pool_tick_total Total tick pool connections",
+    "# TYPE db_pool_tick_total gauge",
+    `db_pool_tick_total ${db.pools.tick.total}`,
+
+    "# HELP db_pool_tick_idle Idle tick pool connections",
+    "# TYPE db_pool_tick_idle gauge",
+    `db_pool_tick_idle ${db.pools.tick.idle}`,
+
+    "# HELP db_pool_tick_waiting Tick pool waiting requests",
+    "# TYPE db_pool_tick_waiting gauge",
+    `db_pool_tick_waiting ${db.pools.tick.waiting}`,
 
     "# HELP redis_up Redis reachable (1=yes 0=no)",
     "# TYPE redis_up gauge",

@@ -15,7 +15,7 @@
 // ============================================================
 
 import { logger }           from "../utils/logger";
-import { pool }             from "../config/database";
+import { tickPool as pool } from "../config/database";
 import { redis }            from "../config/redis";
 import { SafeNotify }       from "../config/socket";
 import { config }           from "../config";

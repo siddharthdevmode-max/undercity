@@ -1,0 +1,19 @@
+.props-container { max-width: 720px; margin: 0 auto; padding: var(--space-lg); }
+.props-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); }
+.props-title { font-size: var(--text-2xl); font-weight: var(--font-bold); color: var(--text-primary); display: flex; align-items: center; gap: var(--space-sm); }
+.props-collect-btn { padding: var(--space-sm) var(--space-lg); background: var(--accent); color: var(--bg-primary); border: none; border-radius: var(--radius-sm); font-weight: var(--font-bold); cursor: pointer; }
+.props-error { text-align: center; padding: var(--space-xl); color: var(--error); }
+.props-retry-btn { margin-top: var(--space-md); padding: var(--space-sm) var(--space-lg); background: var(--accent); color: var(--bg-primary); border: none; border-radius: var(--radius-sm); cursor: pointer; }
+.props-owned-info { display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); background: var(--bg-secondary); border: 1px solid var(--accent); border-radius: var(--radius-sm); margin-bottom: var(--space-lg); font-size: var(--text-sm); color: var(--text-primary); }
+.props-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-md); }
+.props-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-lg); display: flex; flex-direction: column; gap: var(--space-sm); }
+.props-card-locked { opacity: 0.6; }
+.props-card-owned { border-color: var(--accent); }
+.props-card-header { display: flex; justify-content: space-between; align-items: center; }
+.props-name { font-size: var(--text-base); font-weight: var(--font-bold); color: var(--text-primary); }
+.props-owned-badge { font-size: var(--text-xs); color: var(--accent); font-weight: var(--font-bold); }
+.props-desc-text { font-size: var(--text-sm); color: var(--text-muted); }
+.props-details { display: flex; gap: var(--space-md); font-size: var(--text-xs); color: var(--text-muted); }
+.props-buy-btn { margin-top: auto; padding: var(--space-sm); background: var(--accent); color: var(--bg-primary); border: none; border-radius: var(--radius-sm); font-weight: var(--font-bold); cursor: pointer; }
+.props-buy-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (max-width: 640px) { .props-grid { grid-template-columns: 1fr; } }

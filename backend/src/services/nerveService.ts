@@ -10,7 +10,7 @@
 // ============================================================
 
 import { Pool, PoolClient } from "pg";
-import { pool }             from "../config/database";
+import { tickPool as pool } from "../config/database";
 import { logger }           from "../utils/logger";
 import { TIER_CONFIG, type UserTier } from "../config/tiers";
 

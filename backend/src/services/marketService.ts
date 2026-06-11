@@ -86,7 +86,7 @@ export async function buyItem(userId: number, listingId: number): Promise<{ list
 
     const buyQty = 1;
     const cost = listing.price_per_unit * buyQty;
-    if (buyer.money < cost) throw new InsufficientFundsError("cash");
+    if (buyer.money < cost) throw new InsufficientFundsError(buyer.money, cost);
 
     const sellerTax = Math.ceil(cost * MARKET_TAX_PCT / 100);
     const sellerPayout = cost - sellerTax;

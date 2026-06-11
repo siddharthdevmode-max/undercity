@@ -5,7 +5,7 @@
 // ============================================================
 
 import { Request, Response, NextFunction } from "express";
-import { authAdmin, verifyFirebaseToken } from "../config/firebase";
+import { authAdmin, verifyFirebaseToken as verifyIdToken } from "../config/firebase";
 import { pool }    from "../config/database";
 import { redis }   from "../config/redis";
 import { logger }  from "../utils/logger";
@@ -62,7 +62,7 @@ export const verifyFirebaseTokenMiddleware = async (
 
     // BUG FIX: use verifyFirebaseToken() with 10s timeout wrapper
     // authAdmin.verifyIdToken() called directly can hang if Google is slow
-    const decoded = await verifyFirebaseToken(token);
+    const decoded = await verifyIdToken(token);
 
     // Check revocation separately — verifyFirebaseToken wraps verifyIdToken
     // with checkRevoked=true by default in our firebase.ts implementation

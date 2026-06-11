@@ -25,6 +25,7 @@ import Register from './pages/Register';
 const Legal           = lazy(() => import('./pages/Legal'));
 const Home            = lazy(() => import('./pages/Home'));
 const Crimes          = lazy(() => import('./pages/Crimes'));
+const Bank            = lazy(() => import('./pages/Bank'));
 const Admin           = lazy(() => import('./pages/Admin'));
 const City            = lazy(() => import('./pages/City'));
 const Gym             = lazy(() => import('./pages/Gym'));
@@ -48,6 +49,11 @@ const Newspaper       = lazy(() => import('./pages/Newspaper'));
 const Calendar        = lazy(() => import('./pages/Calendar'));
 const Onboarding      = lazy(() => import('./pages/Onboarding'));
 const Settings        = lazy(() => import('./pages/Settings'));
+const Profile         = lazy(() => import('./pages/Profile'));
+const Leaderboard     = lazy(() => import('./pages/Leaderboard'));
+const Attack          = lazy(() => import('./pages/Attack'));
+const Referral        = lazy(() => import('./pages/Referral'));
+const ForumThread     = lazy(() => import('./pages/ForumThread'));
 const NotFound        = lazy(() => import('./pages/NotFound'));
 
 // Dev only
@@ -94,6 +100,7 @@ function App() {
 
                 {/* ── Game (protected) ── */}
                 <Route path="/home"         element={<ProtectedRoute><Home /></ProtectedRoute>} />
+                <Route path="/bank"         element={<ProtectedRoute><Bank /></ProtectedRoute>} />
                 <Route path="/crimes"       element={<ProtectedRoute><Crimes /></ProtectedRoute>} />
                 <Route path="/gym"          element={<ProtectedRoute><Gym /></ProtectedRoute>} />
                 <Route path="/inventory"    element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
@@ -103,18 +110,23 @@ function App() {
                 <Route path="/properties"   element={<ProtectedRoute><Properties /></ProtectedRoute>} />
                 <Route path="/travel"       element={<ProtectedRoute><Travel /></ProtectedRoute>} />
                 <Route path="/missions"     element={<ProtectedRoute><Missions /></ProtectedRoute>} />
-                <Route path="/casino"       element={<ProtectedRoute><Casino /></ProtectedRoute>} />
+                <Route path="/profile/:username" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+                <Route path="/leaderboard"      element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
+                <Route path="/casino"           element={<ProtectedRoute><Casino /></ProtectedRoute>} />
                 <Route path="/black-market" element={<ProtectedRoute><BlackMarket /></ProtectedRoute>} />
                 <Route path="/hospital"     element={<ProtectedRoute><Hospital /></ProtectedRoute>} />
                 <Route path="/jail"         element={<ProtectedRoute><Jail /></ProtectedRoute>} />
                 <Route path="/federal-jail" element={<ProtectedRoute><FederalJail /></ProtectedRoute>} />
+                <Route path="/attack"       element={<ProtectedRoute><Attack /></ProtectedRoute>} />
                 <Route path="/gang"         element={<ProtectedRoute><Gang /></ProtectedRoute>} />
                 <Route path="/linked-gangs" element={<ProtectedRoute><LinkedGangs /></ProtectedRoute>} />
                 <Route path="/gang-wars"    element={<ProtectedRoute><GangWars /></ProtectedRoute>} />
-                <Route path="/forum"        element={<ProtectedRoute><Forum /></ProtectedRoute>} />
+                <Route path="/forum"          element={<ProtectedRoute><Forum /></ProtectedRoute>} />
+                <Route path="/forum/thread/:id" element={<ProtectedRoute><ForumThread /></ProtectedRoute>} />
                 <Route path="/events"       element={<ProtectedRoute><Events /></ProtectedRoute>} />
                 <Route path="/newspaper"    element={<ProtectedRoute><Newspaper /></ProtectedRoute>} />
                 <Route path="/calendar"     element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
+                <Route path="/referral"     element={<ProtectedRoute><Referral /></ProtectedRoute>} />
                 <Route path="/settings"     element={<ProtectedRoute><Settings /></ProtectedRoute>} />
 
                 {/* ── Onboarding ── */}

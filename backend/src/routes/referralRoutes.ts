@@ -2,9 +2,12 @@ import { Router } from "express";
 import { verifyFirebaseToken } from "../middleware/firebaseAuth";
 import { referralLimiter } from "../middleware/rateLimiter";
 import { noCache } from "../middleware/cacheHeaders";
+import { validate } from "../middleware/validate";
+import { idempotencyCheck } from "../middleware/idempotency";
 import { asyncHandler } from "../utils/asyncHandler";
 import { pool } from "../config/database";
 import { NotFoundError } from "../utils/errors";
+import { referralApplySchema } from "../utils/schemas";
 import { generateReferralCode, applyReferralCode, getReferralStats } from "../services/referralService";
 
 const router = Router();
@@ -20,7 +23,7 @@ router.get("/my-code", verifyFirebaseToken, referralLimiter, asyncHandler(async 
   res.json({ referralCode: code });
 }));
 
-router.post("/apply", verifyFirebaseToken, referralLimiter, asyncHandler(async (req, res) => {
+router.post("/apply", verifyFirebaseToken, referralLimiter, validate(referralApplySchema), idempotencyCheck, asyncHandler(async (req, res) => {
   const uid = req.firebaseUser!.uid;
   const { code } = req.body as { code: string };
   const userR = await pool.query<{ id: number }>(

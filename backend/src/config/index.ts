@@ -147,6 +147,12 @@ function buildConfig() {
       ? optional("DATABASE_URL", "postgres://localhost:5432/undercity_test")
       : required("DATABASE_URL"),
 
+    databasePool: {
+      max:       optionalInt("DATABASE_POOL_MAX",      isTest ? 5 : 75, 1, 500),
+      min:       optionalInt("DATABASE_POOL_MIN",      isTest ? 1 : 5,  0, 500),
+      acquireMs: optionalInt("DATABASE_POOL_ACQUIRE_MS", 10_000, 1_000, 60_000),
+    },
+
     redis: {
       host:     optional("REDIS_HOST", "127.0.0.1"),
       port:     optionalInt("REDIS_PORT", 6379, 1, 65535),
