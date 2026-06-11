@@ -1,29 +1,13 @@
 // ============================================================
 // SENTRY CONFIG — UNDERCITY
-// initSentry() must be called before any other local import
-// in server.ts. Reads process.env directly — intentional
-// exception to "use config/index.ts" rule.
+// initSentry() must be called after validateEnv() + config
+// import. Uses config.sentry values instead of process.env.
 // ============================================================
 
 import * as Sentry from "@sentry/node";
+import { config } from "./index";
 
 let _initialized = false;
-
-// ─── Safe float parser ────────────────────────────────────
-
-function parseSampleRate(raw: string | undefined, fallback: number): number {
-  if (!raw) return fallback;
-  const parsed = parseFloat(raw);
-  if (Number.isNaN(parsed) || parsed < 0 || parsed > 1) {
-    // Do not throw — Sentry config failure should not crash the server
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[Sentry] Invalid sample rate "${raw}" — using fallback ${fallback}`
-    );
-    return fallback;
-  }
-  return parsed;
-}
 
 // ─── Init ─────────────────────────────────────────────────
 
@@ -31,14 +15,13 @@ export function initSentry(): void {
   if (_initialized) return;
   _initialized = true;
 
-  const dsn         = process.env["SENTRY_DSN"]?.trim();
-  const release     = process.env["SENTRY_RELEASE"]?.trim() || "undercity-backend@dev";
-  const environment = process.env["NODE_ENV"] || "development";
-  const isProd      = environment === "production";
+  const dsn         = config.sentry.dsn;
+  const release     = config.sentry.release ?? "undercity-backend@dev";
+  const environment = config.nodeEnv || "development";
+  const isProd      = config.isProduction;
 
-  // BUG FIX: validated float with bounds
   const tracesSampleRate = isProd
-    ? parseSampleRate(process.env["SENTRY_TRACES_SAMPLE_RATE"], 0.1)
+    ? config.sentry.tracesSampleRate ?? 0.1
     : 1.0;
 
   if (!dsn) {

@@ -161,8 +161,10 @@ export const bankWithdrawSchema = z.object({
 });
 
 export const bankTransferSchema = z.object({
-  params: z.object({ targetUid: safeUid }),
-  body:   z.object({ amount: safeCoercedInt(1, 1_000_000_000) }),
+  body: z.object({
+    username: safeUsername,
+    amount:   safeCoercedInt(1, 1_000_000_000),
+  }),
 });
 
 export const inventoryActionSchema = z.object({

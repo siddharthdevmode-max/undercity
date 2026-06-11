@@ -64,27 +64,13 @@ function makeRes(): ServerResponse {
 }
 
 describe("trackRequests", () => {
-  it("calls next()", () => {
+  it("calls next() on trackRequests and attaches finish/close", () => {
     const req  = {} as IncomingMessage;
     const res  = makeRes();
     const next = vi.fn();
     trackRequests(req, res, next);
     expect(next).toHaveBeenCalledTimes(1);
-  });
-
-  it("attaches finish listener", () => {
-    const req  = {} as IncomingMessage;
-    const res  = makeRes();
-    const next = vi.fn();
-    trackRequests(req, res, next);
     expect(res.on).toHaveBeenCalledWith("finish", expect.any(Function));
-  });
-
-  it("attaches close listener", () => {
-    const req  = {} as IncomingMessage;
-    const res  = makeRes();
-    const next = vi.fn();
-    trackRequests(req, res, next);
     expect(res.on).toHaveBeenCalledWith("close", expect.any(Function));
   });
 
@@ -139,5 +125,19 @@ describe("setupGracefulShutdown", () => {
 
     expect(process.listeners("SIGTERM").length).toBe(beforeTerm + 1);
     expect(process.listeners("SIGINT").length).toBe(beforeInt + 1);
+  });
+
+  it("registers unhandledRejection handler", () => {
+    const onSpy = vi.spyOn(process, "on");
+    const server = new Server();
+    setupGracefulShutdown(server);
+    expect(onSpy).toHaveBeenCalledWith("unhandledRejection", expect.any(Function));
+  });
+
+  it("registers uncaughtException handler", () => {
+    const onSpy = vi.spyOn(process, "on");
+    const server = new Server();
+    setupGracefulShutdown(server);
+    expect(onSpy).toHaveBeenCalledWith("uncaughtException", expect.any(Function));
   });
 });

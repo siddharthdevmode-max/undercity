@@ -11,12 +11,8 @@ import DailyRotateFile from "winston-daily-rotate-file";
 import { config } from "../config";
 
 // ─── Log Directory ────────────────────────────────────────
-// BUG FIX: wrapped in try/catch — mkdirSync at import time
-// in a non-root Docker container can crash before any logging
-// BUG FIX: supports LOG_DIR env var override
 
-const LOG_DIR = process.env["LOG_DIR"]?.trim()
-  || path.resolve(process.cwd(), "logs");
+const LOG_DIR = path.resolve(process.cwd(), config.logDir || "logs");
 
 if (config.isProduction) {
   try {

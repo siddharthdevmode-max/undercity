@@ -14,6 +14,7 @@
 // ============================================================
 
 import type { UserTier } from "./tiers";
+import { config } from "./index";
 
 // ─── Variant ID validation ────────────────────────────────
 
@@ -143,13 +144,13 @@ export function getPaymentConfigErrors(): string[] {
   const errors: string[] = [];
   const map = getVariantMap();
 
-  if (!process.env["LEMONSQUEEZY_API_KEY"]?.trim()) {
+  if (!config.lemonSqueezy.apiKey?.trim()) {
     errors.push("LEMONSQUEEZY_API_KEY not set");
   }
-  if (!process.env["LEMONSQUEEZY_WEBHOOK_SECRET"]?.trim()) {
+  if (!config.lemonSqueezy.webhookSecret?.trim()) {
     errors.push("LEMONSQUEEZY_WEBHOOK_SECRET not set");
   }
-  if (!process.env["LEMONSQUEEZY_STORE_ID"]?.trim()) {
+  if (!config.lemonSqueezy.storeId?.trim()) {
     errors.push("LEMONSQUEEZY_STORE_ID not set");
   }
   if (!Object.values(map).includes("citizen")) {

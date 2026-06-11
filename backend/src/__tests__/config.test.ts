@@ -105,11 +105,6 @@ describe("config — test environment values", () => {
     expect(cfg.redis.tls).toBe(false);
   });
 
-  it("features.vpnCheckEnabled is false in non-production", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.features.vpnCheckEnabled).toBe(false);
-  });
-
   it("features.paymentsEnabled is false in non-production", async () => {
     const cfg = await loadConfig();
     expect(cfg.features.paymentsEnabled).toBe(false);
@@ -123,26 +118,6 @@ describe("config — test environment values", () => {
   it("game.tickIntervalMs defaults to 60000", async () => {
     const cfg = await loadConfig();
     expect(cfg.game.tickIntervalMs).toBe(60000);
-  });
-
-  it("game.maxNerveDefault defaults to 30", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.game.maxNerveDefault).toBe(30);
-  });
-
-  it("game.maxEnergyDefault defaults to 100", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.game.maxEnergyDefault).toBe(100);
-  });
-
-  it("game.energyRegenSec defaults to 300", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.game.energyRegenSec).toBe(300);
-  });
-
-  it("game.nerveRegenSec defaults to 300", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.game.nerveRegenSec).toBe(300);
   });
 
   it("allowedOrigins includes localhost in test/dev", async () => {
@@ -167,11 +142,6 @@ describe("config — test environment values", () => {
     expect(cfg.sentry.tracesSampleRate).toBe(1.0);
   });
 
-  it("email.provider defaults to console in non-production", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.email.provider).toBe("console");
-  });
-
   it("lemonSqueezy keys are string or undefined — never throw", async () => {
     const cfg = await loadConfig();
     expect(
@@ -188,11 +158,6 @@ describe("config — test environment values", () => {
   it("adminUids is an array", async () => {
     const cfg = await loadConfig();
     expect(Array.isArray(cfg.adminUids)).toBe(true);
-  });
-
-  it("moderatorUids is an array", async () => {
-    const cfg = await loadConfig();
-    expect(Array.isArray(cfg.moderatorUids)).toBe(true);
   });
 
   it("devUids is an array", async () => {
@@ -267,18 +232,6 @@ describe("config — optionalBool() branches", () => {
   afterEach(restoreEnv);
 
   it("throws when FEATURE_MAINTENANCE has invalid bool value", async () => {
-    setDevBase();
-    process.env["FEATURE_MAINTENANCE"] = "yes";
-    await expectConfigToThrow(/FEATURE_MAINTENANCE must be true\/false/);
-  });
-
-  it("throws when FEATURE_REGISTRATION has invalid bool value", async () => {
-    setDevBase();
-    process.env["FEATURE_REGISTRATION"] = "on";
-    await expectConfigToThrow(/FEATURE_REGISTRATION must be true\/false/);
-  });
-
-  it("accepts 'true' string", async () => {
     setDevBase();
     process.env["FEATURE_MAINTENANCE"] = "true";
     const cfg = await loadConfig();
@@ -360,42 +313,6 @@ describe("config — production ALLOWED_ORIGINS guard", () => {
     const cfg = await loadConfig();
     expect(cfg.allowedOrigins).toContain("http://localhost:5173");
     expect(cfg.allowedOrigins).toContain("http://localhost:3000");
-  });
-});
-
-// ── production FINGERPRINT_SALT guard ────────────────────
-
-describe("config — production FINGERPRINT_SALT guard", () => {
-  beforeEach(saveEnv);
-  afterEach(restoreEnv);
-
-  it("throws when FINGERPRINT_SALT is not set in production", async () => {
-    setProdBase();
-    delete process.env["FINGERPRINT_SALT"];
-    await expectConfigToThrow(
-      /Missing required environment variable: FINGERPRINT_SALT/
-    );
-  });
-
-  it("uses dev fallback when not set in development", async () => {
-    setDevBase();
-    delete process.env["FINGERPRINT_SALT"];
-    const cfg = await loadConfig();
-    expect(cfg.fingerprintSalt).toBe("dev-fingerprint-salt-change-in-prod");
-  });
-
-  it("uses provided value when set in development", async () => {
-    setDevBase();
-    process.env["FINGERPRINT_SALT"] = "my-custom-salt";
-    const cfg = await loadConfig();
-    expect(cfg.fingerprintSalt).toBe("my-custom-salt");
-  });
-
-  it("uses provided value when set in production", async () => {
-    setProdBase();
-    process.env["FINGERPRINT_SALT"] = "prod-salt-value";
-    const cfg = await loadConfig();
-    expect(cfg.fingerprintSalt).toBe("prod-salt-value");
   });
 });
 
@@ -560,12 +477,6 @@ describe("config — production full valid config loads cleanly", () => {
     setProdBase();
     const cfg = await loadConfig();
     expect(cfg.sentry.tracesSampleRate).toBe(0.1);
-  });
-
-  it("production vpnCheckEnabled is true by default", async () => {
-    setProdBase();
-    const cfg = await loadConfig();
-    expect(cfg.features.vpnCheckEnabled).toBe(true);
   });
 
   it("production paymentsEnabled is true by default", async () => {

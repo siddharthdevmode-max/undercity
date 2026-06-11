@@ -2,10 +2,12 @@ import { Router } from "express";
 import { verifyFirebaseToken as authMiddleware } from "../middleware/firebaseAuth";
 import { bankLimiter } from "../middleware/rateLimiter";
 import { noCache } from "../middleware/cacheHeaders";
+import { validate } from "../middleware/validate";
 import { asyncHandler } from "../utils/asyncHandler";
 import { pool } from "../config/database";
 import { getPagination, buildPaginatedResponse } from "../utils/pagination";
 import { NotFoundError } from "../utils/errors";
+import { bankDepositSchema, bankWithdrawSchema, bankTransferSchema } from "../utils/schemas";
 import { getBalance, getTransactionHistory, depositCash, withdrawCash, transferCash } from "../services/bankService";
 
 const router = Router();
@@ -21,7 +23,7 @@ router.get("/balance", authMiddleware, bankLimiter, asyncHandler(async (req, res
   res.json(balance);
 }));
 
-router.post("/deposit", authMiddleware, bankLimiter, asyncHandler(async (req, res) => {
+router.post("/deposit", authMiddleware, bankLimiter, validate(bankDepositSchema), asyncHandler(async (req, res) => {
   const uid = req.firebaseUser!.uid;
   const { amount } = req.body as { amount: number };
   const userR = await pool.query<{ id: number }>(
@@ -32,7 +34,7 @@ router.post("/deposit", authMiddleware, bankLimiter, asyncHandler(async (req, re
   res.json({ message: "Deposit successful", user: result });
 }));
 
-router.post("/withdraw", authMiddleware, bankLimiter, asyncHandler(async (req, res) => {
+router.post("/withdraw", authMiddleware, bankLimiter, validate(bankWithdrawSchema), asyncHandler(async (req, res) => {
   const uid = req.firebaseUser!.uid;
   const { amount } = req.body as { amount: number };
   const userR = await pool.query<{ id: number }>(
@@ -43,7 +45,7 @@ router.post("/withdraw", authMiddleware, bankLimiter, asyncHandler(async (req, r
   res.json({ message: "Withdrawal successful", user: result });
 }));
 
-router.post("/transfer", authMiddleware, bankLimiter, asyncHandler(async (req, res) => {
+router.post("/transfer", authMiddleware, bankLimiter, validate(bankTransferSchema), asyncHandler(async (req, res) => {
   const uid = req.firebaseUser!.uid;
   const { username, amount } = req.body as { username: string; amount: number };
   const userR = await pool.query<{ id: number }>(

@@ -10,7 +10,7 @@ import type { ExtendedError } from "socket.io/dist/namespace";
 import { logger }              from "../utils/logger";
 import { config }              from "./index";
 import { verifyFirebaseToken } from "./firebase";
-import { AppError }            from "../utils/errors";
+import { SocketNotInitializedError } from "../utils/errors";
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -232,11 +232,7 @@ export async function closeSocket(): Promise<void> {
 
 export function getIO(): SocketServer {
   if (!io) {
-    throw new AppError(
-      "Socket.io not initialized",
-      500,
-      "SOCKET_NOT_INITIALIZED"
-    );
+    throw new SocketNotInitializedError();
   }
   return io;
 }

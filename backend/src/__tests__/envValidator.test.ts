@@ -4,6 +4,10 @@ vi.mock("../utils/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+vi.mock("dotenv", () => ({
+  config: vi.fn(),
+}));
+
 vi.mock("fs", () => ({
   existsSync: vi.fn().mockReturnValue(true),
 }));

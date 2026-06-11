@@ -13,6 +13,7 @@ import admin from "firebase-admin";
 import path  from "path";
 import fs    from "fs";
 import { logger } from "../utils/logger";
+import { config } from "./index";
 
 // ─── Named App Constant ───────────────────────────────────
 
@@ -90,8 +91,8 @@ function validateServiceAccount(raw: unknown): admin.ServiceAccount {
 // ─── Load Service Account ─────────────────────────────────
 
 function loadServiceAccount(): admin.ServiceAccount {
-  // 1. Environment variable (production — preferred in all environments)
-  const envJson = process.env["FIREBASE_SERVICE_ACCOUNT_JSON"]?.trim();
+  // 1. Config (from env var — preferred in all environments)
+  const envJson = config.firebaseServiceAccountJson;
   if (envJson) {
     try {
       const parsed = JSON.parse(envJson) as unknown;
@@ -116,7 +117,7 @@ function loadServiceAccount(): admin.ServiceAccount {
   for (const filePath of candidates) {
     if (fs.existsSync(filePath)) {
       // Warn in any non-test environment — file should not be used in prod
-      if (process.env["NODE_ENV"] === "production") {
+      if (config.isProduction) {
         throw new Error(
           "firebase-service-account.json found on disk in production. " +
           "Use FIREBASE_SERVICE_ACCOUNT_JSON env var instead. " +
@@ -173,7 +174,7 @@ export async function verifyFirebaseToken(
 // ─── Initialize Firebase App ──────────────────────────────
 
 function initFirebase(): admin.app.App | null {
-  if (process.env["NODE_ENV"] === "test") {
+  if (config.isTest) {
     logger.warn("Firebase Admin skipped in test environment");
     return null;
   }

@@ -11,18 +11,9 @@ import { config }           from "./index";
 import { Alerts }           from "../utils/alerts";
 
 // ─── SSL Config ───────────────────────────────────────────
-// Reads from config (not process.env directly) so it's
-// validated at startup and visible in the config object.
-// SWAP_ON_VPS: Hetzner private network = no SSL needed
-// Managed DB (Supabase/RDS) = DATABASE_SSL=true
 
-const dbSslEnabled =
-  process.env["DATABASE_SSL"]?.trim() === "true";
-const dbSslRejectUnauthorized =
-  process.env["DATABASE_SSL_REJECT_UNAUTHORIZED"]?.trim() !== "false";
-
-const sslConfig = dbSslEnabled
-  ? { rejectUnauthorized: dbSslRejectUnauthorized }
+const sslConfig = config.databaseSsl
+  ? { rejectUnauthorized: config.databaseSslRejectUnauthorized }
   : false;
 
 // ─── Pool ─────────────────────────────────────────────────

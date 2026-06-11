@@ -16,6 +16,8 @@ import {
   CrimeCooldownError,
   MaintenanceError,
   RateLimitError,
+  DatabaseTimeoutError,
+  DatabaseInternalError,
   isAppError,
 } from "../utils/errors";
 import { logger } from "../utils/logger";
@@ -42,9 +44,9 @@ function mapDatabaseError(err: pg.DatabaseError): AppError {
     case "22001":
       return new ValidationError("Input value is too long.");
     case "57014":
-      return new AppError("Database query timed out.", 503, "DB_TIMEOUT", "ERR_10004");
+      return new DatabaseTimeoutError();
     default:
-      return new AppError("Database error.", 500, "DB_ERROR", "ERR_10005");
+      return new DatabaseInternalError();
   }
 }
 

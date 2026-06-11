@@ -396,6 +396,14 @@ export class RateLimitError extends AppError {
   }
 }
 
+// ─── Internal / System (ERR_7xxx continued) ────────────────
+
+export class SocketNotInitializedError extends AppError {
+  constructor() {
+    super("Socket.io not initialized", 500, "SOCKET_NOT_INITIALIZED", "ERR_7002");
+  }
+}
+
 // ─── Generic (ERR_10xxx) ──────────────────────────────────
 
 export class NotFoundError extends AppError {
@@ -413,5 +421,17 @@ export class ConflictError extends AppError {
 export class InternalError extends AppError {
   constructor(message = "Internal server error") {
     super(message, 500, "INTERNAL_ERROR", "ERR_10003");
+  }
+}
+
+export class DatabaseTimeoutError extends AppError {
+  constructor() {
+    super("Database query timed out.", 503, "DB_TIMEOUT", "ERR_10004");
+  }
+}
+
+export class DatabaseInternalError extends AppError {
+  constructor() {
+    super("Database error.", 500, "DB_ERROR", "ERR_10005");
   }
 }

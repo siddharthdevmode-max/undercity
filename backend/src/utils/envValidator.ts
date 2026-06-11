@@ -12,6 +12,8 @@
 
 import { z }          from "zod";
 import { existsSync } from "fs";
+import path           from "path";
+import * as dotenv    from "dotenv";
 import { logger }     from "./logger";
 
 // ─── Helpers ──────────────────────────────────────────────
@@ -160,6 +162,9 @@ const PROD_REQUIRED: Array<keyof z.infer<typeof envSchema>> = [
 // ─── Validator ────────────────────────────────────────────
 
 export function validateEnv(): void {
+  // Load .env into process.env first
+  dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+
   const isProduction = process.env["NODE_ENV"] === "production";
   const isTest       = process.env["NODE_ENV"] === "test";
 

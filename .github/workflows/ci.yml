@@ -197,6 +197,15 @@ jobs:
           flags: backend
           fail_ci_if_error: false
 
+      - name: 🧪 Run integration tests
+        working-directory: backend
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://test:test@localhost:5432/undercity_test
+          REDIS_HOST: localhost
+          REDIS_PORT: "6379"
+        run: npm run test:integration
+
       - name: 📋 Generate SBOM
         uses: anchore/sbom-action@v0
         with:

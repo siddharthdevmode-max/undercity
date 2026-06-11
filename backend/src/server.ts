@@ -4,11 +4,8 @@
 // Not imported by tests — only executed in production/dev.
 // ============================================================
 
-import * as dotenv from "dotenv";
-import path from "path";
-dotenv.config({ path: path.resolve(process.cwd(), ".env") });
-
 // ── validateEnv FIRST — before any other local import ────
+// validateEnv also loads .env into process.env via dotenv.
 // config/index.ts builds at import time and may throw.
 // validateEnv provides a cleaner error layer on top.
 // Both guard, but validateEnv gives the friendliest output.

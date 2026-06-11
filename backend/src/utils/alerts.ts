@@ -190,7 +190,7 @@ export function stopAlertQueue(): void {
 // on a void return value
 
 export async function sendAlert(payload: AlertPayload): Promise<void> {
-  const forceAlerts = process.env["FORCE_ALERTS"] === "true";
+  const forceAlerts = config.forceAlerts;
   if (!config.isProduction && !forceAlerts) return;
 
   const logFn =

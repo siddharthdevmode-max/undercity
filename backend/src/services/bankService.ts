@@ -103,12 +103,9 @@ export async function depositCash(userId: number, amount: number): Promise<BankU
 export async function withdrawCash(userId: number, amount: number): Promise<BankUser> {
   return withTransaction(async (client) => {
     const user = await getUserMoney(client, userId);
-    const cashInBank = 0;
-    const currentMoney = user.money;
     if (amount <= 0) throw new ValidationError("Withdraw amount must be positive");
-    const withdrawable = Math.max(currentMoney - cashInBank, 0);
-    if (withdrawable < amount) throw new InsufficientFundsError("bank");
-    const balanceBefore = currentMoney;
+    if (user.money < amount) throw new InsufficientFundsError("bank");
+    const balanceBefore = user.money;
     const result = await client.query<BankUser>(
       `UPDATE users SET money = money + $2, updated_at = NOW()
        WHERE id = $1 AND deleted_at IS NULL

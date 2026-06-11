@@ -108,11 +108,6 @@ function buildConfig() {
       ? originList
       : ["http://localhost:5173", "http://localhost:3000"];
 
-  // FINGERPRINT_SALT
-  const fingerprintSalt = isProduction
-    ? required("FINGERPRINT_SALT")
-    : optional("FINGERPRINT_SALT", "dev-fingerprint-salt-change-in-prod");
-
   // EMAIL
   const emailProvider = optional("EMAIL_PROVIDER", "console") as
     | "console"
@@ -159,9 +154,8 @@ function buildConfig() {
       tls:      optionalBool("REDIS_TLS", false),
     },
 
-    adminUids:     optionalList("ADMIN_UIDS"),
-    devUids:       optionalList("DEV_UIDS"),
-    moderatorUids: optionalList("MODERATOR_UIDS"),
+    adminUids: optionalList("ADMIN_UIDS"),
+    devUids:   optionalList("DEV_UIDS"),
 
     allowedOrigins,
 
@@ -171,8 +165,6 @@ function buildConfig() {
       | "info"
       | "http"
       | "debug",
-
-    firebaseServiceAccountJson: optionalSecret("FIREBASE_SERVICE_ACCOUNT_JSON"),
 
     turnstileSecretKey: isProduction
       ? required("TURNSTILE_SECRET_KEY")
@@ -198,8 +190,6 @@ function buildConfig() {
     blockedCountries: optionalList("BLOCKED_COUNTRIES"),
     cspReportUri:     optionalSecret("CSP_REPORT_URI"),
 
-    fingerprintSalt,
-
     rateLimit: {
       windowMs:        optionalInt("RATE_LIMIT_WINDOW_MS",      60_000,  1_000),
       maxRequests:     optionalInt("RATE_LIMIT_MAX",            100,     1),
@@ -209,26 +199,28 @@ function buildConfig() {
 
     game: {
       tickIntervalMs,
-      idempotencyTtlMs: optionalInt("IDEMPOTENCY_TTL_MS",   300_000, 1_000),
-      maxEnergyDefault: optionalInt("MAX_ENERGY_DEFAULT",   100,     1, 10_000),
-      maxNerveDefault:  optionalInt("MAX_NERVE_DEFAULT",    30,      1, 10_000),
-      energyRegenSec:   optionalInt("ENERGY_REGEN_SEC",     300,     1),
-      nerveRegenSec:    optionalInt("NERVE_REGEN_SEC",       300,     1),
+      idempotencyTtlMs: optionalInt("IDEMPOTENCY_TTL_MS", 300_000, 1_000),
     },
 
     email: {
-      from:     optional("EMAIL_FROM", "noreply@undercity.online"),
-      provider: emailProvider,
-      apiKey:   emailApiKey,
+      from:   optional("EMAIL_FROM", "noreply@undercity.online"),
+      apiKey: emailApiKey,
     },
 
     features: {
-      maintenanceMode:  optionalBool("FEATURE_MAINTENANCE",  false),
-      registrationOpen: optionalBool("FEATURE_REGISTRATION", true),
+      maintenanceMode: optionalBool("FEATURE_MAINTENANCE", false),
       paymentsEnabled,
-      vpnCheckEnabled:  optionalBool("FEATURE_VPN_CHECK",    isProduction),
-      enableApiDocs:    optionalBool("FEATURE_API_DOCS",     !isProduction),
+      enableApiDocs:   optionalBool("FEATURE_API_DOCS",   !isProduction),
     },
+
+    firebaseServiceAccountJson: optionalSecret("FIREBASE_SERVICE_ACCOUNT_JSON"),
+
+    logDir: optional("LOG_DIR", "logs"),
+
+    forceAlerts: optionalBool("FORCE_ALERTS", false),
+
+    databaseSsl:                optionalBool("DATABASE_SSL",                     false),
+    databaseSslRejectUnauthorized: optionalBool("DATABASE_SSL_REJECT_UNAUTHORIZED", true),
   };
 }
 
