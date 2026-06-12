@@ -12,42 +12,63 @@
 exports.shorthands = undefined;
 
 exports.up = (pgm) => {
-  // BUG FIX: ifNotExists on all addColumns
-  pgm.addColumns("payment_logs", {
-    event_type: {
-      type:        "varchar(50)",
-      notNull:     false,
-      default:     null,
-      ifNotExists: true,
-    },
-    tier_granted: {
-      type:        "varchar(20)",
-      notNull:     false,
-      default:     null,
-      ifNotExists: true,
-    },
-    ls_subscription_id: {
-      type:        "varchar(100)",
-      notNull:     false,
-      default:     null,
-      ifNotExists: true,
-    },
-    // BUG FIX: ls_order_id missing from original migration 019
-    // Needed for one-time purchase correlation in LS dashboard
-    ls_order_id: {
-      type:        "varchar(100)",
-      notNull:     false,
-      default:     null,
-      ifNotExists: true,
-    },
-    // BUG FIX: firebase_uid for post-deletion payment history
-    firebase_uid: {
-      type:        "varchar(128)",
-      notNull:     false,
-      default:     null,
-      ifNotExists: true,
-    },
-  });
+  // Use raw SQL with existence checks — node-pg-migrate's ifNotExists
+  // on addColumns individual columns does NOT generate IF NOT EXISTS SQL.
+  pgm.sql(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'payment_logs' AND column_name = 'event_type'
+      ) THEN
+        ALTER TABLE payment_logs
+          ADD event_type varchar(50) DEFAULT NULL;
+      END IF;
+    END $$;
+  `);
+  pgm.sql(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'payment_logs' AND column_name = 'tier_granted'
+      ) THEN
+        ALTER TABLE payment_logs
+          ADD tier_granted varchar(20) DEFAULT NULL;
+      END IF;
+    END $$;
+  `);
+  pgm.sql(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'payment_logs' AND column_name = 'ls_subscription_id'
+      ) THEN
+        ALTER TABLE payment_logs
+          ADD ls_subscription_id varchar(100) DEFAULT NULL;
+      END IF;
+    END $$;
+  `);
+  pgm.sql(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'payment_logs' AND column_name = 'ls_order_id'
+      ) THEN
+        ALTER TABLE payment_logs
+          ADD ls_order_id varchar(100) DEFAULT NULL;
+      END IF;
+    END $$;
+  `);
+  pgm.sql(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'payment_logs' AND column_name = 'firebase_uid'
+      ) THEN
+        ALTER TABLE payment_logs
+          ADD firebase_uid varchar(128) DEFAULT NULL;
+      END IF;
+    END $$;
+  `);
 
   // CHECK constraint: valid tier values
   pgm.sql(`

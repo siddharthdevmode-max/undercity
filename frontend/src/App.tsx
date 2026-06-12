@@ -53,7 +53,15 @@ const Profile         = lazy(() => import('./pages/Profile'));
 const Leaderboard     = lazy(() => import('./pages/Leaderboard'));
 const Attack          = lazy(() => import('./pages/Attack'));
 const Referral        = lazy(() => import('./pages/Referral'));
+const StockMarket     = lazy(() => import('./pages/StockMarket'));
+const Church          = lazy(() => import('./pages/Church'));
+const PublicRecords   = lazy(() => import('./pages/PublicRecords'));
+const About           = lazy(() => import('./pages/About'));
+const Contributor     = lazy(() => import('./pages/Contributor'));
+const BlackCard       = lazy(() => import('./pages/BlackCard'));
 const ForumThread     = lazy(() => import('./pages/ForumThread'));
+const Messages        = lazy(() => import('./pages/Messages'));
+const Upgrade         = lazy(() => import('./pages/Upgrade'));
 const NotFound        = lazy(() => import('./pages/NotFound'));
 
 // Dev only
@@ -97,6 +105,9 @@ function App() {
                 <Route path="/login"       element={<Login />} />
                 <Route path="/register"    element={<Register />} />
                 <Route path="/legal/:page" element={<Legal />} />
+                <Route path="/about"       element={<About />} />
+                <Route path="/contributor"  element={<Contributor />} />
+                <Route path="/black-card"   element={<BlackCard />} />
 
                 {/* ── Game (protected) ── */}
                 <Route path="/home"         element={<ProtectedRoute><Home /></ProtectedRoute>} />
@@ -126,8 +137,13 @@ function App() {
                 <Route path="/events"       element={<ProtectedRoute><Events /></ProtectedRoute>} />
                 <Route path="/newspaper"    element={<ProtectedRoute><Newspaper /></ProtectedRoute>} />
                 <Route path="/calendar"     element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
-                <Route path="/referral"     element={<ProtectedRoute><Referral /></ProtectedRoute>} />
+                <Route path="/messages"      element={<ProtectedRoute><Messages /></ProtectedRoute>} />
+                <Route path="/referral"      element={<ProtectedRoute><Referral /></ProtectedRoute>} />
+                <Route path="/stock-market" element={<ProtectedRoute><StockMarket /></ProtectedRoute>} />
+                <Route path="/church"       element={<ProtectedRoute><Church /></ProtectedRoute>} />
+                <Route path="/public-records" element={<ProtectedRoute><PublicRecords /></ProtectedRoute>} />
                 <Route path="/settings"     element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="/upgrade"      element={<ProtectedRoute><Upgrade /></ProtectedRoute>} />
 
                 {/* ── Onboarding ── */}
                 <Route path="/onboarding" element={

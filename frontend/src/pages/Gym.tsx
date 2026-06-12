@@ -3,7 +3,7 @@ import Shell from "../components/Shell";
 import Icon from "../components/ui/Icon";
 import { Skeleton } from "../components/ui/Skeleton";
 import { gymAPI } from "../services/gym";
-import type { GymStats } from "../services/gym";
+import type { GymStats, BattleStats } from "../services/gym";
 import { toast } from "../utils/toast";
 import { userEvents } from "../utils/userEvents";
 import "../styles/Gym.css";
@@ -17,15 +17,20 @@ const STATS = [
 
 export default function Gym() {
   const [stats, setStats] = useState<GymStats | null>(null);
+  const [battleStats, setBattleStats] = useState<BattleStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [training, setTraining] = useState<string | null>(null);
+  const [allocating, setAllocating] = useState<string | null>(null);
 
   const loadRef = useRef<() => void>(() => {});
   const load = useCallback(() => {
     setError(null); setLoading(true);
-    gymAPI.getStats()
-      .then(setStats)
+    Promise.all([
+      gymAPI.getStats(),
+      gymAPI.getBattleStats(),
+    ])
+      .then(([s, bs]) => { setStats(s); setBattleStats(bs); })
       .catch((err: unknown) => { const m = err instanceof Error ? err.message : "Failed to load gym"; setError(m); toast.error(m); })
       .finally(() => setLoading(false));
   }, []);
@@ -43,6 +48,18 @@ export default function Gym() {
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Training failed");
     } finally { setTraining(null); }
+  };
+
+  const handleAllocate = async (stat: string) => {
+    if (allocating) return;
+    setAllocating(stat);
+    try {
+      const res = await gymAPI.allocateStat(stat, 1);
+      setBattleStats(res.stats);
+      toast.success(`${stat.charAt(0).toUpperCase() + stat.slice(1)} +1`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Allocation failed");
+    } finally { setAllocating(null); }
   };
 
   if (loading) return <Shell><div className="gym-container"><div className="gym-header"><h1 className="gym-title"><Icon name="gym" size={28} className="icon-accent" /> Gym</h1></div><Skeleton width={200} height={4} /></div></Shell>;
@@ -85,6 +102,38 @@ export default function Gym() {
             );
           })}
         </div>
+
+        {/* Stat Point Allocation */}
+        {battleStats && battleStats.unspent_stat_points > 0 && (
+          <div className="gym-allocate-section">
+            <div className="gym-allocate-header">
+              <Icon name="upgrade" size={18} className="icon-accent" />
+              <span>Stat Points Available: <strong>{battleStats.unspent_stat_points}</strong></span>
+            </div>
+            <p className="gym-allocate-desc">
+              You earned stat points from leveling up. Allocate them to boost your battle stats instantly.
+            </p>
+            <div className="gym-allocate-grid">
+              {STATS.map((s) => {
+                const val = battleStats[s.key as keyof BattleStats] as number;
+                return (
+                  <div key={s.key} className="gym-allocate-card">
+                    <Icon name={s.icon} size={18} className="icon-accent" />
+                    <span className="gym-allocate-label">{s.label}</span>
+                    <span className="gym-allocate-value">{val}</span>
+                    <button
+                      className="gym-allocate-btn"
+                      disabled={!!allocating || battleStats.unspent_stat_points <= 0}
+                      onClick={() => void handleAllocate(s.key)}
+                    >
+                      {allocating === s.key ? <span className="gym-spinner" /> : "+1"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </Shell>
   );

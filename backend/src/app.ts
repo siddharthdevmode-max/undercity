@@ -67,6 +67,10 @@ import missionRoutes       from "./routes/missionRoutes";
 import gangRoutes          from "./routes/gangRoutes";
 import linkedGangsRoutes   from "./routes/linkedGangsRoutes";
 import gangWarsRoutes      from "./routes/gangWarsRoutes";
+import messageRoutes       from "./routes/messageRoutes";
+import announcementsRoutes from "./routes/announcementsRoutes";
+import gameConfigRoutes    from "./routes/gameConfigRoutes";
+import statRoutes          from "./routes/statRoutes";
 
 // ── App + HTTP server ──────────────────────────────────────
 
@@ -226,6 +230,10 @@ app.use("/api/v1/missions",    missionRoutes);
 app.use("/api/v1/gang",        gangRoutes);
 app.use("/api/v1/linked-gangs", linkedGangsRoutes);
 app.use("/api/v1/gang-wars",   gangWarsRoutes);
+app.use("/api/v1/messages",    messageRoutes);
+app.use("/api/v1/announcements", announcementsRoutes);
+app.use("/api/v1/game-config",   gameConfigRoutes);
+app.use("/api/v1/battle-stats",  statRoutes);
 
 // Honeypot — single mount with wildcard to avoid double-firing
 // Catches scanner paths like /wp-admin, /phpMyAdmin, etc.

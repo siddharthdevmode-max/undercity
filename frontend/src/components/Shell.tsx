@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 import { userEvents } from '../utils/userEvents';
 import { toast } from '../utils/toast';
 import Icon from './ui/Icon';
+import DebtBanner from './DebtBanner';
 import { useSocket, useStatsUpdate } from '../hooks/useSocket';
 
 interface Props { children: React.ReactNode; }
@@ -29,7 +30,8 @@ const NAV_SECTIONS = [
       { path: '/company',     label: 'Company',     icon: 'company'    },
       { path: '/properties',  label: 'Properties',  icon: 'properties' },
       { path: '/black-market', label: 'Black Market', icon: 'market'     },
-      { path: '/casino',      label: 'Casino',      icon: 'casino'     },
+      { path: '/casino',      label: 'Casino',      icon: 'casino'       },
+      { path: '/stock-market', label: 'Stock Market', icon: 'stocks'    },
       { path: '/travel',      label: 'Travel',      icon: 'travel'     },
     ],
   },
@@ -55,12 +57,15 @@ const NAV_SECTIONS = [
       { path: '/hospital',     label: 'Hospital',     icon: 'hospital'      },
       { path: '/jail',         label: 'Jail',         icon: 'jail'          },
       { path: '/federal-jail', label: 'Federal Jail', icon: 'federal-jail'  },
+      { path: '/church',        label: 'Church',       icon: 'church'       },
+      { path: '/public-records',label: 'Public Records',icon: 'public-records' },
     ],
   },
   {
     label: 'COMMUNITY',
     items: [
       { path: '/leaderboard', label: 'Leaderboard', icon: 'leaderboard' },
+      { path: '/messages',   label: 'Messages',   icon: 'messages'   },
       { path: '/forum',       label: 'Forum',       icon: 'forum'      },
       { path: '/newspaper',   label: 'Newspaper',   icon: 'newspaper'   },
       { path: '/referral',    label: 'Referral',    icon: 'handshake'   },
@@ -226,6 +231,8 @@ export default function Shell({ children }: Props) {
         </div>
       </header>
 
+      <DebtBanner money={stats.money} />
+
       <div className="game-content">
 
         <div
@@ -359,6 +366,38 @@ export default function Shell({ children }: Props) {
             >
               <Icon name="admin" size={15} />
               Settings
+            </Link>
+          </div>
+
+          {/* Info */}
+          <div className="sb-admin-block">
+            <Link
+              to="/about"
+              className={`nav-item ${location.pathname === '/about' ? 'active' : ''}`}
+            >
+              <Icon name="shield" size={15} />
+              About
+            </Link>
+            <Link
+              to="/contributor"
+              className={`nav-item ${location.pathname === '/contributor' ? 'active' : ''}`}
+            >
+              <Icon name="contributor" size={15} />
+              Contributor
+            </Link>
+            <Link
+              to="/black-card"
+              className={`nav-item ${location.pathname === '/black-card' ? 'active' : ''}`}
+            >
+              <Icon name="black-card" size={15} />
+              Black Card
+            </Link>
+            <Link
+              to="/upgrade"
+              className={`nav-item nav-item-highlight ${location.pathname === '/upgrade' ? 'active' : ''}`}
+            >
+              <Icon name="upgrade" size={15} />
+              Upgrade
             </Link>
           </div>
 

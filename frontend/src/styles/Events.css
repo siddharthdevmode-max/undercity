@@ -1,0 +1,22 @@
+.events-container { max-width: 720px; margin: 0 auto; padding: var(--space-lg); }
+.events-header { margin-bottom: var(--space-md); }
+.events-title { font-size: var(--text-2xl); font-weight: var(--font-bold); color: var(--text-primary); display: flex; align-items: center; gap: var(--space-sm); }
+.events-desc { font-size: var(--text-sm); color: var(--text-muted); margin-top: var(--space-xs); }
+.events-actions { margin-bottom: var(--space-lg); }
+.events-create-btn { padding: var(--space-sm) var(--space-md); background: var(--accent); color: var(--bg-primary); border: none; border-radius: var(--radius-sm); font-weight: var(--font-bold); cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-xs); }
+.events-create-form { display: flex; flex-direction: column; gap: var(--space-md); margin-bottom: var(--space-lg); padding: var(--space-lg); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.events-input, .events-textarea { padding: var(--space-sm); background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); }
+.events-textarea { resize: vertical; font-family: inherit; }
+.events-submit-btn { padding: var(--space-sm); background: var(--accent); color: var(--bg-primary); border: none; border-radius: var(--radius-sm); font-weight: var(--font-bold); cursor: pointer; }
+.events-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.events-list { display: flex; flex-direction: column; gap: var(--space-sm); }
+.events-loading { text-align: center; padding: var(--space-xl); color: var(--text-muted); }
+.events-empty { text-align: center; padding: var(--space-xl); color: var(--text-muted); display: flex; flex-direction: column; align-items: center; gap: var(--space-md); }
+.events-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-lg); }
+.events-card:hover { border-color: var(--accent); }
+.events-card-header { display: flex; justify-content: space-between; align-items: flex-start; }
+.events-card-title { font-size: var(--text-sm); font-weight: var(--font-bold); color: var(--text-primary); margin: 0; }
+.events-card-desc { font-size: var(--text-xs); color: var(--text-muted); margin: var(--space-xs) 0; }
+.events-card-date { font-size: var(--text-xs); color: var(--accent); }
+.events-delete-btn { background: none; border: none; cursor: pointer; padding: var(--space-xs); opacity: 0; }
+.events-card:hover .events-delete-btn { opacity: 1; }

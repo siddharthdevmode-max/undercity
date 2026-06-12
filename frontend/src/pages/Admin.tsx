@@ -10,9 +10,11 @@ import type {
   FullUserProfile,
 } from "../services/admin";
 import { adminAPI } from "../services/admin";
+import { announcementsAPI, type Announcement } from "../services/announcements";
+import { gameConfigAPI, type GameConfigEntry } from "../services/gameConfig";
 import "../styles/Admin.css";
 
-type TabType = "cheaters" | "multi" | "earnings";
+type TabType = "cheaters" | "multi" | "earnings" | "announcements" | "config";
 
 function getTrustBadgeClass(score: number, isShadow: boolean, isHard: boolean): string {
   if (isHard) return "banned";
@@ -46,6 +48,8 @@ export default function Admin() {
   const [cheaters, setCheaters] = useState<CheaterUser[]>([]);
   const [multiGroups, setMultiGroups] = useState<MultiAccountGroup[]>([]);
   const [earnings, setEarnings] = useState<EarningsAnomaly[]>([]);
+  const [announcementList, setAnnouncementList] = useState<Announcement[]>([]);
+  const [configEntries, setConfigEntries] = useState<GameConfigEntry[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>("cheaters");
@@ -59,16 +63,20 @@ export default function Admin() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [statsData, cheatersData, multiData, earningsData] = await Promise.all([
+      const [statsData, cheatersData, multiData, earningsData, annData, configData] = await Promise.all([
         adminAPI.getStats(),
         adminAPI.getCheaters(),
         adminAPI.getMultiAccounts(),
         adminAPI.getEarningsAnomalies(),
+        announcementsAPI.getAll(),
+        gameConfigAPI.getAll(),
       ]);
       setStats(statsData);
       setCheaters(cheatersData.users);
       setMultiGroups(multiData.groups);
       setEarnings(earningsData.anomalies);
+      setAnnouncementList(annData.announcements);
+      setConfigEntries(configData.config);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load admin data");
     } finally {
@@ -238,6 +246,18 @@ export default function Admin() {
             onClick={() => setActiveTab("earnings")}
           >
             💰 Earnings Anomalies ({earnings.length})
+          </button>
+          <button
+            className={`admin-tab ${activeTab === "announcements" ? "active" : ""}`}
+            onClick={() => setActiveTab("announcements")}
+          >
+            📢 Announcements ({announcementList.length})
+          </button>
+          <button
+            className={`admin-tab ${activeTab === "config" ? "active" : ""}`}
+            onClick={() => setActiveTab("config")}
+          >
+            ⚙️ Game Config ({configEntries.length})
           </button>
         </div>
 
@@ -409,6 +429,132 @@ export default function Admin() {
                           ` ($${e.details.current_hour_earnings.toLocaleString()}/hr)`}
                       </td>
                       <td style={{ fontSize: "0.75rem" }}>{formatDate(e.created_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {activeTab === "announcements" && (
+          <div className="admin-table-wrapper">
+            <div style={{ marginBottom: "1rem", display: "flex", gap: "0.5rem" }}>
+              <button className="admin-btn admin-btn-primary" onClick={async () => {
+                const title = prompt("Announcement title:");
+                if (!title) return;
+                const body = prompt("Announcement body:");
+                if (!body) return;
+                const priority = prompt("Priority (low/normal/high/critical):", "normal");
+                if (priority && !["low","normal","high","critical"].includes(priority)) return;
+                try {
+                  await announcementsAPI.create({ title, body, priority: priority || "normal" });
+                  toast.success("Announcement created");
+                  const data = await announcementsAPI.getAll();
+                  setAnnouncementList(data.announcements);
+                } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
+              }}>
+                + New Announcement
+              </button>
+            </div>
+            {announcementList.length === 0 ? (
+              <div className="admin-empty">
+                <div className="admin-empty-icon">📢</div>
+                <p>No announcements yet</p>
+              </div>
+            ) : (
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {announcementList.map((a) => (
+                    <tr key={a.id}>
+                      <td style={{ fontWeight: 600 }}>{a.title}</td>
+                      <td><span className={`trust-badge ${a.priority === "critical" ? "banned" : a.priority === "high" ? "suspicious" : ""}`}>{a.priority}</span></td>
+                      <td>{a.active ? "✅ Active" : "⛔ Hidden"}</td>
+                      <td style={{ fontSize: "0.75rem" }}>{formatDate(a.created_at)}</td>
+                      <td>
+                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                          <button className="admin-btn admin-btn-primary" onClick={async () => {
+                            try {
+                              await announcementsAPI.update(a.id, { active: !a.active });
+                              toast.success(a.active ? "Hidden" : "Activated");
+                              const data = await announcementsAPI.getAll();
+                              setAnnouncementList(data.announcements);
+                            } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
+                          }}>
+                            {a.active ? "Hide" : "Show"}
+                          </button>
+                          <button className="admin-btn admin-btn-danger" onClick={async () => {
+                            if (!confirm(`Delete "${a.title}"?`)) return;
+                            try {
+                              await announcementsAPI.delete(a.id);
+                              toast.success("Deleted");
+                              const data = await announcementsAPI.getAll();
+                              setAnnouncementList(data.announcements);
+                            } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
+                          }}>
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {activeTab === "config" && (
+          <div className="admin-table-wrapper">
+            {configEntries.length === 0 ? (
+              <div className="admin-empty">
+                <div className="admin-empty-icon">⚙️</div>
+                <p>No config entries</p>
+              </div>
+            ) : (
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Key</th>
+                    <th>Value</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {configEntries.map((entry) => (
+                    <tr key={entry.key}>
+                      <td style={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{entry.key}</td>
+                      <td style={{ fontFamily: "monospace", fontSize: "0.8rem", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>{entry.value}</td>
+                      <td><span className="trust-badge clean">{entry.type}</span></td>
+                      <td style={{ fontSize: "0.8rem", color: "var(--color-muted)" }}>{entry.description}</td>
+                      <td>
+                        <button className="admin-btn admin-btn-primary" onClick={async () => {
+                          const raw = prompt(`New value for "${entry.key}":`, entry.value);
+                          if (raw === null) return;
+                          let parsed: unknown = raw;
+                          if (entry.type === "number") parsed = parseFloat(raw);
+                          else if (entry.type === "boolean") parsed = raw === "true";
+                          try {
+                            await gameConfigAPI.update(entry.key, parsed);
+                            toast.success("Config updated");
+                            const data = await gameConfigAPI.getAll();
+                            setConfigEntries(data.config);
+                          } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
+                        }}>
+                          Edit
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

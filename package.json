@@ -13,15 +13,15 @@
   },
   "homepage": "https://undercity.online",
   "scripts": {
-    "prepare":          "husky",
-    "test":             "npm --prefix backend run test && npm --prefix frontend run test && npm --prefix backend run test:integration",
-    "test:backend":     "npm --prefix backend run test",
-    "test:frontend":    "npm --prefix frontend run test",
+    "prepare": "husky",
+    "test": "npm --prefix backend run test && npm --prefix frontend run test && npm --prefix backend run test:integration",
+    "test:backend": "npm --prefix backend run test",
+    "test:frontend": "npm --prefix frontend run test",
     "test:integration": "npm --prefix backend run test:integration",
-    "test:coverage":    "npm --prefix backend run test:coverage && npm --prefix frontend run test:coverage",
-    "build":            "npm --prefix backend run build && npm --prefix frontend run build",
-    "lint":             "npm --prefix backend run lint && npm --prefix frontend run lint",
-    "lint:fix":         "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix"
+    "test:coverage": "npm --prefix backend run test:coverage && npm --prefix frontend run test:coverage",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
+    "lint:fix": "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix"
   },
   "lint-staged": {
     "backend/**/*.{ts,tsx}": [
@@ -37,11 +37,14 @@
     ]
   },
   "devDependencies": {
-    "@commitlint/cli":               "^21.0.2",
+    "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",
-    "@types/on-finished":            "^2.3.5",
-    "husky":                         "^9.1.7",
-    "lint-staged":                   "^17.0.7",
-    "prettier":                      "^3.8.3"
+    "@types/on-finished": "^2.3.5",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.7",
+    "prettier": "^3.8.3"
+  },
+  "dependencies": {
+    "freebuff": "^0.0.106"
   }
 }

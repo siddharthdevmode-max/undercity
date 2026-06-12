@@ -1,0 +1,233 @@
+.pr-container {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.pr-header {
+  margin-bottom: 1.5rem;
+}
+
+.pr-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.pr-desc {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+.pr-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.5rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.25rem;
+  overflow-x: auto;
+}
+
+.pr-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.pr-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+.pr-tab.active {
+  background: var(--bg-primary);
+  color: var(--accent);
+}
+
+.pr-content {
+  min-height: 300px;
+}
+
+.pr-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.5rem;
+}
+
+.pr-section-desc {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0 0 1.25rem;
+}
+
+.pr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 0.75rem;
+}
+
+.pr-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 1.25rem 1rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  text-align: center;
+  transition: border-color var(--transition-fast);
+}
+
+.pr-card:hover {
+  border-color: var(--accent);
+}
+
+.pr-card-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.pr-card-value {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  font-family: monospace;
+}
+
+/* ── Hall of Fame ── */
+
+.pr-hof-list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.pr-hof-header {
+  display: grid;
+  grid-template-columns: 60px 1fr 80px 100px;
+  padding: 0.75rem 1rem;
+  background: var(--bg-elevated);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pr-hof-row {
+  display: grid;
+  grid-template-columns: 60px 1fr 80px 100px;
+  padding: 0.75rem 1rem;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  transition: background var(--transition-fast);
+}
+
+.pr-hof-row:last-child { border-bottom: none; }
+.pr-hof-row:hover { background: var(--bg-elevated); }
+
+.pr-hof-rank {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.pr-hof-name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.pr-hof-level {
+  color: var(--text-secondary);
+}
+
+.pr-hof-respect {
+  color: var(--color-success);
+  font-weight: 600;
+  font-family: monospace;
+}
+
+/* ── Search ── */
+
+.pr-search-row {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.pr-search-input {
+  flex: 1;
+  padding: 10px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.pr-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.pr-search-btn {
+  padding: 10px 20px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.pr-search-btn:hover { background: var(--accent-hover); }
+.pr-search-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.pr-search-empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-muted);
+}
+
+.pr-search-empty p {
+  margin-top: 1rem;
+  font-size: 14px;
+}
+
+@media (max-width: 600px) {
+  .pr-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .pr-hof-header,
+  .pr-hof-row {
+    grid-template-columns: 40px 1fr 60px 80px;
+  }
+}

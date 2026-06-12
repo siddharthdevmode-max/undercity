@@ -72,30 +72,8 @@ exports.up = (pgm) => {
     ifNotExists: true,
   });
 
-  // ── 2. Idempotency — missing columns on existing deployments ──
-  // Fresh deployments: migration 005 already has these — ifNotExists = no-op
-  // Existing deployments with old migration 005: these are added here
-
-  pgm.addColumns("idempotency_keys", {
-    firebase_uid: {
-      type:        "varchar(128)",
-      notNull:     false,
-      ifNotExists: true,
-    },
-    response_status: {
-      type:        "integer",
-      notNull:     false,
-      default:     200,
-      ifNotExists: true,
-    },
-  });
-
-  // Idempotency user_id: make nullable for pre-auth requests
-  // On existing deployments with old NOT NULL constraint
-  pgm.alterColumn("idempotency_keys", "user_id", {
-    type:    "integer",
-    notNull: false,
-  });
+  // ── 2. Idempotency — those columns are now in migration 003 ──
+  //   (kept as placeholder — user_id NOT NULL was also fixed in 003)
 
   // ── 3. payment_logs rename for existing deployments ────
   // Fresh deployments have payment_session_id from migration 012.
@@ -129,7 +107,27 @@ exports.down = (pgm) => {
     END $$;
   `);
 
-  pgm.dropColumns("idempotency_keys", ["firebase_uid", "response_status"]);
+  pgm.sql(`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'idempotency_keys' AND column_name = 'firebase_uid'
+      ) THEN
+        ALTER TABLE idempotency_keys DROP COLUMN firebase_uid;
+      END IF;
+    END $$;
+  `);
+
+  pgm.sql(`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'idempotency_keys' AND column_name = 'response_status'
+      ) THEN
+        ALTER TABLE idempotency_keys DROP COLUMN response_status;
+      END IF;
+    END $$;
+  `);
 
   pgm.alterColumn("idempotency_keys", "user_id", {
     type:    "integer",

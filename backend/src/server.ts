@@ -4,11 +4,14 @@
 // Not imported by tests — only executed in production/dev.
 // ============================================================
 
-// ── validateEnv FIRST — before any other local import ────
-// validateEnv also loads .env into process.env via dotenv.
-// config/index.ts builds at import time and may throw.
-// validateEnv provides a cleaner error layer on top.
-// Both guard, but validateEnv gives the friendliest output.
+// ── Load .env FIRST — before any local import ──────────
+// All local imports (config, etc.) run at import time due to
+// ES module hoisting, so dotenv must be loaded before them.
+import * as dotenv from "dotenv";
+import * as path from "path";
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
+
+// ── validateEnv — friendlier error layer ───────────────
 import { validateEnv } from "./utils/envValidator";
 validateEnv();
 

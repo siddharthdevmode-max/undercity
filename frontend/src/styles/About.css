@@ -1,0 +1,118 @@
+.about-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+  color: var(--text-primary);
+}
+
+.about-header {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.about-back {
+  display: inline-block;
+  color: var(--text-muted);
+  font-size: 14px;
+  margin-bottom: 1rem;
+  transition: color var(--transition-fast);
+}
+
+.about-back:hover {
+  color: var(--accent);
+}
+
+.about-title {
+  font-size: 2.5rem;
+  font-weight: 900;
+  letter-spacing: 2px;
+  margin: 0 0 0.75rem;
+  color: var(--text-primary);
+}
+
+.about-subtitle {
+  font-size: 1.05rem;
+  color: var(--text-secondary);
+  max-width: 520px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.about-section {
+  margin-bottom: 3rem;
+}
+
+.about-section h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 1rem;
+}
+
+.about-section p {
+  color: var(--text-secondary);
+  line-height: 1.7;
+  font-size: 15px;
+  margin: 0;
+}
+
+.about-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.about-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.about-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.about-card h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0.75rem 0 0.5rem;
+}
+
+.about-card p {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.about-footer {
+  text-align: center;
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--border);
+}
+
+.about-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 12px 32px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.about-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}

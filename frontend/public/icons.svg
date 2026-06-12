@@ -501,4 +501,26 @@
     <path d="M5 9h0M5 12h0M5 15h0M12 9h0M12 12h0M12 15h0M19 9h0M19 12h0M19 15h0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
   </symbol>
 
+  <symbol id="icon-church" viewBox="0 0 24 24" fill="none">
+    <path d="M12 2v4M10 6h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M3 22V10l9-4 9 4v12" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M8 22V14a4 4 0 018 0v8" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M3 22h18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+  </symbol>
+
+  <symbol id="icon-public-records" viewBox="0 0 24 24" fill="none">
+    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M14 2v6h6M9 15h6M9 11h6M9 19h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+
+  <symbol id="icon-contributor" viewBox="0 0 24 24" fill="none">
+    <path d="M12 2l2.4 6.4L21 9l-5 4.4 1.8 7L12 16.5 6.2 20.4 8 13.4 3 9l6.6-.6L12 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+  </symbol>
+
+  <symbol id="icon-black-card" viewBox="0 0 24 24" fill="none">
+    <rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/>
+    <path d="M2 10h20M7 15h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M14 15l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+
 </svg>

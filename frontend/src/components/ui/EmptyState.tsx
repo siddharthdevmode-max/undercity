@@ -73,6 +73,9 @@ const CONFIGS: Record<string, { icon: string; tagline: string; eta?: string }> =
   Hospital:        { icon: 'hospital',     tagline: 'Recover from attacks, heal injuries, and get back on your feet.',          eta: 'Season 2' },
   Jail:            { icon: 'jail',          tagline: 'Do your time. Plan your escape. The cell will not hold you forever.',      eta: 'Season 2' },
   'Federal Jail':  { icon: 'federal-jail', tagline: 'Maximum security. Federal charges. This is serious time.',                 eta: 'Season 2' },
+  'Stock Market':  { icon: 'stocks',       tagline: 'Trade shares, track portfolios, and manipulate the market.',               eta: 'Season 3' },
+  Church:          { icon: 'church',       tagline: 'Seek forgiveness, donate for blessings, and restore your happiness.',      eta: 'Season 3' },
+  'Public Records':{ icon: 'public-records', tagline: 'Background checks, arrest records, and city statistics.',                eta: 'Season 3' },
 };
 
 export function ComingSoon({ feature }: { feature: string }) {

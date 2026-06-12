@@ -99,7 +99,7 @@ async function getChallengeToken(firebaseToken: string): Promise<string> {
     return cachedToken.token;
   }
 
-  const response = await fetch(`${API_BASE_URL}/v1/challenge`, {
+  const response = await fetch(`${API_BASE_URL}/challenge`, {
     headers: { Authorization: `Bearer ${firebaseToken}` },
   });
 
@@ -157,7 +157,7 @@ export async function apiCall<T = unknown>(
     headers["x-idempotency-key"] = crypto.randomUUID();
   }
 
-  const response = await fetch(`${API_BASE_URL}/v1${endpoint}`, {
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers,
   });

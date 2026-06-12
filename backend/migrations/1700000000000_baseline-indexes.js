@@ -22,12 +22,7 @@ exports.up = (pgm) => {
     ifNotExists: true,
     where: "jail_until IS NOT NULL",
   });
-  // Hospital release queries
-  pgm.createIndex("users", "hospital_until", {
-    name: "idx_users_hospital_until",
-    ifNotExists: true,
-    where: "hospital_until IS NOT NULL",
-  });
+  // Hospital release queries — column added in migration 015, index created there
   // Soft delete queries
   pgm.createIndex("users", "deleted_at", {
     name: "idx_users_deleted_at",

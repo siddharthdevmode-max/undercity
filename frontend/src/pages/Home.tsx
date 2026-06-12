@@ -1,11 +1,24 @@
+import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import Shell from '../components/Shell';
 import { Link } from 'react-router-dom';
 import Icon from '../components/ui/Icon';
+import { announcementsAPI, type Announcement } from '../services/announcements';
 import '../styles/Home.css';
 
 export default function Home() {
   const { user } = useAuth();
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await announcementsAPI.getActive();
+        setAnnouncements(data.announcements.filter((a) => a.priority === 'high' || a.priority === 'critical'));
+      } catch { /* ignore */ }
+    };
+    void load();
+  }, []);
 
   const isInJail = user?.jailUntil
     ? new Date(user.jailUntil) > new Date() : false;
@@ -32,6 +45,21 @@ export default function Home() {
 
   return (
     <Shell>
+      {/* ── Announcements ── */}
+      {announcements.length > 0 && (
+        <div className="hq-announcements">
+          {announcements.map((a) => (
+            <div key={a.id} className={`hq-announcement hq-announcement-${a.priority}`}>
+              <Icon name={a.priority === 'critical' ? 'alert' : 'info'} size={14} className="icon-accent" />
+              <div className="hq-announcement-content">
+                <strong>{a.title}</strong>
+                {a.body && <p>{a.body}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ── Welcome Hero ── */}
       <div className="hq-hero">
         <div className="hq-hero-left">

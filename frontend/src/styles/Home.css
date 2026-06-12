@@ -1016,6 +1016,19 @@
   background: rgba(241, 196, 15, 0.1) !important;
 }
 
+.nav-item-highlight {
+  color: #fbbf24 !important;
+  border-left: 3px solid transparent !important;
+}
+.nav-item-highlight:hover {
+  background: rgba(251, 191, 36, 0.08) !important;
+  color: #fbbf24 !important;
+}
+.nav-item-highlight.active {
+  border-left-color: #fbbf24 !important;
+  background: rgba(251, 191, 36, 0.12) !important;
+}
+
 /* ════════════════════════════════════════════════════════════
    NAV ITEMS — icon + text layout
    ════════════════════════════════════════════════════════════ */
@@ -1106,4 +1119,68 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+/* ── Announcements Banner ─────────────────────────────── */
+.hq-announcements {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.hq-announcement {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.hq-announcement-critical {
+  border-color: var(--color-error);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.hq-announcement-high {
+  border-color: var(--accent-primary);
+  background: rgba(139, 92, 246, 0.08);
+}
+
+.hq-announcement-content {
+  flex: 1;
+}
+
+.hq-announcement-content strong {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+
+.hq-announcement-content p {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+/* ── Debt Banner ──────────────────────────────────────── */
+.debt-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: #7f1d1d;
+  border-bottom: 1px solid var(--color-error, #ef4444);
+  color: #fca5a5;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+.debt-banner-icon {
+  flex-shrink: 0;
+}
+.debt-banner-text {
+  flex: 1;
 }

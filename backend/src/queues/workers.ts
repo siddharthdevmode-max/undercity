@@ -178,7 +178,7 @@ export const idempotencyCleanupWorker = new Worker(
     let totalDeleted = 0;
     const BATCH_SIZE = 1_000;
 
-    while (true) { // eslint-disable-line no-constant-condition
+    while (true) {  
       const result = await pool.query(
         `DELETE FROM idempotency_keys WHERE id IN (
            SELECT id FROM idempotency_keys WHERE expires_at < NOW() LIMIT $1

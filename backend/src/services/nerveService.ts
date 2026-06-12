@@ -65,7 +65,7 @@ async function regenNerveForTiers(
 
   const tierParams = tiers.map((_, i) => `$${i + 2}`).join(", ");
 
-  // eslint-disable-next-line no-constant-condition
+   
   while (true) {
     const result = await pool.query(
       `UPDATE users

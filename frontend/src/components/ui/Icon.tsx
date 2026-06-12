@@ -8,6 +8,7 @@ interface IconProps {
   name: string;
   size?: number;
   className?: string;
+  style?: React.CSSProperties;
   'aria-hidden'?: boolean;
   'aria-label'?: string;
 }
@@ -16,6 +17,7 @@ export default function Icon({
   name,
   size = 20,
   className = '',
+  style,
   'aria-hidden': ariaHidden = true,
   'aria-label': ariaLabel,
 }: IconProps) {
@@ -24,6 +26,7 @@ export default function Icon({
       width={size}
       height={size}
       className={`uc-icon ${className}`}
+      style={style}
       aria-hidden={ariaHidden || undefined}
       aria-label={ariaLabel}
       focusable="false"

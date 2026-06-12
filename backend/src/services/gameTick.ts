@@ -123,7 +123,7 @@ async function regenEnergyByTier(): Promise<{ updated: number }> {
 
   for (const group of tierGroups) {
     const tierParams = group.tiers.map((_, i) => `$${i + 2}`).join(", ");
-    // eslint-disable-next-line no-constant-condition
+     
     while (true) {
       const result = await pool.query(
         `UPDATE users
