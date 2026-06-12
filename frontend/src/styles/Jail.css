@@ -1,0 +1,40 @@
+.jail-container {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.jail-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.jail-header h1 {
+  font-size: 1.5rem;
+  margin: 1rem 0 0.5rem;
+}
+
+.jail-timer {
+  text-align: center;
+  padding: 2rem;
+  border-radius: 12px;
+  margin-bottom: 1.5rem;
+}
+
+.jail-timer .timer-value {
+  font-size: 3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.jail-timer .timer-label {
+  margin-top: 0.5rem;
+  opacity: 0.7;
+}
+
+.jail-info {
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  line-height: 1.6;
+}
